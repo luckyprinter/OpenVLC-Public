@@ -1,0 +1,25 @@
+graph TD
+    A([Start Experiment]) --> B[Configure VLC<br>Prototype]
+    B --> C[Apply Fixed<br>Parameters]
+    
+    C --> D[Adjust Independent<br>Variables]
+    
+    D --> V1((Path Length))
+    D --> V2((Ambient Lux))
+    D --> V3((LED Wattage))
+    
+    V1 --> E[Execute System<br>Transmission]
+    V2 --> E
+    V3 --> E
+    
+    E --> F[Measure Dependent<br>Variables]
+    
+    F --> M1((Strict BER))
+    F --> M2((Chunk Rate))
+    F --> M3((RX Margin))
+    
+    M1 --> G[Data Analysis<br>& Correlation]
+    M2 --> G
+    M3 --> G
+    
+    G --> H([Conclusion])

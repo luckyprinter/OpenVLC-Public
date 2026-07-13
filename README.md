@@ -23,19 +23,13 @@ The easiest way to use the OpenVLC System Suite on Linux is to download the comp
 > ```
 > (You may need to log out and log back in for this to take effect).
 
-## Running from Source
-
-If you prefer to run the application from source (e.g. on macOS or for development):
-
-1. **Install Python 3.10+**.
-2. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. **Run the launcher**:
-   ```bash
-   python run_v3.py
-   ```
+### Running from Source (Windows & Mac)
+If you are on Windows or Mac, or simply want to run the application from the raw Python source:
+1. Download the **Source code (zip)** from the [Releases](../../releases/latest) page and extract it.
+2. If you are on **Windows**:
+   - Double-click `run_windows.bat`. This will automatically install dependencies and launch the app!
+3. If you are on **Mac/Linux**:
+   - Open your terminal in the extracted folder and run `./run_linux.sh` (make it executable first with `chmod +x run_linux.sh`).
 
 ## Firmware Setup
 

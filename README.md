@@ -13,9 +13,9 @@ This application is designed to monitor, encode, and reconstruct 4B5B + NRZ/OOK 
 
 ## Download & Installation
 
-The easiest way to use the OpenVLC System Suite is to download the compiled executables from the [Releases](../../releases/latest) page.
-- **Windows**: Download `OpenVLC-Suite-Windows.exe` and run it directly.
+The easiest way to use the OpenVLC System Suite on Linux is to download the compiled executable from the [Releases](../../releases/latest) page.
 - **Linux**: Download `OpenVLC-Suite-Linux`, mark it as executable (`chmod +x OpenVLC-Suite-Linux`), and run it.
+- **Windows / Mac**: Please download the Source Code (zip) from the Releases page and follow the "Running from Source" instructions below.
 
 > **Note on Permissions (Linux)**: To access the ESP32 via serial (e.g. `/dev/ttyUSB0`), ensure your user is in the `dialout` group. You can add your user by running:
 > ```bash

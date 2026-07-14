@@ -1,0 +1,25 @@
+name: Update Release Documents
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/vlcpaper.docx'
+      - 'docs/vlcpaper.pdf'
+
+jobs:
+  update-release:
+    name: Upload to Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Update Release Assets
+        run: |
+          gh release upload latest docs/vlcpaper.docx docs/vlcpaper.pdf --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

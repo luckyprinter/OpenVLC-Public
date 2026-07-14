@@ -1,4 +1,4 @@
-# esp32-lifi-io — Firmware
+# OpenVLC — Firmware
 
 ESP32 firmware for the VLC/LiFi prototype transmitter and receiver.
 

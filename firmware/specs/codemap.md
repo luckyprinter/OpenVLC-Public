@@ -1,4 +1,4 @@
-# esp32-lifi-io/firmware/specs/
+# OpenVLC/firmware/specs/
 
 ## Responsibility
 Defines the wire-level protocol for the VLC/LiFi optical link. The single document `protocol_spec.md` describes packet framing, transmission flow, BER test payload format, and batched transfer format shared by both TX and RX firmware.

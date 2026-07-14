@@ -1,7 +1,7 @@
-# esp32-lifi-io/firmware/
+# OpenVLC/firmware/
 
 ## Responsibility
-Documentation and specification root for the esp32-lifi-io firmware. Provides a stable reference for the ESP32 TX/RX firmware used in the VLC/LiFi prototype. Does not contain source code — points to `../../vlc/firmware/` as the read-only original.
+Documentation and specification root for the OpenVLC firmware. Provides a stable reference for the ESP32 TX/RX firmware used in the VLC/LiFi prototype. Does not contain source code — points to `../../vlc/firmware/` as the read-only original.
 
 ## Design
 Two-document structure: a top-level README.md with pin maps, buffer limits, serial command references, and firmware status; and a `specs/` subdirectory containing the protocol specification. README also documents the Vref control system (PWM, ADC scaling, mode commands).

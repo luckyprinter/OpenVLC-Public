@@ -1,5 +1,8 @@
 # OpenVLC System Suite
 
+[![GitHub Release](https://img.shields.io/github/v/release/luckyprinter/OpenVLC-Public?style=flat-square&color=blue)](../../releases/latest)
+[![GitHub Downloads](https://img.shields.io/github/downloads/luckyprinter/OpenVLC-Public/total?style=flat-square&color=orange)](../../releases)
+
 An experimental Visible Light Communication (VLC) system developed in partial fulfillment of the requirements for the degree of Bachelor of Science in Electronics Engineering.
 
 This repository contains the ESP32 microcontrollers firmware, system block diagrams, and academic thesis documentation.

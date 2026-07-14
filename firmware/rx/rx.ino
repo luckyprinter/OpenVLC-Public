@@ -1,5 +1,7 @@
 // ESP32 RX - LiFi 4B5B NRZ/OOK Stream
 // Frame format, RAM buffering, RX_FILE_HEX output, and GUI protocol are shared.
+// Trigger compilation test
+
 
 #if defined(__has_include)
 #if __has_include(<esp_arduino_version.h>)

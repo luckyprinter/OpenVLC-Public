@@ -7,11 +7,17 @@ An experimental Visible Light Communication (VLC) system developed in partial fu
 
 This repository contains the ESP32 microcontrollers firmware, system block diagrams, and academic thesis documentation.
 
-## Precompiled GUI Desktop Applications
+## OpenVLC GUI Desktop Applications
 
-To run the OpenVLC GUI desktop application, download the precompiled binary for your operating system from the [Releases](../../releases/latest) page:
-- **Windows**: Download `OpenVLC-Suite-Windows.exe` and double-click to run it.
-- **Linux**: Download `OpenVLC-Suite-Linux`, mark it as executable (`chmod +x OpenVLC-Suite-Linux`), and run it.
+To run the OpenVLC GUI desktop application, download the release package for your operating system from the [Releases](../../releases/latest) page. The GUI requires **Python 3.11+** to be installed on your system.
+
+First, extract the downloaded `.zip` file, open a terminal or command prompt in the extracted folder, and install the required dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+- **Windows**: Download and extract `OpenVLC-v3-Windows.zip`. Double-click `start_tx.bat` (Transmitter) or `start_rx.bat` (Receiver) to launch the application.
+- **Linux**: Download and extract `OpenVLC-v3-Linux.zip`. Run `./start_tx.sh` (Transmitter) or `./start_rx.sh` (Receiver).
 
 > **Note on Permissions (Linux)**: To access the ESP32 via serial (e.g. `/dev/ttyUSB0`), ensure your user is in the `dialout` group. You can add your user by running:
 > ```bash

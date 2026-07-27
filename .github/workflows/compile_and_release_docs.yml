@@ -1,4 +1,4 @@
-name: Compile Document to PDF
+name: Compile and Release Documents
 
 on:
   push:
@@ -6,10 +6,11 @@ on:
       - main
     paths:
       - 'docs/vlcpaper.docx'
+      - 'docs/vlcpaper.pdf'
 
 jobs:
-  compile:
-    name: Compile docx to pdf
+  compile-and-release:
+    name: Compile docx to pdf and update release
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -24,7 +25,9 @@ jobs:
 
       - name: Convert DOCX to PDF
         run: |
-          libreoffice --headless --convert-to pdf --outdir docs docs/vlcpaper.docx
+          if [ -f docs/vlcpaper.docx ]; then
+            libreoffice --headless --convert-to pdf --outdir docs docs/vlcpaper.docx
+          fi
 
       - name: Commit and Push PDF
         run: |
@@ -32,6 +35,12 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/vlcpaper.pdf
           git diff-index --quiet HEAD || git commit -m "Auto-compile vlcpaper.docx to PDF"
-          git push
+          git push || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Release Assets
+        run: |
+          gh release upload latest docs/vlcpaper.docx docs/vlcpaper.pdf --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

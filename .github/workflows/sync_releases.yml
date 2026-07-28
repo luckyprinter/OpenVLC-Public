@@ -18,7 +18,7 @@ jobs:
     steps:
       - name: Download Artifacts
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.VLC_PRIVATE_ACCESS_TOKEN }}
         run: |
           mkdir -p artifacts
           cd artifacts

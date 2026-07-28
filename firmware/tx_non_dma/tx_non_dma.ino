@@ -307,7 +307,10 @@ void loop() {
   if (!Serial.available()) return;
   String line = Serial.readStringUntil('\n');
   line.trim();
-  if (line.length() == 0) return;
+  if (line.length() == 0) {
+      Serial.println("TX Ready");
+      return;
+  }
 
   if (line.startsWith("MODE=")) { setMode(line.substring(5)); return; }
   if (line.startsWith("FREQ=")) { setSymbolRate(line.substring(5).toInt()); return; }

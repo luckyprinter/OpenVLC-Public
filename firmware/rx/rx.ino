@@ -1016,6 +1016,10 @@ void loop() {
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
+    if (cmd.length() == 0) {
+        Serial.println("RX Ready");
+        return;
+    }
     if (cmd.startsWith("MODE=")) setMode(cmd.substring(5));
     else if (cmd.startsWith("FREQ=")) setSymbolRate(cmd.substring(5).toInt());
     else if (cmd.startsWith("PHASE=")) setSamplePhase(cmd.substring(6).toInt());

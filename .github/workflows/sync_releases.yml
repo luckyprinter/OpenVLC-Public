@@ -1,0 +1,42 @@
+name: Sync Release from VLC Repo
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'The GitHub Actions Run ID from luckyprinter/vlc'
+        required: true
+      version_tag:
+        description: 'Version tag (e.g., v3.1.0)'
+        required: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p artifacts
+          cd artifacts
+          # Use gh cli to download from the other repository
+          gh run download ${{ github.event.inputs.run_id }} -R luckyprinter/vlc
+          
+          # Show what was downloaded
+          ls -la
+          
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version_tag }}
+          name: Release ${{ github.event.inputs.version_tag }}
+          body: |
+            Automated release build from luckyprinter/vlc pipeline.
+            Includes fixes for DMA ACK race conditions and Windows DTR connection detection.
+          draft: false
+          prerelease: false
+          files: |
+            artifacts/**/*

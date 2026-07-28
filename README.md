@@ -30,7 +30,7 @@ The required firmware for the ESP32 is located in the `firmware/` directory:
 
 For detailed diagrams and documentation regarding the VLC system:
 - **Research Design Block Diagram**: Inspect the block diagram image at [docs/research_design_block_diagram.png](docs/research_design_block_diagram.png).
-- **Academic Thesis Paper**: The thesis manuscript describing the hardware and software design is available in Word and PDF formats under [docs/vlcpaper.docx](docs/vlcpaper.docx) and [docs/vlcpaper.pdf](docs/vlcpaper.pdf).
+- **Academic Thesis Paper**: The thesis manuscript describing the hardware and software design is available in Word format under [docs/vlcpaper.docx](docs/vlcpaper.docx). A compiled PDF version is automatically built via GitHub Actions and is available alongside the software in the [Releases](../../releases/latest) page.
 
 ## License & Legal
 

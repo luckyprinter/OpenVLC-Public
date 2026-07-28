@@ -33,6 +33,7 @@ approved. Changes require prior discussion.
 ## RX Serial Commands (Vref Control)
 
 ```
+<empty_string_ping> (responds "RX Ready" or "TX Ready")
 VREF_MODE=AUTO|MANUAL
 VREF_PWM=<gpio25_pwm_percent>
 VREF_SET=<target_mV>

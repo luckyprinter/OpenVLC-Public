@@ -1,4 +1,4 @@
-# firmware/rx_esp32_lifi_dual_mode/
+# firmware/rx/
 
 ## Responsibility
 ESP32 Arduino firmware that receives and decodes 4B5B + NRZ/OOK optical frames from an LM393 photodiode module. Buffers and validates incoming file chunks via CRC, then dumps the reconstructed file over USB serial to the RX GUI.
@@ -14,4 +14,4 @@ Single `.ino` sketch (~1042 lines). State-machine frame parser (WAIT_SOF → REA
 - Optical interface: GPIO5 reads LM393 digital output (3.3V pull-up)
 - Vref control: GPIO25 PWM (30 kHz, 8-bit) drives LM393 comparator reference via RC filter
 - ADC feedback: GPIO34/35 read scaled PVo/Vref through 22k/8.2k dividers
-- Accepts serial commands: FREQ, PHASE, MAJ, VREF_MODE, VREF_SET, VREF_CAL, VREF_SWEEP, etc.
+- Accepts serial commands: empty string ping (responds `RX Ready`), FREQ, PHASE, MAJ, VREF_MODE, VREF_SET, VREF_CAL, VREF_SWEEP, etc.

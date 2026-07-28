@@ -1,4 +1,4 @@
-# firmware/tx_esp32_lifi_dual_mode/
+# firmware/tx_dma/
 
 ## Responsibility
 ESP32 Arduino firmware that transmits 4B5B + NRZ/OOK optical frames over an LED driver. Receives preloaded file data from the TX GUI over USB serial, stores it in an 80 KiB RAM buffer, encodes each byte as 4B5B symbols, and outputs the optical waveform through GPIO5.
@@ -13,4 +13,4 @@ Single `.ino` sketch (~329 lines). Stream-based design: STREAM_BEGIN / STREAM_DA
 - USB serial (115200 baud) receives commands and stream data from TX GUI
 - Optical interface: GPIO5 → gate of IRLZ44N/IRF540N → 12V LED bulb
 - Supports ACTIVE_LOW toggle for different driver circuits
-- Accepts serial commands: FREQ, GAP, FGAP, ACTIVE_LOW, IDLE_ON, INTENSITY, STREAM_BEGIN/DATA/START
+- Accepts serial commands: empty string ping (responds `TX Ready`), FREQ, GAP, FGAP, ACTIVE_LOW, IDLE_ON, INTENSITY, STREAM_BEGIN/DATA/START

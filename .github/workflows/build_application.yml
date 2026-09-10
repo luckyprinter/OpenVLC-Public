@@ -63,7 +63,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run Application Smoke Test
+      - name: Run Application Source Smoke Test
         working-directory: application-source
         env:
           QT_QPA_PLATFORM: offscreen
@@ -78,6 +78,33 @@ jobs:
       - name: Build Application
         working-directory: application-source
         run: pyinstaller OpenVLC-v3.spec --clean
+
+      - name: Run Packaged Application Smoke Test (Linux)
+        if: runner.os == 'Linux'
+        working-directory: application-source
+        run: |
+          xvfb-run ./dist/OpenVLC-v3/OpenVLC-v3 --smoke-test 2> smoke_test_err.log
+          if grep -q "Could not find the Qt platform plugin" smoke_test_err.log; then
+            cat smoke_test_err.log
+            exit 1
+          fi
+
+      - name: Run Packaged Application Smoke Test (Windows)
+        if: runner.os == 'Windows'
+        working-directory: application-source
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath ".\dist\OpenVLC-v3\OpenVLC-v3.exe" -ArgumentList "--smoke-test" -PassThru -Wait -RedirectStandardError "smoke_test_err.log"
+          if ($process.ExitCode -ne 0) {
+            Get-Content smoke_test_err.log
+            Write-Error "Packaged application exited with code $($process.ExitCode)"
+            exit 1
+          }
+          if (Select-String -Path "smoke_test_err.log" -Pattern "Could not find the Qt platform plugin" -Quiet) {
+            Get-Content smoke_test_err.log
+            Write-Error "Qt platform plugin error detected"
+            exit 1
+          }
 
       - name: Package Linux Build
         if: runner.os == 'Linux'

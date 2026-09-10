@@ -77,6 +77,8 @@ jobs:
 
       - name: Build Application
         working-directory: application-source
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: pyinstaller OpenVLC-v3.spec --clean
 
       - name: Run Packaged Application Smoke Test (Linux)

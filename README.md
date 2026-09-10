@@ -55,7 +55,7 @@ The communication implementation includes:
 ```text
                  TRANSMITTER SIDE
 
-      TX GUI / Desktop Application
+      TX Application / Desktop GUI
                     |
                  USB Serial
                     |
@@ -63,7 +63,7 @@ The communication implementation includes:
                     |
               4B5B + NRZ/OOK
                     |
-                 GPIO Output
+                 GPIO5 Output
                     |
           2N3904 + MOSFET Driver
                     |
@@ -87,7 +87,7 @@ The communication implementation includes:
                     |
                  USB Serial
                     |
-              RX GUI / Desktop App
+              RX Application / GUI
 ```
 
 ---
@@ -124,38 +124,26 @@ The thesis evaluates a controlled short-range indoor VLC configuration. The foll
 
 ```text
 OpenVLC-Public/
-├── application-source/       # Python/PySide6 desktop applications
+├── application-source/       # Python/PySide6 desktop application source
 ├── firmware/
-│   ├── rx/                  # ESP32 receiver firmware
-│   ├── tx_dma/              # DMA-based transmitter firmware
-│   ├── tx_non_dma/          # Non-DMA transmitter firmware
-│   ├── specs/               # Communication protocol specification
-│   └── codemap.md            # Firmware organization reference
-├── .github/workflows/       # Automated verification and release workflows
-├── CITATION.cff             # Machine-readable citation metadata
-├── LICENSE                  # Repository license
+│   ├── rx/                   # ESP32 receiver firmware
+│   ├── tx/                   # ESP32 transmitter firmware
+│   ├── specs/                # Communication protocol specification
+│   ├── README.md
+│   └── codemap.md
+├── .github/workflows/        # Verification and release workflows
+├── CITATION.cff              # Machine-readable citation metadata
+├── LICENSE                   # Repository license
 └── README.md
 ```
 
 ---
 
-## 6. Desktop Applications
+## 6. Desktop Application
 
 The `application-source/` directory contains the Python/PySide6 source code for the transmitter and receiver applications.
 
-The application provides functionality for:
-
-- Transmitter and receiver control
-- USB serial communication
-- Transmission/reception status monitoring
-- Signal visualization
-- Payload handling and reconstruction
-- Session and experimental logging
-- Simulation-related application components
-
-For source-based installation and execution, see:
-
-`application-source/README.md`
+The source includes transmitter and receiver control, USB serial communication, transmission/reception status monitoring, signal visualization, payload handling, reconstruction, experimental logging, and simulation-related components.
 
 ### Running from Source
 
@@ -183,13 +171,23 @@ Application smoke test:
 python run_v3.py --smoke-test
 ```
 
-Precompiled desktop application packages are provided through GitHub Releases when available.
+### Building from Source
+
+The public repository contains the PyInstaller specification used to build the desktop application:
+
+```bash
+cd application-source
+pip install -r requirements.txt
+pyinstaller OpenVLC-v3.spec --clean
+```
+
+GitHub Actions can build Windows and Linux application packages directly from this public source tree and attach them to an existing GitHub Release.
 
 ---
 
 ## 7. Firmware
 
-The `firmware/` directory contains the ESP32 transmitter and receiver implementations.
+The `firmware/` directory contains the ESP32 transmitter and receiver implementations used by the prototype.
 
 ### Receiver
 
@@ -197,21 +195,13 @@ The `firmware/` directory contains the ESP32 transmitter and receiver implementa
 firmware/rx/rx.ino
 ```
 
-### Transmitter — DMA
+### Transmitter
 
 ```text
-firmware/tx_dma/tx_dma.ino
+firmware/tx/tx.ino
 ```
 
-### Transmitter — Non-DMA
-
-```text
-firmware/tx_non_dma/tx_non_dma.ino
-```
-
-The repository maintains both transmitter variants as implementation alternatives. The exact transmitter and receiver firmware associated with the thesis experimental results are identified by the thesis artifact release.
-
-The firmware includes 4B5B encoding/decoding, NRZ/OOK signaling, synchronization, CRC validation, chunk processing, payload reconstruction, receiver threshold/Vref control, and serial status/control functions.
+The public thesis artifact intentionally contains one transmitter implementation rather than exposing earlier DMA/non-DMA development variants. This keeps the firmware structure consistent with the implementation used by the experimental prototype.
 
 ---
 
@@ -240,11 +230,7 @@ Detailed firmware configuration and serial commands are provided in `firmware/RE
 
 The VLC system uses a framed communication protocol incorporating 4B5B line coding, NRZ/OOK signaling, chunk-based payload handling, and CRC validation.
 
-The protocol specification is provided in:
-
-`firmware/specs/protocol_spec.md`
-
-The specification documents the frame structure, synchronization information, transfer identification, payload/chunk fields, CRC fields, filename handling, transmission flow, and BER comparison procedure.
+The protocol specification is provided in `firmware/specs/protocol_spec.md`.
 
 ---
 
@@ -258,13 +244,29 @@ The repository provides the software/protocol implementation supporting the tran
 
 ## 11. Automated Verification and Releases
 
-GitHub Actions are used to verify firmware compilation and to build/package release software.
+GitHub Actions are used directly in this public repository.
 
-The firmware verification workflow compiles the receiver, DMA transmitter, and non-DMA transmitter implementations using the ESP32 Arduino core.
+### Firmware verification
 
-The desktop application release workflow in the associated development repository builds the PyInstaller application for Windows and Linux, performs application smoke tests, and publishes the resulting packages to the corresponding release in this repository.
+The firmware verification workflow compiles:
 
-Development releases and the thesis artifact release are treated separately. A development workflow must not overwrite the fixed thesis artifact release.
+- `firmware/rx/rx.ino`
+- `firmware/tx/tx.ino`
+
+using the ESP32 Arduino core.
+
+### Application builds
+
+The application build workflow:
+
+1. Checks out the selected release/tag source.
+2. Installs the dependencies from `application-source/requirements.txt`.
+3. Runs the application smoke test.
+4. Builds the PyInstaller application on Windows and Linux.
+5. Packages the resulting applications as ZIP files.
+6. Uploads the packages to the selected GitHub Release.
+
+Release uploads are tied to an explicit release tag and do not depend on a moving `latest` release.
 
 ---
 
@@ -286,9 +288,7 @@ This repository is provided as a research and academic software artifact accompa
 
 Performance and operation depend on the hardware configuration, optical alignment, communication parameters, receiver circuit, LED source, ambient-light conditions, and other experimental conditions described in the thesis.
 
-The presence of a feature or firmware variant in the repository does not imply that it was used in every experiment reported in the thesis.
-
-For reproduction of a particular thesis result, use the experimental configuration and software version identified by the thesis artifact release.
+The thesis remains the authoritative reference for the experimental configuration and measured results.
 
 ---
 
@@ -296,9 +296,7 @@ For reproduction of a particular thesis result, use the experimental configurati
 
 When referencing this repository in academic work, cite the author and associated thesis according to the repository citation information and license requirements.
 
-Machine-readable citation metadata is provided in:
-
-`CITATION.cff`
+Machine-readable citation metadata is provided in `CITATION.cff`.
 
 ---
 

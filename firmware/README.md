@@ -2,7 +2,7 @@
 
 This directory contains the ESP32 firmware used by the transmitter and receiver portions of the OpenVLC System Suite Visible Light Communication prototype.
 
-The firmware implements the optical communication functions required for the experimental VLC link, including line coding, optical signaling, frame processing, CRC validation, chunk handling, receiver threshold control, and USB serial communication with the desktop applications.
+The firmware implements 4B5B line coding, NRZ/OOK optical signaling, frame synchronization, CRC validation, chunk handling, receiver threshold control, and USB serial communication with the desktop application.
 
 ---
 
@@ -12,10 +12,8 @@ The firmware implements the optical communication functions required for the exp
 firmware/
 ├── rx/
 │   └── rx.ino
-├── tx_dma/
-│   └── tx_dma.ino
-├── tx_non_dma/
-│   └── tx_non_dma.ino
+├── tx/
+│   └── tx.ino
 ├── specs/
 │   └── protocol_spec.md
 ├── README.md
@@ -36,29 +34,21 @@ The receiver firmware:
 * supports adaptive and manual receiver threshold control
 * reports receiver status through USB serial communication
 
-### Transmitter — DMA
+### Transmitter
 
-`tx_dma/tx_dma.ino`
+`tx/tx.ino`
 
-The DMA transmitter implementation provides scheduled optical symbol output using the ESP32 DMA-based transmission approach.
+The transmitter firmware provides the GPIO-based optical transmission path used by the experimental prototype. It receives preloaded file data from the TX application, encodes payload bytes using 4B5B, and transmits the resulting NRZ/OOK signal through GPIO5.
 
-### Transmitter — Non-DMA
-
-`tx_non_dma/tx_non_dma.ino`
-
-The non-DMA transmitter implementation provides the standard GPIO-based optical transmission path.
+This repository intentionally provides one transmitter implementation: the firmware used by the experimental prototype. Alternative transmitter implementations developed during earlier stages are not part of the public thesis artifact.
 
 ---
 
 ## 2. Thesis Experimental Firmware
 
-This repository contains both DMA and non-DMA transmitter implementations because they represent different firmware implementations developed during the project.
+The firmware in this directory represents the transmitter and receiver implementation associated with the thesis prototype.
 
-For the experimental results reported in the thesis, use the transmitter and receiver firmware identified in the corresponding thesis artifact release.
-
-> **Do not assume that the presence of a firmware variant means that it was used in every thesis experiment.**
-
-The thesis release is the authoritative software snapshot for reproducing the reported experiments.
+For reproduction of the reported experimental results, use the firmware state identified by the thesis artifact release.
 
 ---
 
@@ -125,9 +115,7 @@ VREF_CAL_SWING
 VREF_SWEEP=<start_mV>,<end_mV>,<step_mV>
 ```
 
-The adaptive Vref implementation measures the received signal and adjusts the receiver reference threshold to maintain the desired operating margin.
-
-The experimental calibration procedure and measurements are documented in the thesis.
+The adaptive Vref implementation measures the received signal and adjusts the receiver reference threshold to support the desired operating margin.
 
 ---
 
@@ -144,11 +132,7 @@ The firmware uses a framed optical communication protocol incorporating:
 * file CRC
 * payload reconstruction
 
-See:
-
-`specs/protocol_spec.md`
-
-for the protocol definition.
+See `specs/protocol_spec.md` for the protocol definition.
 
 ---
 
@@ -161,9 +145,7 @@ Current implementation limits include:
 * TX stream buffer: 80 KiB
 * RX stream buffer: 80 KiB
 
-The desktop application can split larger files into batches for transmission when supported by the corresponding application and firmware implementation.
-
-Large-file handling and maximum-file behavior are discussed in the thesis experimental documentation.
+The desktop application can split larger files into batches when required by the transfer workflow.
 
 ---
 
@@ -174,14 +156,12 @@ The firmware is intended for ESP32 development environments compatible with the 
 Before uploading firmware:
 
 1. Connect the appropriate ESP32 board by USB.
-2. Open the corresponding `.ino` source file.
+2. Open `rx/rx.ino` for the receiver or `tx/tx.ino` for the transmitter.
 3. Select the correct ESP32 board configuration.
 4. Select the appropriate serial port.
 5. Compile the firmware.
 6. Upload the firmware to the ESP32.
 7. Verify the serial startup/status response before connecting it to the optical hardware.
-
-Use the firmware variant specified by the thesis artifact release when reproducing the reported experimental configuration.
 
 ---
 
@@ -197,7 +177,7 @@ Defines the frame structure, data fields, transmission flow, and BER comparison 
 
 `codemap.md`
 
-Provides a high-level description of the firmware directory and its integration with the desktop applications and protocol documentation.
+Provides a high-level description of the firmware organization and its integration with the desktop application and protocol documentation.
 
 ---
 
@@ -205,15 +185,6 @@ Provides a high-level description of the firmware directory and its integration 
 
 The firmware implementation corresponds to the software side of the prototype described in the thesis.
 
-Appendix O of the thesis provides selected firmware and code snippets for explanation and documentation. This directory contains the complete firmware source.
+Appendix O of the thesis provides selected firmware code snippets for explanation and documentation. This directory contains the complete firmware source.
 
-The thesis remains the primary reference for:
-
-* experimental procedures
-* measured values
-* test conditions
-* performance results
-* statistical or comparative analysis
-* conclusions
-
-The repository provides the implementation needed to understand and reproduce the software portion of the prototype.
+The thesis remains the primary reference for the experimental procedures, measured values, test conditions, performance results, analysis, conclusions, and recommendations.

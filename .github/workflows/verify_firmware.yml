@@ -32,10 +32,6 @@ jobs:
         run: |
           arduino-cli compile --fqbn esp32:esp32:esp32 firmware/rx/rx.ino
 
-      - name: Verify DMA Transmitter Firmware
+      - name: Verify Transmitter Firmware
         run: |
-          arduino-cli compile --fqbn esp32:esp32:esp32 firmware/tx_dma/tx_dma.ino
-
-      - name: Verify Non-DMA Transmitter Firmware
-        run: |
-          arduino-cli compile --fqbn esp32:esp32:esp32 firmware/tx_non_dma/tx_non_dma.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32 firmware/tx/tx.ino

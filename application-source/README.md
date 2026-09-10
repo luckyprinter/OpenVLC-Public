@@ -1,4 +1,6 @@
-# OpenVLC GUI v3 Application Source Code
+# OpenVLC System Suite — Application Source Code
+
+Python/PySide6 desktop application source code for the transmitter and receiver interfaces of the OpenVLC System Suite Visible Light Communication prototype.
 
 This directory contains the complete Python/PySide6 source code for the OpenVLC System Suite GUI application.
 

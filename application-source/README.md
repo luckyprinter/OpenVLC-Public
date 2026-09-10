@@ -12,6 +12,18 @@ The OpenVLC GUI v3 is a modern desktop application built with:
 - **pyserial** — Hardware communication with ESP32
 - **pyqtgraph** — Real-time signal visualization
 
+## Relationship to the Thesis
+
+This application source code provides the desktop software used to interface with the ESP32 transmitter and receiver hardware.
+
+The transmitter application is responsible for preparing and initiating payload transmission through the TX ESP32, while the receiver application communicates with the RX ESP32 and provides reception status, signal monitoring, payload reconstruction, and related interface functions.
+
+The application source is provided as the complete implementation accompanying the thesis.
+
+The thesis remains the primary reference for the experimental procedures, fixed test parameters, measured results, and evaluation.
+
+For the exact software version associated with the reported experimental results, use the thesis artifact release.
+
 ## Structure
 
 ```

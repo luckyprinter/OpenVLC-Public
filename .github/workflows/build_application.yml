@@ -32,9 +32,9 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            artifact_name: OpenVLC-v3-Linux
+            artifact_name: OpenVLC-v3-Linux-x64
           - os: windows-latest
-            artifact_name: OpenVLC-v3-Windows
+            artifact_name: OpenVLC-v3-Windows-x64
 
     steps:
       - name: Checkout Source
@@ -82,6 +82,8 @@ jobs:
       - name: Run Packaged Application Smoke Test (Linux)
         if: runner.os == 'Linux'
         working-directory: application-source
+        env:
+          QT_DEBUG_PLUGINS: '1'
         run: |
           xvfb-run ./dist/OpenVLC-v3/OpenVLC-v3 --smoke-test 2> smoke_test_err.log
           if grep -q "Could not find the Qt platform plugin" smoke_test_err.log; then
@@ -125,7 +127,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Upload Application Builds to Release
+    name: Publish Windows and Linux Builds to Release
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     needs: build
     runs-on: ubuntu-latest
@@ -144,4 +146,8 @@ jobs:
         run: |
           test -n "$VERSION_TAG"
           gh release view "$VERSION_TAG" --repo "${{ github.repository }}"
-          gh release upload "$VERSION_TAG" release-assets/*.zip --repo "${{ github.repository }}" --clobber
+          gh release upload "$VERSION_TAG" \
+            release-assets/OpenVLC-v3-Windows-x64.zip \
+            release-assets/OpenVLC-v3-Linux-x64.zip \
+            --repo "${{ github.repository }}" \
+            --clobber

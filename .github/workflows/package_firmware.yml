@@ -1,28 +1,40 @@
-name: Package and Upload Firmware
+name: Package Firmware
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'firmware/**'
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Existing public release tag to receive the firmware package (for example, v1.0.0-thesis)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
   package:
-    name: Zip and Release Firmware
+    name: Package Firmware for Explicit Release
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Package Firmware Directory
         run: |
-          zip -r VLC-ESP32-Firmware.zip firmware/rx firmware/tx_dma firmware/tx_non_dma
+          zip -r VLC-ESP32-Firmware-${{ inputs.version_tag }}.zip \
+            firmware/rx \
+            firmware/tx_dma \
+            firmware/tx_non_dma \
+            firmware/specs \
+            firmware/README.md \
+            firmware/codemap.md
 
-      - name: Upload Zip to Release
-        run: |
-          gh release upload latest VLC-ESP32-Firmware.zip --clobber
+      - name: Upload Firmware Package to Selected Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ inputs.version_tag }}" \
+            "VLC-ESP32-Firmware-${{ inputs.version_tag }}.zip" \
+            --repo "${{ github.repository }}" \
+            --clobber

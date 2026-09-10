@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.version_tag }}
 
       - name: Package Firmware Directory
         run: |
@@ -33,6 +35,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          gh release view "${{ inputs.version_tag }}" --repo "${{ github.repository }}"
           gh release upload "${{ inputs.version_tag }}" \
             "VLC-ESP32-Firmware-${{ inputs.version_tag }}.zip" \
             --repo "${{ github.repository }}" \

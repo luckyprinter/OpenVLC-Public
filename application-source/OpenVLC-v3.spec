@@ -1,15 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 import sys
 sys.setrecursionlimit(5000)
-from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+from PyInstaller.utils.hooks import collect_data_files
+
+# Keep PyInstaller focused on modules that are actually imported by the
+# application. Broad collect_submodules() calls can import optional GUI,
+# OpenGL, example, and platform-specific modules during analysis and make
+# Linux builds depend on components that the application does not use.
 
 hidden_imports = []
-hidden_imports += collect_submodules('numpy')
-hidden_imports += collect_submodules('pyqtgraph')
-hidden_imports += collect_submodules('PySide6')
-hidden_imports += collect_submodules('serial')
-hidden_imports += collect_submodules('qtawesome')
-
 datas = []
 datas += collect_data_files('qtawesome')
 datas += collect_data_files('PySide6')

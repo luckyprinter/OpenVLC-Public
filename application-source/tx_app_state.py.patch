@@ -1,0 +1,22 @@
+--- /home/luckyprinter/Projects/vlc/OpenVLC/gui_dev_v3/tx_app_state.py
++++ /home/luckyprinter/Projects/vlc/OpenVLC/gui_dev_v3/tx_app_state.py
+@@ -194,12 +194,11 @@
+             self.estimated_time = snap.estimated_time
+             self.data_rate = snap.data_rate
+             self.port = snap.port
+             
+-            if self.serial_connected:
+-                # Merge logic
+-                for log_item in snap.activity_log:
+-                    if log_item not in self.activity_log:
+-                        self.activity_log.insert(0, log_item)
+-            else:
+-                self._load_empty()
++            for log_item in snap.activity_log:
++                if log_item not in self.activity_log:
++                    self.activity_log.insert(0, log_item)
++            self.activity_log = self.activity_log[:500]
++
++            if not self.serial_connected:
++                self._load_empty()
+             

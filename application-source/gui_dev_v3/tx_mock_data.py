@@ -10,7 +10,7 @@ class TXSettings:
     encoding: str = "4B5B"
     modulation: str = "NRZ / OOK"
     symbol_rate: str = "15,000 sym/s"
-    led_pin: str = "GPIO 25"
+    led_pin: str = "GPIO 5"
     tx_power: str = "100 %"
     pre_emphasis: str = "Enabled"
 

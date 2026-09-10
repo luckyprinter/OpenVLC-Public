@@ -1,16 +1,19 @@
-# firmware/tx_non_dma/
+# firmware/tx/
 
 ## Responsibility
-ESP32 Arduino firmware that transmits 4B5B + NRZ/OOK optical frames over an LED driver. Receives preloaded file data from the TX GUI over USB serial, stores it in an 80 KiB RAM buffer, encodes each byte as 4B5B symbols, and outputs the optical waveform through GPIO5.
+ESP32 Arduino firmware that transmits 4B5B + NRZ/OOK optical frames over the LED driver. It receives preloaded file data from the TX application over USB serial, stores it in an 80 KiB RAM buffer, encodes each byte as 4B5B symbols, and outputs the optical waveform through GPIO5.
 
 ## Design
-Single `.ino` sketch (~329 lines). Stream-based design: STREAM_BEGIN / STREAM_DATA / STREAM_START serial protocol preloads a file, validates with CRC, then transmits all chunks with preamble+sync (0xD5B7), 4B5B encoding, and configurable frame gaps. Hardware interface: GPIO5 drives an IRLZ44N/IRF540N MOSFET gate (with active-low option). Uses `analogWrite` at 30 kHz PWM carrier for intensity calibration.
+Single `.ino` sketch. The stream-based design uses `STREAM_BEGIN`, `STREAM_DATA`, and `STREAM_START` commands to preload a file, validate it with CRC, and transmit the file in chunks with preamble and synchronization. The optical interface uses GPIO5 to drive the LED driver stage. The firmware supports the active-low driver configuration used by the prototype and the configured optical intensity control.
 
 ## Flow
-`setup()`: init serial at 115200, configure PWM, set symbol rate. `loop()`: parse serial commands → handle STREAM_BEGIN (metadata), STREAM_DATA (hex payload), STREAM_START (begin transmit). Transmission: emit preamble (64 alternating bits + sync word) → for each chunk, build framed packet (SOF, header, name, payload, CRC) → send 4B5B-encoded bits at symbol rate → idle between frames.
+`setup()`: initialize serial communication, configure the transmitter output, and set the symbol rate. `loop()`: parse serial commands → handle `STREAM_BEGIN` (metadata), `STREAM_DATA` (hex payload), and `STREAM_START` (begin transmission). Transmission: emit preamble and synchronization → build each framed chunk with metadata and CRC fields → send 4B5B-encoded bits at the configured symbol rate → return to the idle light state between frames.
 
 ## Integration
-- USB serial (115200 baud) receives commands and stream data from TX GUI
-- Optical interface: GPIO5 → gate of IRLZ44N/IRF540N → 12V LED bulb
-- Supports ACTIVE_LOW toggle for different driver circuits
-- Accepts serial commands: empty string ping (responds `TX Ready`), FREQ, GAP, FGAP, ACTIVE_LOW, IDLE_ON, INTENSITY, STREAM_BEGIN/DATA/START
+- USB serial (115200 baud) receives commands and stream data from the TX application
+- Optical interface: GPIO5 → LED driver → 12 V LED bulb
+- Supports the active-low driver configuration used by the prototype
+- Accepts serial commands including FREQ, GAP, FGAP, ACTIVE_LOW, IDLE_ON, INTENSITY, STREAM_BEGIN, STREAM_DATA, and STREAM_START
+
+## Thesis Reference
+This is the transmitter firmware used by the experimental prototype described in the thesis. Appendix O provides selected code snippets explaining important firmware functions.

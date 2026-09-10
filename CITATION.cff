@@ -3,12 +3,10 @@ message: "Please cite this software repository and the associated thesis when us
 title: "OpenVLC System Suite: Low-Cost ESP32-Based Visible Light Communication Prototype"
 type: software
 authors:
-
-* family-names: "Martinez"
-  given-names: "Reymart"
-  version: "1.0.0-thesis"
-  date-released: "2026-09-10"
-  url: "https://github.com/luckyprinter/OpenVLC-Public"
-  repository-code: "https://github.com/luckyprinter/OpenVLC-Public"
-  abstract: "Software and firmware associated with a low-cost short-range indoor Visible Light Communication prototype based on ESP32 microcontrollers."
-  license: "Academic-Evaluation-Only"
+  - family-names: "Martinez"
+    given-names: "Reymart"
+version: "1.0.0-thesis"
+date-released: "2026-09-10"
+repository-code: "https://github.com/luckyprinter/OpenVLC-Public"
+abstract: "Software and firmware associated with a low-cost short-range indoor Visible Light Communication prototype based on ESP32 microcontrollers."
+license: "Academic-Evaluation-Only"

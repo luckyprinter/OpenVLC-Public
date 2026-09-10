@@ -1,0 +1,57 @@
+name: Verify PyInstaller Spec
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'application-source/**'
+      - '.github/workflows/verify_pyinstaller_spec.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-linux:
+    name: Verify Linux PyInstaller build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Linux System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 \
+            libxcb-xfixes0 libxcb-shape0 libxcb-randr0 libxcb-image0 \
+            libxcb-keysyms1 libxcb-render-util0 libxcb-icccm4 \
+            libxcb-sync1 libx11-xcb1 libxrender1 libegl1 xvfb
+
+      - name: Install Python Dependencies
+        working-directory: application-source
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build Application
+        working-directory: application-source
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pyinstaller OpenVLC-v3.spec --clean
+
+      - name: Run Packaged Application Smoke Test
+        working-directory: application-source
+        env:
+          QT_DEBUG_PLUGINS: '1'
+        run: |
+          xvfb-run ./dist/OpenVLC-v3/OpenVLC-v3 --smoke-test 2> smoke_test_err.log
+          if grep -q "Could not find the Qt platform plugin" smoke_test_err.log; then
+            cat smoke_test_err.log
+            exit 1
+          fi

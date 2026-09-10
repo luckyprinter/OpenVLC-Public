@@ -3,12 +3,10 @@ import sys
 sys.setrecursionlimit(5000)
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
-hidden_imports = []
-hidden_imports += collect_submodules('numpy')
-hidden_imports += collect_submodules('pyqtgraph')
-hidden_imports += collect_submodules('PySide6')
-hidden_imports += collect_submodules('serial')
-hidden_imports += collect_submodules('qtawesome')
+# NumPy uses internal modules that are not all visible to PyInstaller's
+# normal import analysis. Collect only NumPy's submodules explicitly; do not
+# recursively collect unrelated GUI/OpenGL/example packages.
+hidden_imports = collect_submodules('numpy')
 
 datas = []
 datas += collect_data_files('qtawesome')

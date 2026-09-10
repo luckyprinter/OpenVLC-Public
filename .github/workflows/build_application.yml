@@ -10,9 +10,14 @@ on:
     types: [published]
   workflow_dispatch:
     inputs:
-      version_tag:
-        description: 'Existing public release tag to receive the application builds (for example, v1.0.0-thesis)'
+      source_ref:
+        description: 'Git branch, tag, or commit to build (default: main)'
         required: true
+        default: 'main'
+        type: string
+      release_tag:
+        description: 'Optional existing release tag to receive the build artifacts'
+        required: false
         type: string
 
 permissions:
@@ -35,7 +40,7 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.version_tag || github.sha }}
+          ref: ${{ github.event.release.tag_name || inputs.source_ref || github.sha }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -94,7 +99,7 @@ jobs:
 
   release:
     name: Upload Application Builds to Release
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     needs: build
     runs-on: ubuntu-latest
 
@@ -108,7 +113,7 @@ jobs:
       - name: Upload Builds to Selected Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION_TAG: ${{ github.event.release.tag_name || inputs.version_tag }}
+          VERSION_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           test -n "$VERSION_TAG"
           gh release view "$VERSION_TAG" --repo "${{ github.repository }}"

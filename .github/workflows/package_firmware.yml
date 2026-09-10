@@ -24,8 +24,7 @@ jobs:
         run: |
           zip -r VLC-ESP32-Firmware-${{ inputs.version_tag }}.zip \
             firmware/rx \
-            firmware/tx_dma \
-            firmware/tx_non_dma \
+            firmware/tx \
             firmware/specs \
             firmware/README.md \
             firmware/codemap.md

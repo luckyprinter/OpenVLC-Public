@@ -14,10 +14,8 @@ The purpose of the code map is to help readers, researchers, and developers loca
 firmware/
 ├── rx/
 │   └── rx.ino
-├── tx_dma/
-│   └── tx_dma.ino
-├── tx_non_dma/
-│   └── tx_non_dma.ino
+├── tx/
+│   └── tx.ino
 ├── specs/
 │   └── protocol_spec.md
 ├── README.md
@@ -55,26 +53,9 @@ Important receiver signal interfaces include:
 
 ---
 
-## DMA Transmitter Firmware
+## Transmitter Firmware
 
-### `tx_dma/tx_dma.ino`
-
-Primary responsibilities:
-
-* payload processing
-* 4B5B encoding
-* NRZ/OOK optical symbol generation
-* DMA-based timing/output
-* frame construction
-* CRC generation
-* chunk transmission
-* USB serial communication with the desktop application
-
----
-
-## Non-DMA Transmitter Firmware
-
-### `tx_non_dma/tx_non_dma.ino`
+### `tx/tx.ino`
 
 Primary responsibilities:
 
@@ -87,13 +68,15 @@ Primary responsibilities:
 * chunk transmission
 * USB serial communication with the desktop application
 
+The transmitter firmware in this repository is the implementation used by the experimental prototype. Earlier transmitter alternatives are intentionally not included in the public thesis artifact.
+
 ---
 
 ## Communication Protocol
 
 ### `specs/protocol_spec.md`
 
-Defines the communication protocol shared by the TX firmware, RX firmware, and desktop applications.
+Defines the communication protocol shared by the TX firmware, RX firmware, and desktop application.
 
 The protocol specification includes:
 
@@ -110,12 +93,12 @@ The protocol specification includes:
 
 ## Integration
 
-The firmware interacts with the desktop applications through USB serial communication.
+The firmware interacts with the desktop application through USB serial communication.
 
 The primary data path is:
 
 ```text
-TX GUI
+TX Application
   ↓
 USB Serial
   ↓
@@ -135,10 +118,10 @@ RX ESP32 Firmware
   ↓
 USB Serial
   ↓
-RX GUI
+RX Application
 ```
 
-The communication protocol documentation provides the common reference between the desktop applications and ESP32 firmware.
+The communication protocol documentation provides the common reference between the desktop application and ESP32 firmware.
 
 ---
 
@@ -146,6 +129,6 @@ The communication protocol documentation provides the common reference between t
 
 Appendix O of the thesis contains selected source-code excerpts used to explain important firmware functions.
 
-This repository contains the complete firmware implementation.
+This repository contains the complete firmware implementation used by the prototype.
 
 The thesis remains the authoritative reference for the experimental procedure and measured results.

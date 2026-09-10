@@ -1,0 +1,109 @@
+name: Build Application
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Existing public release tag to receive the application builds (for example, v1.0.0-thesis)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }} application
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: OpenVLC-v3-Linux
+          - os: windows-latest
+            artifact_name: OpenVLC-v3-Windows
+
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.version_tag || github.ref }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Linux System Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 \
+            libxcb-xfixes0 libxcb-shape0 libxcb-randr0 libxcb-image0 \
+            libxcb-keysyms1 libxcb-render-util0 libxcb-icccm4 \
+            libxcb-sync1 libx11-xcb1 libxrender1 libegl1 xvfb
+
+      - name: Install Python Dependencies
+        working-directory: application-source
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Application Smoke Test
+        working-directory: application-source
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run python run_v3.py --smoke-test
+          else
+            python run_v3.py --smoke-test
+          fi
+        shell: bash
+
+      - name: Build Application
+        working-directory: application-source
+        run: pyinstaller OpenVLC-v3.spec --clean
+
+      - name: Package Linux Build
+        if: runner.os == 'Linux'
+        working-directory: application-source
+        run: zip -r ../${{ matrix.artifact_name }}.zip dist/OpenVLC-v3
+
+      - name: Package Windows Build
+        if: runner.os == 'Windows'
+        working-directory: application-source
+        shell: pwsh
+        run: Compress-Archive -Path dist/OpenVLC-v3 -DestinationPath ../${{ matrix.artifact_name }}.zip -Force
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_name }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Upload Application Builds to Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Upload Builds to Selected Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_TAG: ${{ github.event.release.tag_name || inputs.version_tag }}
+        run: |
+          test -n "$VERSION_TAG"
+          gh release view "$VERSION_TAG" --repo "${{ github.repository }}"
+          gh release upload "$VERSION_TAG" release-assets/*.zip --repo "${{ github.repository }}" --clobber

@@ -1,6 +1,11 @@
 name: Build Application
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'application-source/**'
+      - '.github/workflows/build_application.yml'
   release:
     types: [published]
   workflow_dispatch:
@@ -30,7 +35,7 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.version_tag || github.ref }}
+          ref: ${{ github.event.release.tag_name || inputs.version_tag || github.sha }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -89,6 +94,7 @@ jobs:
 
   release:
     name: Upload Application Builds to Release
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
 

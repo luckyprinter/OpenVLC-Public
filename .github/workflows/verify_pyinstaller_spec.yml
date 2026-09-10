@@ -41,11 +41,17 @@ jobs:
 
       - name: Build Application
         working-directory: application-source
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: pyinstaller OpenVLC-v3.spec --clean
 
       - name: Run Packaged Application Smoke Test
         working-directory: application-source
         env:
-          QT_QPA_PLATFORM: offscreen
+          QT_DEBUG_PLUGINS: '1'
         run: |
-          xvfb-run ./dist/OpenVLC-v3/OpenVLC-v3 --smoke-test
+          xvfb-run ./dist/OpenVLC-v3/OpenVLC-v3 --smoke-test 2> smoke_test_err.log
+          if grep -q "Could not find the Qt platform plugin" smoke_test_err.log; then
+            cat smoke_test_err.log
+            exit 1
+          fi

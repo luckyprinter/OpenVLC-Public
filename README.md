@@ -310,8 +310,6 @@ The software, firmware, and associated materials are provided under the stated l
 
 ## 16. Author
 
-**Reymart Martinez**
-
 Bachelor of Science in Electronics Engineering
 
 Copyright © 2026 RM. All rights reserved.

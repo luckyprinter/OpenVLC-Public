@@ -314,4 +314,4 @@ The software, firmware, and associated materials are provided under the stated l
 
 Bachelor of Science in Electronics Engineering
 
-Copyright © 2026 Reymart Martinez. All rights reserved.
+Copyright © 2026 RM. All rights reserved.

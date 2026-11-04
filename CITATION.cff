@@ -3,8 +3,7 @@ message: "Please cite this software repository and the associated thesis when us
 title: "OpenVLC System Suite: Low-Cost ESP32-Based Visible Light Communication Prototype"
 type: software
 authors:
-  - family-names: "Martinez"
-    given-names: "Reymart"
+  - Martinez,Reymart M. 
 version: "1.0.0-thesis"
 date-released: "2026-09-10"
 repository-code: "https://github.com/luckyprinter/OpenVLC-Public"

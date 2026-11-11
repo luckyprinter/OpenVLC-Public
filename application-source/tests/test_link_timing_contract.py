@@ -53,13 +53,13 @@ def test_rx_default_link_configuration_command_order(monkeypatch):
     backend.apply_link_settings()
 
     assert commands == [
-        "FREQ=15000\\n",
-        "PHASE=50\\n",
-        "MAJ=1\\n",
-        "REPORT=1\\n",
-        "VREF_MARGIN=365\\n",
-        "VREF_PWM_FS=2625\\n",
-        "VREF_SETTLE_MS=120\\n",
-        "VREF_MODE=MANUAL\\n",
-        "VREF_SET=1700\\n",
+        "FREQ=15000\n",
+        "PHASE=50\n",
+        "MAJ=1\n",
+        "REPORT=1\n",
+        "VREF_MARGIN=365\n",
+        "VREF_PWM_FS=2625\n",
+        "VREF_SETTLE_MS=120\n",
+        "VREF_MODE=MANUAL\n",
+        "VREF_SET=1700\n",
     ]

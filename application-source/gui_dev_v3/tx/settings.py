@@ -452,7 +452,7 @@ class DiagnosticsLogsPage(QWidget):
         lo.setSpacing(12)
 
         from gui_dev_v3.diagnostics import build_diagnostics_controls
-        lo.addWidget(build_diagnostics_controls(mgr))
+        lo.addWidget(build_diagnostics_controls(mgr, "tx"))
 
         save_card = Card("Logging Settings")
         save_tx = RadioNodeSetting(True)

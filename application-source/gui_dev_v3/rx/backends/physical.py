@@ -298,7 +298,9 @@ class RXPhysicalBackend:
                 return False
             return True
         except Exception as exc:
-            self._ser = None
+            # If opening succeeded but the readiness ping failed, stop the
+            # reader and release the port before reporting connection failure.
+            self._close_serial()
             self.log("Serial Open Failed", f"{self._port}: {type(exc).__name__}: {exc}")
             return False
 

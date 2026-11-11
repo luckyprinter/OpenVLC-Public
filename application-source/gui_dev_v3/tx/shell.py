@@ -39,15 +39,21 @@ class PulsingDot(QWidget):
         self._direction = -8
         self._anim_timer = QTimer(self)
         self._anim_timer.timeout.connect(self._tick)
-        # Skip animation in headless/test environments to avoid non-deterministic renders
+        # Keep stable connection states calm; animate only while waiting.
         import os
-        if os.environ.get("QT_QPA_PLATFORM") != "offscreen":
-            self._anim_timer.start(40)
+        self._animations_enabled = os.environ.get("QT_QPA_PLATFORM") != "offscreen"
 
     def set_state(self, state: str) -> None:
-        if state != self._state:
-            self._state = state
-            self.update()
+        if state == self._state:
+            return
+        self._state = state
+        if self._animations_enabled and state == "simulated":
+            if not self._anim_timer.isActive():
+                self._anim_timer.start(40)
+        else:
+            self._anim_timer.stop()
+            self._alpha = 255
+        self.update()
 
     def _tick(self) -> None:
         self._alpha += self._direction

@@ -32,6 +32,7 @@ class FakeSerialPort:
         self.timeout = timeout
         self.dtr: bool | None = None
         self.rts: bool | None = None
+        self.exclusive: bool | None = None
         self.is_open = False
 
     def open(self) -> None:
@@ -41,7 +42,7 @@ class FakeSerialPort:
             if self.port in self.registry.open_ports:
                 raise OSError(f"mock port {self.port} is already open")
             self.registry.open_ports.add(self.port)
-            self.registry.opens.append((self.port, self.baudrate, self.dtr, self.rts))
+            self.registry.opens.append((self.port, self.baudrate, self.dtr, self.rts, self.exclusive))
         self.is_open = True
 
     def close(self) -> None:
@@ -61,7 +62,7 @@ class FakeSerialRegistry:
     def __init__(self, fail_ports: set[str] | None = None) -> None:
         self.fail_ports = fail_ports or set()
         self.open_ports: set[str] = set()
-        self.opens: list[tuple[str | None, int | None, bool | None, bool | None]] = []
+        self.opens: list[tuple[str | None, int | None, bool | None, bool | None, bool | None]] = []
         self.lock = threading.Lock()
 
     def module(self) -> types.ModuleType:
@@ -103,7 +104,7 @@ def test_tx_and_rx_sessions_can_open_distinct_ports_concurrently(fake_serial):
         "MOCK_RX": 460800,
     }
     # The shared session explicitly suppresses DTR/RTS reset signaling.
-    assert all(entry[2:] == (False, False) for entry in fake_serial.opens)
+    assert all(entry[2:] == (False, False, True) for entry in fake_serial.opens)
 
     tx.disconnect()
     rx.disconnect()
@@ -137,7 +138,7 @@ def test_rx_persistent_open_disables_dtr_and_rts(fake_serial, monkeypatch):
     backend._port = "MOCK_RX"
 
     assert backend._open_serial() is True
-    assert fake_serial.opens == [("MOCK_RX", 460800, False, False)]
+    assert fake_serial.opens == [("MOCK_RX", 460800, False, False, True)]
 
     backend._close_serial()
     assert fake_serial.open_ports == set()

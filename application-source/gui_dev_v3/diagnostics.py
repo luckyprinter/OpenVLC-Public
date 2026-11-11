@@ -139,3 +139,97 @@ class LocalDiagnostics:
                 self.path.unlink()
             except FileNotFoundError:
                 pass
+
+
+
+def build_diagnostics_controls(mgr: Any):
+    """Build the explicit opt-in and local data controls used by TX and RX."""
+    from PySide6.QtWidgets import (
+        QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QMessageBox,
+        QPlainTextEdit, QPushButton, QVBoxLayout,
+    )
+    from gui_dev_v3.widgets import Card, muted_label, primary_button
+
+    enabled = bool(mgr.get("diagnostics/consent", False))
+    store = LocalDiagnostics(enabled=enabled)
+    card = Card("Optional Local Diagnostics")
+    card.body.addWidget(muted_label(
+        "Off by default. When enabled, the app may save limited technical event "
+        "metadata locally to help diagnose connection, calibration, and transfer "
+        "reliability. No files, filenames, payloads, raw serial output, or uploads."
+    ))
+
+    consent = QCheckBox("Allow local diagnostics on this computer")
+    consent.setChecked(enabled)
+    card.body.addWidget(consent)
+
+    status = QLabel("Local queue: " + ("enabled" if enabled else "disabled"))
+    card.body.addWidget(status)
+
+    def update_consent(checked: bool) -> None:
+        store.set_enabled(checked)
+        mgr.set("diagnostics/consent", checked)
+        status.setText("Local queue: " + ("enabled" if checked else "disabled"))
+
+    consent.toggled.connect(update_consent)
+
+    actions = QHBoxLayout()
+    review = primary_button("Review Local Data")
+    export = primary_button("Export Local Data")
+    clear = QPushButton("Delete Local Data")
+    clear.setObjectName("Danger")
+    actions.addWidget(review)
+    actions.addWidget(export)
+    actions.addWidget(clear)
+    card.body.addLayout(actions)
+
+    def require_enabled() -> bool:
+        if not store.enabled:
+            QMessageBox.information(card, "Diagnostics Disabled", "Enable local diagnostics first. No events are collected while it is disabled.")
+            return False
+        return True
+
+    def review_data() -> None:
+        if not require_enabled():
+            return
+        dialog = QDialog(card)
+        dialog.setWindowTitle("Review Local Diagnostics")
+        dialog.resize(680, 480)
+        layout = QVBoxLayout(dialog)
+        viewer = QPlainTextEdit()
+        viewer.setReadOnly(True)
+        viewer.setPlainText(store.export_text() or "No diagnostic events have been recorded.")
+        layout.addWidget(viewer)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+        dialog.exec()
+
+    def export_data() -> None:
+        if not require_enabled():
+            return
+        content = store.export_text()
+        if not content:
+            QMessageBox.information(card, "Nothing to Export", "There are no local diagnostic events yet.")
+            return
+        path, _ = QFileDialog.getSaveFileName(card, "Export Diagnostics", "vlc-diagnostics.jsonl", "JSON Lines (*.jsonl);;Text files (*.txt)")
+        if path:
+            try:
+                with open(path, "w", encoding="utf-8") as stream:
+                    stream.write(content)
+            except OSError as exc:
+                QMessageBox.warning(card, "Export Failed", f"Could not save the diagnostic file: {type(exc).__name__}")
+
+    def delete_data() -> None:
+        if not store.path.exists():
+            QMessageBox.information(card, "No Local Data", "There is no local diagnostic queue to delete.")
+            return
+        answer = QMessageBox.question(card, "Delete Local Diagnostics", "Permanently delete the locally stored diagnostic events?")
+        if answer == QMessageBox.StandardButton.Yes:
+            store.clear()
+            QMessageBox.information(card, "Deleted", "Local diagnostic data has been deleted.")
+
+    review.clicked.connect(review_data)
+    export.clicked.connect(export_data)
+    clear.clicked.connect(delete_data)
+    return card

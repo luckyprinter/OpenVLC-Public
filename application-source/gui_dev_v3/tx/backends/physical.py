@@ -110,11 +110,14 @@ class TXPhysicalBackend:
             info = self.detect_firmware(port)
             if info and info.get("device") == "VLC_TX":
                 self._port = port
+                if not self._open_serial():
+                    self.log("Error [C02]", f"PySerial failed to open {port}; continuing scan")
+                    self._port = None
+                    continue
                 self._connected = True
                 fw = info.get("firmware", "tx_unknown")
                 fw_label = "Non-DMA" if ("non_dma" in fw or "nondma" in fw) else ("DMA" if "dma" in fw else "TX")
                 self.log("Connected", f"Auto-connected to {port} | Firmware: {fw_label} ({fw})")
-                self._open_serial()
                 self.apply_link_settings()
                 return True
         if ports:
@@ -133,28 +136,31 @@ class TXPhysicalBackend:
             info = {"device": "VLC_TX", "firmware": "tx_forced", "board": "Unknown"}
             self._firmware_info = info
             
+        self._port = port
+        if not self._open_serial():
+            self._port = None
+            self._connected = False
+            self.log("Error [C02]", f"PySerial failed to open {port}")
+            return False
+
+        self._connected = True
         from PySide6.QtCore import QTimer
         self._timer = QTimer()
         self._timer.timeout.connect(self.refresh)
         self._timer.start(100)
-        self._port = port
-        self._connected = True
-        self._open_serial()
-        if not self._controller.is_connected:
-            self.log("Error [C02]", f"PySerial failed to open {port}")
-        else:
-            fw = (self._firmware_info or {}).get("firmware", "tx_unknown")
-            fw_label = "Non-DMA" if ("non_dma" in fw or "nondma" in fw) else ("DMA" if "dma" in fw else "TX")
-            force_str = " (Force Connect)" if force else ""
-            self.log("Connected", f"Opened {port} | Firmware: {fw_label}{force_str}")
-            self.apply_link_settings()
+
+        fw = (self._firmware_info or {}).get("firmware", "tx_unknown")
+        fw_label = "Non-DMA" if ("non_dma" in fw or "nondma" in fw) else ("DMA" if "dma" in fw else "TX")
+        force_str = " (Force Connect)" if force else ""
+        self.log("Connected", f"Opened {port} | Firmware: {fw_label}{force_str}")
+        self.apply_link_settings()
         return True
 
-    def _open_serial(self) -> None:
+    def _open_serial(self) -> bool:
         """Open persistent serial connection via controller."""
         if not self._port:
-            return
-        self._controller.connect(self._port, expected_role="VLC_TX")
+            return False
+        return self._controller.connect(self._port, expected_role="VLC_TX")
 
     def _close_serial(self) -> None:
         self._controller.disconnect()

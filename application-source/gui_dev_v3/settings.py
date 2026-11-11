@@ -42,6 +42,7 @@ class SettingsManager:
     APP_NAME = "VLC Receiver"
 
     def __init__(self, scope: str = "rx") -> None:
+        self.scope = scope
         self._settings = QSettings(self.APP_NAME, scope)
 
     def get(self, key: str, default: object = None) -> object:
@@ -74,8 +75,10 @@ def reset_all_settings(mgr: SettingsManager, window: QWidget | None = None) -> N
     """
     from gui_dev_v3.settings_store import AppSettings, save_settings
 
-    for scope in ("rx", "tx"):
-        SettingsManager(scope).clear()
+    # Reuse the current manager and clear the other console's scope too.
+    mgr.clear()
+    other_scope = "tx" if getattr(mgr, "scope", "rx") == "rx" else "rx"
+    SettingsManager(other_scope).clear()
 
     defaults = AppSettings()
     save_settings(defaults)

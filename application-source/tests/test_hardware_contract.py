@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _define(source: str, name: str) -> int:
-    match = re.search(rf"^#define\\s+{re.escape(name)}\\s+(\\d+)", source, re.MULTILINE)
+    match = re.search(rf"^#define\s+{re.escape(name)}\s+(\d+)", source, re.MULTILINE)
     assert match, f"Missing firmware definition: {name}"
     return int(match.group(1))
 
@@ -34,8 +34,8 @@ def test_role_baud_rates_match_firmware() -> None:
 
     assert BAUDRATE_TX == 115200
     assert BAUDRATE_RX == 460800
-    assert re.search(r"Serial\\.begin\\(115200\\)", tx)
-    assert re.search(r"Serial\\.begin\\(460800\\)", rx)
+    assert re.search(r"Serial\.begin\(115200\)", tx)
+    assert re.search(r"Serial\.begin\(460800\)", rx)
     assert baud_for_role("tx") == BAUDRATE_TX
     assert baud_for_role("rx") == BAUDRATE_RX
 
@@ -61,7 +61,7 @@ def test_application_stream_buffer_matches_both_firmware_buffers() -> None:
 
 
 def test_method2_identical_file_has_zero_ber() -> None:
-    result = compare_payload_bits(b"\\x00\\xA5\\xFF", b"\\x00\\xA5\\xFF")
+    result = compare_payload_bits(b"\x00\xA5\xFF", b"\x00\xA5\xFF")
 
     assert result["strict_bit_errors"] == 0
     assert result["overlap_ber"] == 0.0
@@ -70,7 +70,7 @@ def test_method2_identical_file_has_zero_ber() -> None:
 
 
 def test_method2_counts_individual_bit_errors() -> None:
-    result = compare_payload_bits(b"\\x00", b"\\x03")
+    result = compare_payload_bits(b"\x00", b"\x03")
 
     assert result["overlap_bit_errors"] == 2
     assert result["strict_bit_errors"] == 2
@@ -80,7 +80,7 @@ def test_method2_counts_individual_bit_errors() -> None:
 
 
 def test_method2_counts_missing_bytes_as_strict_errors() -> None:
-    result = compare_payload_bits(b"\\x00\\xFF", b"\\x00")
+    result = compare_payload_bits(b"\x00\xFF", b"\x00")
 
     assert result["overlap_bit_errors"] == 0
     assert result["strict_bit_errors"] == 8
@@ -120,7 +120,7 @@ def test_non_dma_large_file_batching_uses_configured_chunk_and_rounds(
     monkeypatch.setattr("gui_dev_v3.serial.controllers.time.sleep", lambda _seconds: None)
 
     file_path = tmp_path / "large.bin"
-    file_path.write_bytes(b"\\xA5" * (MAX_STREAM_FILE_BYTES + 1))
+    file_path.write_bytes(b"\xA5" * (MAX_STREAM_FILE_BYTES + 1))
 
     controller = TXSerialController()
     controller.is_connected = True

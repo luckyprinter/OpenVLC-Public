@@ -392,7 +392,7 @@ class SignalMonitorPage(QWidget):
             ("Photodiode Status", "photodiode"),
             ("Relative Light Estimate", "ambient_light"),
             ("ADC Reference (nominal)", "supply_voltage"),
-            ("Auto Vref Mode", "vref_mode"),
+            ("Vref Mode", "vref_mode"),
             ("Vref Target", "vref_target"),
             ("Vref Error", "vref_error"),
         ]

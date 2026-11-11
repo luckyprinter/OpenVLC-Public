@@ -34,6 +34,7 @@ class FakeSerialPort:
         self.rts: bool | None = None
         self.exclusive: bool | None = None
         self.is_open = False
+        self._responses = list(registry.responses.get((port, baudrate), []))
 
     def open(self) -> None:
         if self.port in self.registry.fail_ports:
@@ -55,12 +56,25 @@ class FakeSerialPort:
 
     def readline(self) -> bytes:
         time.sleep(0.002)
-        return b""
+        return self._responses.pop(0) if self._responses else b""
+
+    def reset_input_buffer(self) -> None:
+        pass
+
+    def flush(self) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args: Any) -> None:
+        self.close()
 
 
 class FakeSerialRegistry:
     def __init__(self, fail_ports: set[str] | None = None) -> None:
         self.fail_ports = fail_ports or set()
+        self.responses: dict[tuple[str | None, int | None], list[bytes]] = {}
         self.open_ports: set[str] = set()
         self.opens: list[tuple[str | None, int | None, bool | None, bool | None, bool | None]] = []
         self.lock = threading.Lock()
@@ -159,3 +173,24 @@ def test_reconnect_stops_previous_reader_before_opening_new_port(fake_serial):
 
     session.disconnect()
     assert fake_serial.open_ports == set()
+
+
+
+def test_tx_and_rx_identification_probes_use_exclusive_non_resetting_open(
+    fake_serial, monkeypatch: pytest.MonkeyPatch
+):
+    from gui_dev_v3.rx.backends.physical import _send_identify as identify_rx
+    from gui_dev_v3.tx.backends.physical import _send_identify as identify_tx
+
+    fake_serial.responses[("MOCK_TX", 115200)] = [b"TX Ready\\n"]
+    fake_serial.responses[("MOCK_RX", 460800)] = [b"RX Ready\\n"]
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    assert identify_tx("MOCK_TX", "VLC_TX")["device"] == "VLC_TX"
+    assert identify_rx("MOCK_RX", "VLC_RX", 460800)["device"] == "VLC_RX"
+
+    assert fake_serial.open_ports == set()
+    assert fake_serial.opens == [
+        ("MOCK_TX", 115200, False, False, True),
+        ("MOCK_RX", 460800, False, False, True),
+    ]

@@ -124,3 +124,20 @@ def test_failed_open_never_reports_connected(monkeypatch: pytest.MonkeyPatch):
     assert session.is_connected is False
     assert session.serial_obj is None
     assert registry.open_ports == set()
+
+
+
+def test_rx_persistent_open_disables_dtr_and_rts(fake_serial, monkeypatch):
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    monkeypatch.setattr(
+        "gui_dev_v3.rx.backends.physical.time.sleep", lambda _seconds: None
+    )
+    backend = RXPhysicalBackend()
+    backend._port = "MOCK_RX"
+
+    assert backend._open_serial() is True
+    assert fake_serial.opens == [("MOCK_RX", 460800, False, False)]
+
+    backend._close_serial()
+    assert fake_serial.open_ports == set()

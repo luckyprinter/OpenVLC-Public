@@ -79,6 +79,26 @@ jobs:
           fi
         shell: bash
 
+      - name: Capture Responsive UI Screenshots
+        working-directory: application-source
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            xvfb-run python tests/capture_ui_screenshots.py
+          else
+            python tests/capture_ui_screenshots.py
+          fi
+        shell: bash
+
+      - name: Upload UI Screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: OpenVLC-UI-Screenshots-${{ matrix.os }}
+          path: application-source/ui-screenshots/*.png
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Build Application
         working-directory: application-source
         env:

@@ -180,7 +180,30 @@ class LocalDiagnostics:
 
 
 
-def build_diagnostics_controls(mgr: Any):
+_STORE_CACHE: dict[str, LocalDiagnostics] = {}
+
+
+def get_diagnostics_store(role: str, mgr: Any | None = None) -> LocalDiagnostics:
+    """Return the process-wide store shared by a role's UI and backend."""
+    normalized = role.lower()
+    if normalized not in {"tx", "rx"}:
+        raise ValueError("Diagnostics role must be 'tx' or 'rx'.")
+    store = _STORE_CACHE.get(normalized)
+    if store is None:
+        if mgr is None:
+            from gui_dev_v3.settings import SettingsManager
+            mgr = SettingsManager(normalized)
+        store = LocalDiagnostics(enabled=bool(mgr.get("diagnostics/consent", False)))
+        _STORE_CACHE[normalized] = store
+    return store
+
+
+def record_local_event(role: str, event: str, **fields: Any) -> bool:
+    """Record an event only when this role's explicit local-consent setting is on."""
+    return get_diagnostics_store(role).record(event, **fields)
+
+
+def build_diagnostics_controls(mgr: Any, role: str):
     """Build the explicit opt-in and local data controls used by TX and RX."""
     from PySide6.QtWidgets import (
         QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QMessageBox,
@@ -189,7 +212,8 @@ def build_diagnostics_controls(mgr: Any):
     from gui_dev_v3.widgets import Card, muted_label, primary_button
 
     enabled = bool(mgr.get("diagnostics/consent", False))
-    store = LocalDiagnostics(enabled=enabled)
+    store = get_diagnostics_store(role, mgr)
+    store.set_enabled(enabled)
     card = Card("Optional Local Diagnostics")
     card.body.addWidget(muted_label(
         "Off by default. When enabled, the app may save limited technical event "

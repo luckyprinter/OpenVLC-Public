@@ -214,12 +214,18 @@ class RXPhysicalBackend:
             return False
         try:
             import serial
-            self._ser = serial.Serial(
-                self._port,
-                RX_BAUD,
-                timeout=0.5,
-                write_timeout=0.5,
-            )
+            # Configure modem-control lines before opening. Some ESP32 USB-UART
+            # adapters wire DTR/RTS to reset/boot circuitry; opening with the
+            # driver's default line state can unexpectedly reset the board.
+            ser = serial.Serial()
+            ser.port = self._port
+            ser.baudrate = RX_BAUD
+            ser.timeout = 0.5
+            ser.write_timeout = 0.5
+            ser.dtr = False
+            ser.rts = False
+            ser.open()
+            self._ser = ser
             # Brief settle — do NOT reset_input_buffer here as the firmware may
             # already be sending data we want to capture
             time.sleep(0.2)

@@ -5,11 +5,13 @@ They do not emulate USB drivers, ESP32 reset circuitry, or firmware timing.
 """
 from __future__ import annotations
 
+import multiprocessing
 import sys
 import threading
 import time
 import types
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -97,6 +99,16 @@ class FakeSerialRegistry:
         if args:
             kwargs.setdefault("port", args[0])
         return FakeSerialPort(self, **kwargs)
+
+
+def _serial_scan_lock_process(lock_path: str, entered, release) -> None:
+    from gui_dev_v3 import serial
+    from gui_dev_v3.serial import detection
+
+    detection._SERIAL_SCAN_LOCK_PATH = Path(lock_path)
+    with detection.serial_scan_lock(timeout=5.0):
+        entered.set()
+        release.wait(timeout=5.0)
 
 
 @pytest.fixture
@@ -235,3 +247,45 @@ def test_tx_persistent_connection_waits_for_firmware_ready(fake_serial):
 
     backend._controller.disconnect()
     assert fake_serial.open_ports == set()
+
+
+def test_serial_scan_lock_serializes_separate_processes(tmp_path: Path):
+    """TX/RX launched as separate processes must not probe ports concurrently."""
+    ctx = multiprocessing.get_context("spawn")
+    lock_path = str(tmp_path / "serial_scan.lock")
+    first_entered = ctx.Event()
+    first_release = ctx.Event()
+    second_entered = ctx.Event()
+    second_release = ctx.Event()
+
+    first = ctx.Process(
+        target=_serial_scan_lock_process,
+        args=(lock_path, first_entered, first_release),
+    )
+    second = ctx.Process(
+        target=_serial_scan_lock_process,
+        args=(lock_path, second_entered, second_release),
+    )
+    first.start()
+    try:
+        assert first_entered.wait(timeout=5.0)
+        second.start()
+        # The second process must wait while the first owns the OS file lock.
+        assert second_entered.wait(timeout=0.25) is False
+        first_release.set()
+        assert second_entered.wait(timeout=5.0)
+    finally:
+        first_release.set()
+        second_release.set()
+        first.join(timeout=5.0)
+        if second.pid is not None:
+            second.join(timeout=5.0)
+        if first.is_alive():
+            first.terminate()
+            first.join(timeout=2.0)
+        if second.is_alive():
+            second.terminate()
+            second.join(timeout=2.0)
+
+    assert first.exitcode == 0
+    assert second.exitcode == 0

@@ -19,7 +19,7 @@ ThemeMode = Literal[
     "midnight_navy", "charcoal", "espresso", "synthwave", "arctic_light",
     "dark", "light",  # legacy aliases kept for compatibility
 ]
-AccentName = Literal["blue", "cyan", "green", "violet", "amber", "rose"]
+AccentName = Literal["blue", "cyan", "green", "violet", "amber", "rose", "teal"]
 DensityMode = Literal["comfortable", "compact"]
 
 # ── Accent overrides (per-preset defaults are in the palette itself) ────────
@@ -30,6 +30,7 @@ ACCENTS: dict[str, str] = {
     "violet": "#8b5cf6",
     "amber":  "#f59e0b",
     "rose":   "#f43f5e",
+    "teal":   "#2dd4bf",
 }
 
 # ── Named preset palettes ───────────────────────────────────────────────────
@@ -66,6 +67,24 @@ THEMES: dict[str, dict[str, str]] = {
         "status_dot_off": "#ef4444",
         "status_dot_sim": "#f59e0b",
     },
+    "graphite_lab": {
+        "bg": "#0B1218", "panel": "#111E28", "panel_alt": "#192A35",
+        "border": "#2A3D48", "border_glow": "#2DD4BF30",
+        "text": "#E7F0F2", "muted": "#8BA2AC", "secondary": "#B4C5CB",
+        "accent": "#2DD4BF", "accent_glow": "#2DD4BF30",
+        "green": "#4ADE80", "amber": "#FBBF24", "yellow": "#FACC15",
+        "red": "#FB7185", "purple": "#A78BFA",
+        "pvo": "#4ADE80", "vref": "#38BDF8", "margin": "#FBBF24",
+        "fail": "#FB7185", "ook": "#2DD4BF",
+        "chart_line": "#4ADE80", "chart_grid": "#2A3D48",
+        "sidebar_active": "#173B3B", "header": "#2DD4BF",
+        "value": "#F1F7F8", "footer_bg": "#0E1921",
+        "status_dot_on": "#4ADE80", "status_dot_off": "#FB7185",
+        "status_dot_sim": "#FBBF24",
+        "fontUi": '"Inter", "Segoe UI", Arial, sans-serif',
+        "fontMono": '"JetBrains Mono", Consolas, monospace',
+    },
+
     # ── Arctic Light — clean airy light ─────────────────────────────────
     "arctic_light": {
         "bg":             "#F0F4FA",
@@ -385,14 +404,22 @@ THEMES["dark"] = THEMES["midnight_navy"]
 THEMES["light"] = THEMES["arctic_light"]
 
 # ── Runtime state ───────────────────────────────────────────────────────────
-current_theme: str = "midnight_navy"
-current_accent: str = "blue"
+current_theme: str = "graphite_lab"
+current_accent: str = "teal"
 current_density: DensityMode = "comfortable"
 
 COLORS: dict[str, str] = THEMES[current_theme].copy()
 
 # ── Preset metadata for Settings UI ─────────────────────────────────────────
 THEME_PRESETS: list[dict] = [
+    {
+        "key": "graphite_lab",
+        "label": "Graphite Lab",
+        "desc": "Instrument-inspired dark workspace with teal accents",
+        "preview_bg": "#111E28",
+        "preview_accent": "#2DD4BF",
+        "preview_text": "#E7F0F2",
+    },
     {
         "key": "midnight_navy",
         "label": "Midnight Navy",

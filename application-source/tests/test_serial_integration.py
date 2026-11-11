@@ -102,7 +102,6 @@ class FakeSerialRegistry:
 
 
 def _serial_scan_lock_process(lock_path: str, entered, release) -> None:
-    from gui_dev_v3 import serial
     from gui_dev_v3.serial import detection
 
     detection._SERIAL_SCAN_LOCK_PATH = Path(lock_path)

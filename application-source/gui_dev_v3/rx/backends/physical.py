@@ -949,7 +949,7 @@ class RXPhysicalBackend:
                 "calibration_completed", result="success",
                 iterations=self._pwm_autocal_iterations,
                 target_vref_mv=target_mv, measured_vref_mv=measured_mv,
-                pwm_percent=int(self._pwm_autocal_last_pwm if self._pwm_autocal_last_pwm >= 0 else 0),
+                pwm_percent=int(float(lq_data.get("VREF_PWM_PERCENT", self._pwm_autocal_last_pwm if self._pwm_autocal_last_pwm >= 0 else 0))),
             )
             self.log(
                 "Vref Calibrated",

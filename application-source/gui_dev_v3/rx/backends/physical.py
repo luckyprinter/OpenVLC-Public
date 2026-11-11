@@ -315,8 +315,14 @@ class RXPhysicalBackend:
             with self._write_lock:
                 ser.write(b"\n")
                 ser.flush()
-            if not self._ready_event.wait(timeout=1.5):
-                self.log("Readiness Timeout", f"RX firmware did not answer ready ping on {self._port}")
+            from gui_dev_v3.settings import SettingsManager
+            try:
+                ready_timeout = float(SettingsManager("rx").get("connection/timeout", 5))
+            except (TypeError, ValueError):
+                ready_timeout = 5.0
+            ready_timeout = max(1.0, min(ready_timeout, 120.0))
+            if not self._ready_event.wait(timeout=ready_timeout):
+                self.log("Readiness Timeout", f"RX firmware did not answer ready ping on {self._port} within {ready_timeout:g}s")
                 self._close_serial()
                 return False
             return True

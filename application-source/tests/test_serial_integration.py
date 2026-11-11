@@ -57,11 +57,23 @@ class FakeSerialPort:
         self.is_open = False
 
     def write(self, data: bytes) -> int:
-        if data == b"\n" and not self._responses:
-            if self.baudrate == 115200:
-                self._responses.append(b"TX Ready\n")
-            elif self.baudrate == 460800:
-                self._responses.append(b"RX Ready\n")
+        with self.registry.lock:
+            self.registry.active_writes += 1
+            self.registry.max_active_writes = max(
+                self.registry.max_active_writes, self.registry.active_writes
+            )
+        try:
+            time.sleep(0.01)
+            if data == b"\n" and not self._responses:
+                if self.baudrate == 115200:
+                    self._responses.append(b"TX Ready\n")
+                elif self.baudrate == 460800:
+                    self._responses.append(b"RX Ready\n")
+            with self.registry.lock:
+                self.registry.writes.append((self.port, data))
+        finally:
+            with self.registry.lock:
+                self.registry.active_writes -= 1
         return len(data)
 
     def readline(self) -> bytes:
@@ -90,6 +102,9 @@ class FakeSerialRegistry:
         self.responses: dict[tuple[str | None, int | None], list[bytes]] = {}
         self.open_ports: set[str] = set()
         self.opens: list[tuple[str | None, int | None, bool | None, bool | None, bool | None]] = []
+        self.writes: list[tuple[str | None, bytes]] = []
+        self.active_writes = 0
+        self.max_active_writes = 0
         self.lock = threading.Lock()
 
     def module(self) -> types.ModuleType:
@@ -163,6 +178,36 @@ def test_tx_reader_marks_connection_lost_after_unplug(fake_serial):
     assert session.serial_obj is None
     assert fake_serial.open_ports == set()
     session.disconnect()
+
+
+def test_tx_session_serializes_concurrent_writes(fake_serial):
+    session = SerialSession("tx")
+    assert session.connect("MOCK_TX") is True
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(session.send_line, [f"CMD={i}" for i in range(24)]))
+
+    assert all(results)
+    assert fake_serial.max_active_writes == 1
+    assert len(fake_serial.writes) == 24
+    session.disconnect()
+
+
+def test_rx_backend_serializes_concurrent_writes(fake_serial, monkeypatch):
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    monkeypatch.setattr("gui_dev_v3.rx.backends.physical.time.sleep", lambda _seconds: None)
+    backend = RXPhysicalBackend()
+    backend._port = "MOCK_RX"
+    assert backend._open_serial() is True
+    backend._connected = True
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(backend.send_command, [f"CMD={i}\n" for i in range(24)]))
+
+    assert all(results)
+    assert fake_serial.max_active_writes == 1
+    backend._close_serial()
 
 
 def test_failed_open_never_reports_connected(monkeypatch: pytest.MonkeyPatch):

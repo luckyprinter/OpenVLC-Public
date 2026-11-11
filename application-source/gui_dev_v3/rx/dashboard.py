@@ -122,16 +122,31 @@ class _ReceptionStatusPanel(Card):
         sig = state.signal
         transfer = state.transfer
 
-        stage = str(state.session.latest_transfer.status.value) if state.session.latest_transfer else "Idle"
-        is_active = state.is_receiving or "incomplete" in stage.lower()
-        badge_text = "RECEIVING" if is_active else "READY"
-        badge_color = COLORS["green"] if is_active else COLORS["green"]
+        # A disconnected receiver must never be presented as READY. Keep
+        # simulation state visually distinct from a real hardware connection.
+        is_simulated = state.mode == "simulated"
+        is_active = state.is_receiving and (is_simulated or state.serial_connected)
+
+        if is_active and is_simulated:
+            badge_text, badge_color = "RECEIVING · SIM", COLORS["amber"]
+        elif is_active:
+            badge_text, badge_color = "RECEIVING", COLORS["green"]
+        elif is_simulated:
+            badge_text, badge_color = "SIMULATED", COLORS["amber"]
+        elif state.serial_connected:
+            badge_text, badge_color = "READY", COLORS["green"]
+        else:
+            badge_text, badge_color = "DISCONNECTED", COLORS["red"]
 
         self.badge.setText(badge_text)
         self.badge.setStyleSheet(f"background: {badge_color}; color: #0b1016; border-radius: 10px; padding: 4px 9px; font-weight: 700; font-size: 11px;")
-        self.chunks_row.setValue(f"{transfer.received_chunks} / {transfer.total_chunks}")
+        self.chunks_row.setValue(
+            f"{transfer.received_chunks} / {transfer.total_chunks}"
+            if transfer.total_chunks > 0 else "—"
+        )
         self.time_elapsed_row.setValue(sig.time_elapsed if sig.time_elapsed else "—")
-        self.cancel_btn.setVisible(is_active)
+        # Abort is currently implemented only by the simulation backend.
+        self.cancel_btn.setVisible(is_active and is_simulated)
 
 
 class _PerformanceMetricsPanel(Card):
@@ -155,7 +170,13 @@ class _PerformanceMetricsPanel(Card):
         sig = state.signal
         self.ber_row.setValue(f"{sig.ber:.4f}")
         self.strict_ber_row.setValue(f"{sig.strict_ber:.4f}")
-        self.crc_row.setStatus(sig.crc_status, COLORS["green"] if sig.crc_status == "PASS" else COLORS["red"])
+        crc_status = (sig.crc_status or "").strip().upper()
+        crc_color = (
+            COLORS["green"] if crc_status == "PASS"
+            else COLORS["red"] if crc_status in {"FAIL", "FAILED", "CRC FAILED"}
+            else COLORS["muted"]
+        )
+        self.crc_row.setStatus(sig.crc_status or "—", crc_color)
         self.margin_row.setValue(f"{sig.margin:.3f} V")
         self.data_rate_row.setValue(f"{sig.data_rate:.2f} kbps" if sig.data_rate > 0 else "— kbps")
 

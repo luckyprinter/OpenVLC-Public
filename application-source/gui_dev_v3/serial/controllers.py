@@ -94,8 +94,8 @@ class TXSerialController(SerialSession):
         active_low: bool = True,
         idle_on: bool = True,
         quiet: bool = True,
-    ) -> None:
-        """Send link-layer configuration to firmware.
+    ) -> bool:
+        """Send link-layer configuration and report whether every write succeeded.
 
         DMA_MODE, PREAMBLE, and CARRIER are only sent when the firmware is
         confirmed DMA-capable (tx_dma.ino); they would cause TX_ERROR on
@@ -125,7 +125,13 @@ class TXSerialController(SerialSession):
 
         commands.append("CONFIG?")
         for cmd in commands:
-            self.send_line(cmd)
+            if not self.send_line(cmd):
+                self.status(
+                    "Settings apply failed",
+                    f"Serial write failed at {cmd}",
+                    state="error",
+                )
+                return False
 
         mode_label = "DMA" if (self.dma_capable and dma_mode) else "Stream"
         self.status(
@@ -133,6 +139,7 @@ class TXSerialController(SerialSession):
             f"4B5B · {freq} Hz · {mode_label} · FGAP {fgap} ms",
             state="ready",
         )
+        return True
 
     # ── LED control ─────────────────────────────────────────────────────────
 

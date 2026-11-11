@@ -1169,47 +1169,26 @@ class MarginScaleBar(QWidget):
             p.drawLine(int(bar_x), int(mid_y),
                        int(bar_x + bar_w), int(mid_y))
 
-        # ── 2-column zone legend at the bottom ──────────────────────────
+        # ── single-column zone legend ──────────────────────────────────
+        # A vertical list remains readable in the narrow Signal-page panel.
         legend_font = _font(7, QFont.Normal)
         p.setFont(legend_font)
-
-        col1_x = bar_x
-        split_w = int(bar_w * 0.58)
-        col2_x = bar_x + split_w
-        
-        col1_text_w = split_w
-        col2_text_w = bar_w - split_w
-
-        y_row1 = 56
-        y_row2 = 72
-
-        # Row 1 Left: Red box (< 0.28 V Risk (High BER))
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#ef4444"))
-        p.drawRoundedRect(col1_x, y_row1 + 3, 6, 6, 1, 1)
-        p.setPen(QColor(_CLR_MUTED))
-        p.drawText(col1_x + 12, y_row1, col1_text_w, 12, Qt.AlignLeft | Qt.AlignVCenter, "< 0.28 V    Risk (High BER)")
-
-        # Row 2 Left: Orange box (0.28 - 0.36 V Acceptable)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#f59e0b"))
-        p.drawRoundedRect(col1_x, y_row2 + 3, 6, 6, 1, 1)
-        p.setPen(QColor(_CLR_MUTED))
-        p.drawText(col1_x + 12, y_row2, col1_text_w, 12, Qt.AlignLeft | Qt.AlignVCenter, "0.28 - 0.36 V    Acceptable")
-
-        # Row 1 Right: Green box (0.36 - 0.45 V Good)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#22c55e"))
-        p.drawRoundedRect(col2_x, y_row1 + 3, 6, 6, 1, 1)
-        p.setPen(QColor(_CLR_MUTED))
-        p.drawText(col2_x + 12, y_row1, col2_text_w, 12, Qt.AlignLeft | Qt.AlignVCenter, "0.36 - 0.45 V    Good")
-
-        # Row 2 Right: Dark Green box (> 0.45 V Excellent)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#16a34a"))
-        p.drawRoundedRect(col2_x, y_row2 + 3, 6, 6, 1, 1)
-        p.setPen(QColor(_CLR_MUTED))
-        p.drawText(col2_x + 12, y_row2, col2_text_w, 12, Qt.AlignLeft | Qt.AlignVCenter, "> 0.45 V    Excellent")
+        legend_rows = [
+            (QColor("#ef4444"), "< 0.28 V   Risk (high BER)"),
+            (QColor("#f59e0b"), "0.28 - 0.36 V   Acceptable"),
+            (QColor("#22c55e"), "0.36 - 0.45 V   Good"),
+            (QColor("#16a34a"), "> 0.45 V   Excellent"),
+        ]
+        for row, (zone_color, label) in enumerate(legend_rows):
+            y = 54 + row * 11
+            p.setPen(Qt.NoPen)
+            p.setBrush(zone_color)
+            p.drawRoundedRect(bar_x, y + 3, 6, 6, 1, 1)
+            p.setPen(QColor(_CLR_MUTED))
+            p.drawText(
+                bar_x + 12, y, max(0, bar_w - 12), 12,
+                Qt.AlignLeft | Qt.AlignVCenter, label,
+            )
 
         p.end()
 

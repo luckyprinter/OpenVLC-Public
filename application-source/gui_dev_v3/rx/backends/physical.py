@@ -175,6 +175,16 @@ class RXPhysicalBackend:
 
     def auto_connect(self) -> bool:
         """Auto-detect: scan → IDENTIFY → open persistent serial."""
+        from gui_dev_v3.serial.detection import serial_scan_lock
+        try:
+            with serial_scan_lock():
+                return self._auto_connect_locked()
+        except TimeoutError:
+            self.log("Scan Busy", "Another VLC console is still scanning serial devices")
+            return False
+
+    def _auto_connect_locked(self) -> bool:
+        """Perform discovery and persistent connection while holding the shared lock."""
         ports = self.scan_ports()
         if ports:
             self.log("Scan", f"Found {len(ports)} ports: {', '.join(ports)}")
@@ -200,6 +210,15 @@ class RXPhysicalBackend:
         return False
 
     def connect(self, port: str, force: bool = False) -> bool:
+        from gui_dev_v3.serial.detection import serial_scan_lock
+        try:
+            with serial_scan_lock():
+                return self._connect_locked(port, force=force)
+        except TimeoutError:
+            self.log("Scan Busy", "Another VLC console is still scanning serial devices")
+            return False
+
+    def _connect_locked(self, port: str, force: bool = False) -> bool:
         """Connect to a specific port after firmware detection."""
         if not force:
             self.log("Connect", f"Detecting firmware on {port}...")

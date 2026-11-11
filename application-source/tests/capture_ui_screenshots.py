@@ -14,7 +14,7 @@ from gui_dev_v3.app import VLCMainWindow, load_bundled_fonts
 OUTPUT_DIR = Path("ui-screenshots")
 WINDOW_SIZES = ((1366, 768), (1280, 720), (1024, 700))
 PAGES = {
-    "tx": {"dashboard": 0, "transmit": 1, "settings": 3},
+    "tx": {"dashboard": 0, "transmit": 1, "settings": 4},
     "rx": {"dashboard": 0, "receive": 1, "signal": 3, "settings": 6},
 }
 

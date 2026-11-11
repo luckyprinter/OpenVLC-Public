@@ -109,7 +109,7 @@ class TXShell(QWidget):
 
         # ── Sidebar ────
         self.sidebar = QWidget()
-        self.sidebar.setFixedWidth(220)
+        self.sidebar.setFixedWidth(224)
         self.sidebar.setObjectName("Sidebar")
         sidebar_layout = QVBoxLayout(self.sidebar)
         sidebar_layout.setContentsMargins(12, 16, 8, 12)
@@ -119,7 +119,7 @@ class TXShell(QWidget):
         title = QLabel("VLC Transmitter")
         title.setObjectName("Title")
         title.setStyleSheet(
-            "font-size: 16px; padding-left: 6px;"
+            "font-size: 17px; padding-left: 6px;"
         )
         title.setWordWrap(True)
         sidebar_layout.addWidget(title)
@@ -127,7 +127,7 @@ class TXShell(QWidget):
         subtitle = QLabel("Visible Light\nCommunication")
         subtitle.setObjectName("Muted")
         subtitle.setStyleSheet(
-            "font-size: 11px; padding-left: 6px; padding-bottom: 8px; min-height: 28px;"
+            "font-size: 12px; padding-left: 6px; padding-bottom: 8px; min-height: 30px;"
         )
         sidebar_layout.addWidget(subtitle)
 
@@ -150,18 +150,18 @@ class TXShell(QWidget):
         status_row.setSpacing(6)
         self._pulse_dot = PulsingDot()
         self._conn_status = QLabel("Disconnected")
-        self._conn_status.setStyleSheet("font-size: 10px; font-weight: 600; background: transparent;")
+        self._conn_status.setStyleSheet("font-size: 11px; font-weight: 600; background: transparent;")
         status_row.addWidget(self._pulse_dot)
         status_row.addWidget(self._conn_status)
         status_row.addStretch(1)
         conn_card_layout.addLayout(status_row)
 
         self._conn_device = QLabel("Device: —")
-        self._conn_device.setStyleSheet("font-size: 10px; background: transparent;")
+        self._conn_device.setStyleSheet("font-size: 11px; background: transparent;")
         conn_card_layout.addWidget(self._conn_device)
 
         self._conn_firmware = QLabel("Firmware: —")
-        self._conn_firmware.setStyleSheet("font-size: 10px; background: transparent;")
+        self._conn_firmware.setStyleSheet("font-size: 11px; background: transparent;")
         conn_card_layout.addWidget(self._conn_firmware)
 
         sidebar_layout.addWidget(conn_card)
@@ -170,7 +170,7 @@ class TXShell(QWidget):
         version = QLabel("v3.0 · PySide6")
         version.setObjectName("Muted")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        version.setStyleSheet("font-size: 10px; padding: 8px;")
+        version.setStyleSheet("font-size: 11px; padding: 8px;")
         sidebar_layout.addWidget(version)
 
         content.addWidget(self.sidebar)
@@ -211,7 +211,7 @@ class TXShell(QWidget):
         # Mode indicator (left)
         self._footer_mode = QLabel("Mode: SIMULATED")
         self._footer_mode.setStyleSheet(
-            "font-size: 10px; font-weight: 600; background: transparent;"
+            "font-size: 11px; font-weight: 600; background: transparent;"
         )
         layout.addWidget(self._footer_mode)
 
@@ -295,7 +295,7 @@ class TXShell(QWidget):
         # Sidebar pulsing dot + label
         self._pulse_dot.set_state(dot_state)
         self._conn_status.setText(conn_status_text)
-        self._conn_status.setStyleSheet(f"font-size: 10px; font-weight: 600; color: {status_color}; background: transparent;")
+        self._conn_status.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {status_color}; background: transparent;")
 
         # Footer mode
         self._footer_mode.setText(f"Mode: {mode}")

@@ -183,6 +183,7 @@ class TXShell(QWidget):
 
         # ── Main workspace: page header + active page ───────────────────
         main_area = QWidget()
+        self._main_area = main_area
         main_layout = QVBoxLayout(main_area)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)

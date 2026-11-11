@@ -215,20 +215,7 @@ class RXShell(QWidget):
 
         layout.addStretch(1)
 
-        # Database status (right)
-        self._footer_db = QLabel("Database: Connected")
-        self._footer_db.setStyleSheet(
-            f"font-size: 10px; color: {COLORS['green']}; background: transparent; font-weight: 600;"
-        )
-        layout.addWidget(self._footer_db)
-
-        # Log status (right)
-        self._footer_log = QLabel("Log: Recording")
-        self._footer_log.setStyleSheet(
-            f"font-size: 10px; color: {COLORS['green']}; background: transparent; font-weight: 600;"
-        )
-        layout.addWidget(self._footer_log)
-
+        # Clock (right) — connection status is shown in the sidebar card.
         # Time clock (far right)
         self._footer_time = QLabel()
         self._footer_time.setStyleSheet(

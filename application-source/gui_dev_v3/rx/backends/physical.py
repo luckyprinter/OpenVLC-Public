@@ -105,6 +105,8 @@ class RXPhysicalBackend:
         self._last_lq_line: str | None = None  # most recent LQ line seen by reader
         self._reader_thread: threading.Thread | None = None
         self._reader_stop: threading.Event = threading.Event()
+        # Set only after the persistent RX command loop answers the ready ping.
+        self._ready_event: threading.Event = threading.Event()
         # Active transfer tracking
         self._active_tid: int | None = None
         self._active_total_chunks: int = 0
@@ -277,12 +279,23 @@ class RXPhysicalBackend:
             if not self._ser.is_open:
                 self._ser = None
                 return False
-            # Start background reader
+            # Start the reader before pinging so the readiness response is not lost.
+            self._ready_event.clear()
             self._reader_stop.clear()
             self._reader_thread = threading.Thread(
                 target=self._serial_reader_loop, daemon=True, name="rx-serial-reader"
             )
             self._reader_thread.start()
+
+            # The firmware answers a blank line only after setup() has completed
+            # and loop() is processing serial commands. This replaces reliance
+            # on a fixed startup sleep as the readiness signal.
+            ser.write(b"\\n")
+            ser.flush()
+            if not self._ready_event.wait(timeout=1.5):
+                self.log("Readiness Timeout", f"RX firmware did not answer ready ping on {self._port}")
+                self._close_serial()
+                return False
             return True
         except Exception as exc:
             self._ser = None
@@ -317,6 +330,10 @@ class RXPhysicalBackend:
         LQ lines are cached for _poll_lq(). File-data lines are handled immediately.
         All lines are also pushed to _line_queue for the refresh() caller.
         """
+        if line.strip() == "RX Ready":
+            self._ready_event.set()
+            return
+
         # Strip noise prefix that can appear at the start of lines (e.g. after reset)
         for marker in (
             "RX_FILE_HEX:", "RX_TRANSFER_NOTICE:", "RX_RAM_STORE:",

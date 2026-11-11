@@ -337,36 +337,47 @@ class RXDashboardPage(QWidget):
         self._state = state
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 12, 16, 12)
-        outer.setSpacing(12)
+        outer.setContentsMargins(20, 16, 20, 16)
+        outer.setSpacing(14)
 
-        # At-a-glance status and measurements.
+        # Receiver page identity and a concise description of its purpose.
+        intro = QVBoxLayout()
+        intro.setContentsMargins(2, 0, 2, 2)
+        intro.setSpacing(3)
+        eyebrow = QLabel("RECEIVER  /  MONITORING")
+        eyebrow.setObjectName("SectionTitle")
+        heading = QLabel("Reception overview")
+        heading.setStyleSheet("font-size: 21px; font-weight: 750; letter-spacing: -0.4px; background: transparent;")
+        description = QLabel("Track link quality, signal levels, file progress, and decoder state.")
+        description.setObjectName("Muted")
+        intro.addWidget(eyebrow)
+        intro.addWidget(heading)
+        intro.addWidget(description)
+        outer.addLayout(intro)
+
+        # At-a-glance link and signal indicators remain grouped together.
         self._reception = _ReceptionStatusPanel(state)
         self._perf = _PerformanceMetricsPanel(state)
         self._signal_mon = _SignalMonitorPanel(state)
-
         top_grid = QHBoxLayout()
-        top_grid.setSpacing(12)
+        top_grid.setSpacing(14)
         top_grid.addWidget(self._reception, 1)
         top_grid.addWidget(self._perf, 1)
         top_grid.addWidget(self._signal_mon, 1)
         outer.addLayout(top_grid)
 
-        # File and decoder details share the working area. The live waveform
-        # is intentionally kept on the dedicated Signal page to avoid showing
-        # the same visualization twice and to keep this overview uncluttered.
+        # The file is the main object being received; decoder state is
+        # secondary context. Detailed live waveform analysis stays on Signal.
         detail_widget = QWidget()
         detail_grid = QHBoxLayout(detail_widget)
         detail_grid.setContentsMargins(0, 0, 0, 0)
-        detail_grid.setSpacing(12)
-
-        self._bit_decode = _BitDecodePanel(state)
+        detail_grid.setSpacing(14)
         self._file_info = _FileInfoPanel(state)
-        detail_grid.addWidget(self._file_info, 1)
-        detail_grid.addWidget(self._bit_decode, 1)
+        self._bit_decode = _BitDecodePanel(state)
+        detail_grid.addWidget(self._file_info, 3)
+        detail_grid.addWidget(self._bit_decode, 2)
 
         self._activity_log = _ActivityLogPanel(state)
-
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setChildrenCollapsible(False)
         splitter.addWidget(detail_widget)

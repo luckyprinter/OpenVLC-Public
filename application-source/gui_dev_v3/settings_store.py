@@ -7,9 +7,9 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
-ThemeMode = Literal["midnight_navy", "charcoal", "espresso", "synthwave", "arctic_light", "dark", "light"]
+ThemeMode = Literal["graphite_lab", "midnight_navy", "charcoal", "espresso", "synthwave", "arctic_light", "dark", "light"]
 DensityMode = Literal["comfortable", "compact"]
-AccentName = Literal["blue", "cyan", "green", "violet", "amber", "rose"]
+AccentName = Literal["blue", "cyan", "green", "violet", "amber", "rose", "teal"]
 
 SETTINGS_DIR = Path.home() / ".vlc_rx_app"
 SETTINGS_PATH = SETTINGS_DIR / "settings.json"
@@ -37,16 +37,16 @@ RESOLUTION_PRESETS: list[tuple[str, int, int]] = [
 _VALID_RESOLUTION_KEYS = {key for key, _, _ in RESOLUTION_PRESETS}
 
 
-_VALID_THEMES: set[str] = {"midnight_navy", "charcoal", "espresso", "synthwave", "arctic_light", "dark", "light"}
+_VALID_THEMES: set[str] = {"graphite_lab", "midnight_navy", "charcoal", "espresso", "synthwave", "arctic_light", "dark", "light"}
 _LEGACY_THEME_MAP: dict[str, str] = {"dark": "midnight_navy", "light": "arctic_light"}
-_VALID_ACCENTS: set[str] = {"blue", "cyan", "green", "violet", "amber", "rose"}
+_VALID_ACCENTS: set[str] = {"blue", "cyan", "green", "violet", "amber", "rose", "teal"}
 
 
 @dataclass
 class AppSettings:
-    theme: ThemeMode = "midnight_navy"
+    theme: ThemeMode = "graphite_lab"
     density: DensityMode = "comfortable"
-    accent: AccentName = "blue"
+    accent: AccentName = "teal"
     resolution: str = "1280x800"
     fullscreen: bool = False
     borderless: bool = False
@@ -78,18 +78,18 @@ def load_settings() -> AppSettings:
     if not isinstance(data, dict):
         return AppSettings()
 
-    raw_theme = data.get("theme", "midnight_navy")
+    raw_theme = data.get("theme", "graphite_lab")
     if not isinstance(raw_theme, str):
-        raw_theme = "midnight_navy"
+        raw_theme = "graphite_lab"
     # Remap legacy "dark"/"light" to new named presets.
     raw_theme = _LEGACY_THEME_MAP.get(raw_theme, raw_theme)
-    valid_theme = raw_theme if raw_theme in _VALID_THEMES else "midnight_navy"
+    valid_theme = raw_theme if raw_theme in _VALID_THEMES else "graphite_lab"
 
     raw_density = data.get("density", "comfortable")
     if not isinstance(raw_density, str) or raw_density not in {"comfortable", "compact"}:
         raw_density = "comfortable"
 
-    raw_accent = data.get("accent", "blue")
+    raw_accent = data.get("accent", "teal")
     if not isinstance(raw_accent, str) or raw_accent not in _VALID_ACCENTS:
         raw_accent = "blue"
 

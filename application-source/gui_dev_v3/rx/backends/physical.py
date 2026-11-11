@@ -148,9 +148,12 @@ class RXPhysicalBackend:
             info = self.detect_firmware(port)
             if info and info.get("device") == "VLC_RX":
                 self._port = port
+                if not self._open_serial():
+                    self.log("Error [C02]", f"PySerial failed to open {port}; continuing scan")
+                    self._port = None
+                    continue
                 self._connected = True
                 self.log("Connected", f"Auto-connected to {port} (VLC_RX)")
-                self._open_serial()
                 self.apply_link_settings()
                 return True
         if ports:
@@ -171,13 +174,15 @@ class RXPhysicalBackend:
             self._firmware_info = info
 
         self._port = port
-        self._connected = True
-        self._open_serial()
-        if not self._ser or not self._ser.is_open:
+        if not self._open_serial():
+            self._port = None
+            self._connected = False
             self.log("Error [C02]", f"PySerial failed to open {port}")
-        else:
-            self.log("Connected", f"Opened {port} successfully")
-            self.apply_link_settings()
+            return False
+
+        self._connected = True
+        self.log("Connected", f"Opened {port} successfully")
+        self.apply_link_settings()
         return True
 
     def disconnect(self) -> None:
@@ -202,11 +207,11 @@ class RXPhysicalBackend:
     def board_type(self) -> str:
         return self._firmware_info.get("board", "") if self._firmware_info else ""
 
-    def _open_serial(self) -> None:
+    def _open_serial(self) -> bool:
         """Open persistent serial connection at RX baud rate and start reader thread."""
         self._close_serial()
         if not self._port:
-            return
+            return False
         try:
             import serial
             self._ser = serial.Serial(
@@ -218,14 +223,20 @@ class RXPhysicalBackend:
             # Brief settle — do NOT reset_input_buffer here as the firmware may
             # already be sending data we want to capture
             time.sleep(0.2)
+            if not self._ser.is_open:
+                self._ser = None
+                return False
             # Start background reader
             self._reader_stop.clear()
             self._reader_thread = threading.Thread(
                 target=self._serial_reader_loop, daemon=True, name="rx-serial-reader"
             )
             self._reader_thread.start()
-        except Exception:
+            return True
+        except Exception as exc:
             self._ser = None
+            self.log("Serial Open Failed", f"{self._port}: {type(exc).__name__}: {exc}")
+            return False
 
     def _serial_reader_loop(self) -> None:
         """Background thread: read every line from serial and put into _line_queue.

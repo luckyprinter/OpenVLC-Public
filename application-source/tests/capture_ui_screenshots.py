@@ -13,7 +13,8 @@ from PySide6.QtWidgets import QApplication
 from gui_dev_v3.app import VLCMainWindow, load_bundled_fonts
 
 
-OUTPUT_DIR = Path("ui-screenshots")
+SCALE_LABEL = os.environ.get("OPENVLC_SCREENSHOT_SCALE", "1.0").replace(".", "p")
+OUTPUT_DIR = Path("ui-screenshots") / f"scale-{SCALE_LABEL}"
 WINDOW_SIZES = ((1366, 768), (1280, 720), (1024, 700))
 PAGES = {
     "tx": {"dashboard": 0, "transmit": 1, "settings": 4},

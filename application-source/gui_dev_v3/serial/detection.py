@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import os
 import sys
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
+from pathlib import Path
 
 # TX firmware: 115200 baud (tx_dma.ino / tx_non_dma.ino → Serial.begin(115200))
 # RX firmware: 460800 baud (rx.ino → Serial.begin(460800))
@@ -13,6 +17,60 @@ BAUDRATE_RX = 460800
 # Legacy alias used by session.py connect() — defaults to TX; RXPhysicalBackend
 # overrides with RX_BAUD directly so this only affects TXSerialController.
 BAUDRATE = BAUDRATE_TX
+
+# Both TX and RX consoles may scan from separate processes. Serialize the
+# complete identify -> persistent-open sequence so one role cannot repeatedly
+# steal the other role's candidate port between the probe and final open.
+_SERIAL_SCAN_LOCK_PATH = Path.home() / ".vlc_app" / "serial_scan.lock"
+
+
+@contextmanager
+def serial_scan_lock(timeout: float = 20.0):
+    """Acquire a cross-process lock around serial discovery and connection.
+
+    The lock is released automatically if a scan fails or the process exits.
+    It protects only discovery/connection setup; active TX and RX serial
+    sessions remain independent and can operate simultaneously.
+    """
+    path = _SERIAL_SCAN_LOCK_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + max(0.0, timeout)
+    with path.open("a+b") as stream:
+        if os.name == "nt":
+            import msvcrt
+            stream.seek(0, os.SEEK_END)
+            if stream.tell() == 0:
+                stream.write(b"\\0")
+                stream.flush()
+            while True:
+                try:
+                    stream.seek(0)
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Timed out waiting for the shared serial scan lock")
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            while True:
+                try:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("Timed out waiting for the shared serial scan lock")
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
 
 # Probe order: try RX baud first (it will reject TX firmware), then TX baud
 _PROBE_BAUDS = (BAUDRATE_RX, BAUDRATE_TX)

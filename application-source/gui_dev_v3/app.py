@@ -171,7 +171,7 @@ class _ConsoleCard(QFrame):
         super().__init__(parent)
         self.setObjectName("ConsoleCard")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumSize(QSize(310, 180))
+        self.setMinimumSize(QSize(270, 160))
         self.setMaximumWidth(400)
 
         layout = QVBoxLayout(self)
@@ -227,7 +227,7 @@ class VLCLauncherPage(QWidget):
         # ── Center content ──────────────────────────────────────────
         center = QWidget()
         center_layout = QVBoxLayout(center)
-        center_layout.setContentsMargins(64, 0, 64, 0)
+        center_layout.setContentsMargins(32, 0, 32, 0)
         center_layout.setSpacing(0)
         center_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -264,7 +264,7 @@ class VLCLauncherPage(QWidget):
 
         # Console cards
         cards_row = QHBoxLayout()
-        cards_row.setSpacing(20)
+        cards_row.setSpacing(16)
         cards_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         tx_card = _ConsoleCard(

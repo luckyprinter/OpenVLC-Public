@@ -56,8 +56,8 @@ def test_application_stream_buffer_matches_both_firmware_buffers() -> None:
     rx = (ROOT / "firmware/rx/rx.ino").read_text(encoding="utf-8")
 
     assert MAX_STREAM_FILE_BYTES == 80 * 1024
-    assert _define(tx, "MAX_STREAM_FILE_BYTES") == MAX_STREAM_FILE_BYTES
-    assert _define(rx, "MAX_RX_FILE_BYTES") == MAX_STREAM_FILE_BYTES
+    assert "#define MAX_STREAM_FILE_BYTES (80UL * 1024UL)" in tx
+    assert "#define MAX_RX_FILE_BYTES (80UL * 1024UL)" in rx
 
 
 def test_method2_identical_file_has_zero_ber() -> None:

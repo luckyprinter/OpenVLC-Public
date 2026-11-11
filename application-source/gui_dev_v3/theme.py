@@ -606,9 +606,9 @@ QListWidget::item {{
 QListWidget::item:selected {{
     background: {t['sidebar_active']};
     color: {t['text']};
-    font-weight: 600;
-    border-left: 3px solid {t['accent']};
-    padding-left: 11px;
+    font-weight: 700;
+    border: 1px solid {t['border']};
+    padding-left: 14px;
 }}
 QListWidget::item:hover:!selected {{
     background: {t['sidebar_active']};
@@ -619,7 +619,6 @@ QListWidget::item:hover:!selected {{
 QFrame#Card {{
     background: {t['panel']};
     border: 1px solid {t['border']};
-    border-top: 1px solid {t.get('border_glow', t['border'])};
     border-radius: 14px;
 }}
 QFrame#ChartFrame {{

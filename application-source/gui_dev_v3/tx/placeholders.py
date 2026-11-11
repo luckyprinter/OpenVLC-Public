@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QMessageBox,
     QFileDialog
 )

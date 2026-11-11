@@ -260,8 +260,19 @@ class RXShell(QWidget):
                 dot_state = "connected"
                 status_text = "Connected"
                 status_color = COLORS.get("status_dot_on", COLORS["green"])
-                self._conn_device.setText("Device: VLC_RX")
-                self._conn_firmware.setText("Firmware: v1.0")
+                physical = getattr(self.state, "_physical", None)
+                port = getattr(physical, "port", None) if physical else None
+                firmware_info = getattr(physical, "_firmware_info", None) if physical else None
+                firmware_name = (firmware_info or {}).get("firmware", "")
+                if firmware_name and firmware_name not in ("rx_unknown", "rx_forced"):
+                    firmware_label = firmware_name
+                elif firmware_name == "rx_forced":
+                    firmware_label = "Force-connected · version unknown"
+                else:
+                    firmware_label = "Detected · version not reported"
+                device_suffix = f" ({port})" if port else ""
+                self._conn_device.setText(f"Device: VLC_RX{device_suffix}")
+                self._conn_firmware.setText(f"Firmware: {firmware_label}")
             else:
                 dot_state = "disconnected"
                 status_text = "Disconnected"

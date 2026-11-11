@@ -458,6 +458,7 @@ class RXPhysicalBackend:
                     batch = self._batch_transfers.setdefault(group_id, {
                         "parts": {},
                         "created": time.time(),
+                        "started_monotonic": time.monotonic(),
                         "name": orig_name,
                         "full_crc": full_crc,
                         "part_count": part_count
@@ -470,6 +471,10 @@ class RXPhysicalBackend:
                     })
                     
                     if len(batch["parts"]) == part_count:
+                        # Measure the complete batch, not only the final part.
+                        batch_started = batch.get("started_monotonic")
+                        if isinstance(batch_started, (int, float)):
+                            self._active_started_monotonic = batch_started
                         # Reconstruct the full file
                         file_bytes = b"".join(batch["parts"][i] for i in range(1, part_count + 1))
                         filename = orig_name

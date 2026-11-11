@@ -197,3 +197,20 @@ def test_tx_and_rx_identification_probes_use_exclusive_non_resetting_open(
         ("MOCK_TX", 115200, False, False, True),
         ("MOCK_RX", 460800, False, False, True),
     ]
+
+
+
+def test_general_role_scanner_probe_uses_safe_exclusive_open(fake_serial):
+    from gui_dev_v3.serial.detection import probe_serial_port
+
+    fake_serial.responses[("MOCK_TX", 115200)] = [b"TX Ready\n"]
+
+    role, lines = probe_serial_port("MOCK_TX")
+
+    assert role == "tx"
+    assert "TX Ready" in lines
+    assert fake_serial.opens == [
+        ("MOCK_TX", 460800, False, False, True),
+        ("MOCK_TX", 115200, False, False, True),
+    ]
+    assert fake_serial.open_ports == set()

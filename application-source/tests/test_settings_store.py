@@ -76,10 +76,21 @@ def test_reset_clears_console_and_shared_display_settings(
     from gui_dev_v3.settings import reset_all_settings
 
     class FakeManager:
-        cleared = False
+        def __init__(self, scope: str = "rx") -> None:
+            self.scope = scope
+            self.cleared = False
 
         def clear(self) -> None:
             self.cleared = True
+
+    cleared_scopes: list[str] = []
+
+    class FakeScopedManager(FakeManager):
+        def clear(self) -> None:
+            cleared_scopes.append(self.scope)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr("gui_dev_v3.settings.SettingsManager", FakeScopedManager)
 
     class FakeWindow:
         settings = settings_store.AppSettings(
@@ -95,5 +106,7 @@ def test_reset_clears_console_and_shared_display_settings(
     reset_all_settings(manager, window)
 
     assert manager.cleared is True
+    assert cleared_scopes == ["tx"]
     assert window.settings == settings_store.AppSettings()
     assert settings_store.load_settings() == settings_store.AppSettings()
+    monkeypatch.undo()

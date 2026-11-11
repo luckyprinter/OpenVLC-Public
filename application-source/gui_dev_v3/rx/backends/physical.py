@@ -224,6 +224,7 @@ class RXPhysicalBackend:
             ser.write_timeout = 0.5
             ser.dtr = False
             ser.rts = False
+            ser.exclusive = True
             ser.open()
             self._ser = ser
             # Brief settle — do NOT reset_input_buffer here as the firmware may

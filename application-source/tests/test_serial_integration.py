@@ -34,9 +34,12 @@ class FakeSerialPort:
         self.rts: bool | None = None
         self.exclusive: bool | None = None
         self.is_open = False
-        self._responses = list(registry.responses.get((port, baudrate), []))
+        self._responses: list[bytes] = []
 
     def open(self) -> None:
+        self._responses = list(
+            self.registry.responses.get((self.port, self.baudrate), [])
+        )
         if self.port in self.registry.fail_ports:
             raise OSError(f"mock port {self.port} is busy")
         with self.registry.lock:

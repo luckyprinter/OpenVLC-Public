@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+from contextlib import contextmanager
 import time
 from pathlib import Path
 from typing import Any
@@ -82,6 +83,39 @@ def _safe_value(key: str, value: Any) -> str | int | float | bool | None:
     return None
 
 
+@contextmanager
+def _cross_process_file_lock(path: Path):
+    """Lock a sidecar file so TX and RX processes can safely share one JSONL queue.
+
+    Uses the native advisory lock on each supported platform. The lock file is
+    intentionally persistent: deleting it while another process has it open
+    could create two independently locked inodes.
+    """
+    lock_path = path.with_name(path.name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+b") as lock_stream:
+        if os.name == "nt":
+            import msvcrt
+            lock_stream.seek(0, os.SEEK_END)
+            if lock_stream.tell() == 0:
+                lock_stream.write(b"\\0")
+                lock_stream.flush()
+            lock_stream.seek(0)
+            msvcrt.locking(lock_stream.fileno(), msvcrt.LK_LOCK, 1)
+            try:
+                yield
+            finally:
+                lock_stream.seek(0)
+                msvcrt.locking(lock_stream.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_stream.fileno(), fcntl.LOCK_UN)
+
+
 class LocalDiagnostics:
     """Append-only JSONL diagnostic queue, disabled until explicit opt-in."""
 
@@ -123,21 +157,22 @@ class LocalDiagnostics:
             if not self._enabled:
                 return False
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(encoded + "\n")
-                stream.flush()
+            with _cross_process_file_lock(self.path):
+                with self.path.open("a", encoding="utf-8") as stream:
+                    stream.write(encoded + "\n")
+                    stream.flush()
         return True
 
     def export_text(self) -> str:
         """Return the local queue for user review/export; never uploads it."""
-        with self._lock:
+        with self._lock, _cross_process_file_lock(self.path):
             if not self.path.exists():
                 return ""
             return self.path.read_text(encoding="utf-8")
 
     def clear(self) -> None:
         """Delete locally queued diagnostics."""
-        with self._lock:
+        with self._lock, _cross_process_file_lock(self.path):
             try:
                 self.path.unlink()
             except FileNotFoundError:

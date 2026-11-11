@@ -8,7 +8,6 @@ import sys
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PySide6.QtCore import QPoint
 from PySide6.QtWidgets import QApplication
 
 from gui_dev_v3.app import VLCMainWindow, load_bundled_fonts
@@ -35,18 +34,19 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
                 item = layout.itemAt(index)
                 widget = item.widget()
                 if widget is not None and widget.isVisible():
-                    # QWidget.geometry() is expressed in the immediate parent's
-                    # coordinate system, while the card body uses its own local
-                    # coordinates. Map the child origin into the body before
-                    # comparing bounds; otherwise the check can report false
-                    # clipping when the card is positioned below the window top.
-                    child_top = widget.mapTo(body, QPoint(0, 0)).y()
+                    # Card.body is a QLayout, not a QWidget. Compare the child
+                    # bounds and layout content area in the owning card's
+                    # coordinate system so the check works across Qt platforms.
+                    card = body.parentWidget()
+                    child_top = widget.mapTo(card, QPoint(0, 0)).y()
                     child_bottom = child_top + widget.height()
-                    if child_top < -1 or child_bottom > body.height() + 1:
+                    content_top = body.geometry().top()
+                    content_bottom = body.geometry().bottom()
+                    if child_top < content_top - 1 or child_bottom > content_bottom + 1:
                         raise RuntimeError(
                             f"TX file-details control is clipped at {width}x{height}: "
                             f"{widget.objectName() or widget.__class__.__name__} "
-                            f"(bottom={child_bottom}, body_height={body.height()})"
+                            f"(bottom={child_bottom}, content_bottom={content_bottom})"
                         )
 
     if mode == "tx":

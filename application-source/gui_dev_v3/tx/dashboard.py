@@ -686,42 +686,48 @@ class TXDashboardPage(QWidget):
         self._state = state
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 12, 16, 12)
-        outer.setSpacing(12)
+        outer.setContentsMargins(20, 16, 20, 16)
+        outer.setSpacing(14)
 
-        # 1. Device Status Panel (Full Width)
+        # Clear page hierarchy: purpose first, live device state second.
+        intro = QVBoxLayout()
+        intro.setContentsMargins(2, 0, 2, 2)
+        intro.setSpacing(3)
+        eyebrow = QLabel("TRANSMITTER  /  CONTROL ROOM")
+        eyebrow.setObjectName("SectionTitle")
+        heading = QLabel("Prepare an optical transfer")
+        heading.setStyleSheet("font-size: 21px; font-weight: 750; letter-spacing: -0.4px; background: transparent;")
+        description = QLabel("Choose a file, review the link state, then start transmission.")
+        description.setObjectName("Muted")
+        intro.addWidget(eyebrow)
+        intro.addWidget(heading)
+        intro.addWidget(description)
+        outer.addLayout(intro)
+
         self._device_status = DeviceStatusWidget()
         outer.addWidget(self._device_status)
 
-        # 2. Pipeline and Session Row
-        row2 = QHBoxLayout()
-        row2.setSpacing(12)
-        
-        self._pipeline = TransmissionPipelineWidget()
-        self._session = CurrentSessionWidget()
-        
-        row2.addWidget(self._pipeline, 1)
-        row2.addWidget(self._session, 1)
-        outer.addLayout(row2)
-
-        # 3. File Details and Encoded Bit Stream Row
-        row3 = QHBoxLayout()
-        row3.setSpacing(12)
-        
+        # File selection is the primary task. Session and encoded stream are
+        # supporting context placed alongside it instead of in separate rows.
+        work_row = QHBoxLayout()
+        work_row.setSpacing(14)
         self._file_details = FileDetailsWidget()
         self._file_details.select_btn.clicked.connect(self._on_select_file_clicked)
         self._file_details.start_btn.clicked.connect(self._on_start_clicked)
         self._file_details.cancel_btn.clicked.connect(self._on_cancel_clicked)
-        
+        self._session = CurrentSessionWidget()
         self._bit_stream = DigitalBitstreamWidget()
-        
-        row3.addWidget(self._file_details, 1)
-        row3.addWidget(self._bit_stream, 1)
-        outer.addLayout(row3)
+        work_row.addWidget(self._file_details, 5)
+        work_row.addWidget(self._session, 4)
+        work_row.addWidget(self._bit_stream, 4)
+        outer.addLayout(work_row, 3)
 
-        # 4. Logs Panel (Full Width)
+        # A dedicated progress strip follows the main task controls.
+        self._pipeline = TransmissionPipelineWidget()
+        outer.addWidget(self._pipeline, 1)
+
         self._logs = _TXLogPanel(state)
-        outer.addWidget(self._logs, 1)
+        outer.addWidget(self._logs, 2)
 
         self.refresh()
 

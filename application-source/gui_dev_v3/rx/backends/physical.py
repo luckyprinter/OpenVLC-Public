@@ -45,6 +45,18 @@ RX_BAUD = 460800
 LQ_POLL_CMD = b"LQ?\n"
 
 
+def _diagnostic_size_bucket(size_bytes: int) -> str:
+    if size_bytes <= 0:
+        return "empty"
+    if size_bytes < 1024:
+        return "under_1kib"
+    if size_bytes < 16 * 1024:
+        return "1_to_16kib"
+    if size_bytes <= 80 * 1024:
+        return "16_to_80kib"
+    return "over_80kib"
+
+
 def crc16_ccitt(data: bytes, crc: int = 0xFFFF) -> int:
     for b in data:
         crc ^= b << 8
@@ -109,6 +121,8 @@ class RXPhysicalBackend:
         self._pwm_autocal_converged: bool = False  # True once within tolerance
         self._pwm_autocal_last_step: float = 0.0   # time of last PWM step
         self._pwm_autocal_last_pwm: int = -1        # last known PWM duty from firmware
+        self._pwm_autocal_iterations: int = 0
+        self._active_started_monotonic: float | None = None
         # Batch reconstruction state for large files
         self._batch_transfers: dict[str, dict] = {}
 
@@ -370,6 +384,7 @@ class RXPhysicalBackend:
                         batch_info = f" [Batch Part {part_index}/{part_count}]"
 
                 self._active_tid = tid
+                self._active_started_monotonic = time.monotonic()
                 self._active_total_chunks = total_chunks
                 self._active_received_chunks = 0
                 self._active_filename = filename
@@ -530,8 +545,22 @@ class RXPhysicalBackend:
                 quality=quality,
                 chunks=chunks,
             )
+            duration_ms = int((time.monotonic() - self._active_started_monotonic) * 1000) if self._active_started_monotonic is not None else 0
+            if crc_ok:
+                self._record_diag(
+                    "transfer_completed", role="rx",
+                    size_bucket=_diagnostic_size_bucket(len(file_bytes)),
+                    duration_ms=duration_ms, chunk_count=n_chunks, crc_ok=True,
+                )
+            else:
+                self._record_diag(
+                    "transfer_failed", role="rx", reason_code="crc_mismatch",
+                    size_bucket=_diagnostic_size_bucket(len(file_bytes)),
+                    duration_ms=duration_ms, retry_count=0,
+                )
             # Clear active transfer
             self._active_tid = None
+            self._active_started_monotonic = None
         except Exception as e:
             self._log_queue.append({"time": now, "event": "RX File Error", "details": str(e)[:120]})
 
@@ -565,6 +594,12 @@ class RXPhysicalBackend:
                         crc_status="FAIL",
                         recovery_rate=0.0,
                     )
+                    duration_ms = int((time.monotonic() - self._active_started_monotonic) * 1000) if self._active_started_monotonic is not None else 0
+                    self._record_diag(
+                        "transfer_failed", role="rx", reason_code="crc_mismatch",
+                        size_bucket=_diagnostic_size_bucket(self._active_total_size),
+                        duration_ms=duration_ms, retry_count=0,
+                    )
                     self._last_completed_transfer = TransferRecord(
                         tid=tid,
                         filename=self._active_filename or f"rx_{tid}.bin",
@@ -577,6 +612,7 @@ class RXPhysicalBackend:
                         chunks=[],
                     )
                     self._active_tid = None
+                    self._active_started_monotonic = None
         except Exception as e:
             self._log_queue.append({"time": now, "event": "RX CRC Fail Error", "details": str(e)[:120]})
 
@@ -898,6 +934,7 @@ class RXPhysicalBackend:
         if target_mv != self._pwm_autocal_target_mv:
             self._pwm_autocal_target_mv = target_mv
             self._pwm_autocal_converged = False
+            self._pwm_autocal_iterations = 0
 
         if self._pwm_autocal_converged:
             return  # Already at target — nothing to do
@@ -908,6 +945,12 @@ class RXPhysicalBackend:
         if abs(error_mv) <= TOLERANCE_MV:
             # Converged!
             self._pwm_autocal_converged = True
+            self._record_diag(
+                "calibration_completed", result="success",
+                iterations=self._pwm_autocal_iterations,
+                target_vref_mv=target_mv, measured_vref_mv=measured_mv,
+                pwm_percent=int(self._pwm_autocal_last_pwm if self._pwm_autocal_last_pwm >= 0 else 0),
+            )
             self.log(
                 "Vref Calibrated",
                 f"Target {target_mv}mV reached (measured {measured_mv}mV, error {error_mv:+d}mV) — PWM locked"
@@ -940,6 +983,12 @@ class RXPhysicalBackend:
         if new_pct == current_pct:
             # Already at hardware limit, can't go further
             self._pwm_autocal_converged = True
+            self._record_diag(
+                "calibration_completed", result="failure",
+                iterations=self._pwm_autocal_iterations,
+                target_vref_mv=target_mv, measured_vref_mv=measured_mv,
+                pwm_percent=int(current_pct),
+            )
             self.log(
                 "Vref Cal Limit",
                 f"PWM at limit ({current_pct:.1f}%). Measured {measured_mv}mV, target {target_mv}mV"
@@ -948,6 +997,7 @@ class RXPhysicalBackend:
 
         self._pwm_autocal_last_pwm = new_pct
         self._pwm_autocal_last_step = now
+        self._pwm_autocal_iterations += 1
         self.send_command(f"VREF_PWM={new_pct:.1f}\n")
         self.log(
             "Vref Cal Step",

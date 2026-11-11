@@ -63,6 +63,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Run Hardware and Protocol Unit Tests
+        working-directory: application-source
+        run: python -m pytest tests -q
+
       - name: Run Application Source Smoke Test
         working-directory: application-source
         env:

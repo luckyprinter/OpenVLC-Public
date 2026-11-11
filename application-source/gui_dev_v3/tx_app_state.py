@@ -254,18 +254,19 @@ class TXAppState:
             return physical._controller.dma_capable
         return False
 
-    def apply_link_settings_from_ui(self, freq: int, preamble: int, gap: int, fgap: int, active_low: bool, idle_on: bool, intensity: int, quiet: bool, dma_mode: bool) -> None:
-        """Apply TX link settings, gating DMA-only commands to capable firmware."""
+    def apply_link_settings_from_ui(self, freq: int, preamble: int, gap: int, fgap: int, active_low: bool, idle_on: bool, intensity: int, quiet: bool, dma_mode: bool) -> bool:
+        """Apply TX link settings and report whether all serial writes succeeded."""
         with self._lock:
             mode = self.mode
             physical = self._physical
         if mode != "physical" or physical is None:
-            return
+            return False
         ctrl = getattr(physical, "_controller", None)
         if ctrl is None or not ctrl.is_connected:
-            return
-        ctrl.apply_4b5b_settings(freq=freq, gap=gap, fgap=fgap, active_low=active_low, idle_on=idle_on, quiet=quiet)
-        physical.send_command(f"INTENSITY={intensity}")
+            return False
+        if not ctrl.apply_4b5b_settings(freq=freq, gap=gap, fgap=fgap, active_low=active_low, idle_on=idle_on, quiet=quiet):
+            return False
+        return physical.send_command(f"INTENSITY={intensity}")
 
     def force_connect_serial(self, port: str) -> bool:
         """Force connect physical backend to a port, bypassing detection."""

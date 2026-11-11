@@ -98,7 +98,7 @@ def _cross_process_file_lock(path: Path):
             import msvcrt
             lock_stream.seek(0, os.SEEK_END)
             if lock_stream.tell() == 0:
-                lock_stream.write(b"\\0")
+                lock_stream.write(b"\0")
                 lock_stream.flush()
             lock_stream.seek(0)
             msvcrt.locking(lock_stream.fileno(), msvcrt.LK_LOCK, 1)

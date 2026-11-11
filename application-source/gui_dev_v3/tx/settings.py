@@ -451,68 +451,26 @@ class DiagnosticsLogsPage(QWidget):
         lo.setContentsMargins(0, 0, 0, 0)
         lo.setSpacing(12)
 
-    def _show_toast(self, msg: str) -> None:
-        from PySide6.QtWidgets import QLabel
-        from PySide6.QtCore import QTimer, Qt
-        from gui_dev_v3.theme import COLORS
-        toast = QLabel(msg, self.window())
-        toast.setObjectName("Toast")
-        toast.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        toast.setStyleSheet(
-            f"background: {COLORS['panel']}; color: {COLORS['amber']}; "
-            f"border: 1px solid {COLORS['amber']}; border-radius: 8px; "
-            f"padding: 10px 20px; font-weight: 700;"
-        )
-        toast.adjustSize()
-        toast.move(self.window().width() - toast.width() - 20, self.window().height() - toast.height() - 20)
-        toast.show()
-        QTimer.singleShot(2000, toast.deleteLater)
+        from gui_dev_v3.diagnostics import build_diagnostics_controls
+        lo.addWidget(build_diagnostics_controls(mgr))
 
         save_card = Card("Logging Settings")
         save_tx = RadioNodeSetting(True)
         bind_radio_node(save_tx, mgr, "logging/save_transmission", True)
         save_card.body.addWidget(SettingRow("Save Transmission Logs", save_tx))
-
         level_combo = ComboSetting(["Debug", "Info", "Warning", "Error"], "Info")
         bind_combo(level_combo, mgr, "logging/level", "Info")
         save_card.body.addWidget(SettingRow("Log Level", level_combo))
-
         retention = SpinSetting(30, 1, 999, "days")
         bind_spin(retention, mgr, "logging/retention_days", 30)
         save_card.body.addWidget(SettingRow("Log Retention", retention))
         lo.addWidget(save_card)
 
-        tools_card = Card("Developer Tools")
-        tools_card.body.setSpacing(8)
-        # Arrange developer buttons in a 2-column grid for compactness
-        row1 = QHBoxLayout()
-        row1.setSpacing(8)
-        btn_debug = primary_button("Show Debug Messages")
-        btn_debug.clicked.connect(lambda: self._show_toast("Show Debug Messages: Not yet implemented"))
-        row1.addWidget(btn_debug)
-        
-        btn_serial = primary_button("Raw Serial Monitor")
-        btn_serial.clicked.connect(lambda: self._show_toast("Raw Serial Monitor: Not yet implemented"))
-        row1.addWidget(btn_serial)
-        
-        row2 = QHBoxLayout()
-        row2.setSpacing(8)
-        btn_pkt = primary_button("Packet Inspector")
-        btn_pkt.clicked.connect(lambda: self._show_toast("Packet Inspector: Not yet implemented"))
-        row2.addWidget(btn_pkt)
-        
-        btn_dump = primary_button("Export Debug Dump")
-        btn_dump.clicked.connect(lambda: self._show_toast("Export Debug Dump: Not yet implemented"))
-        row2.addWidget(btn_dump)
-        
-        tools_card.body.addLayout(row1)
-        tools_card.body.addLayout(row2)
-        lo.addWidget(tools_card)
-
-        note_card = Card("Note")
+        note_card = Card("Developer Tools")
         note_card.body.addWidget(muted_label(
-            "These tools expose raw serial I/O and low-level protocol data. "
-            "Intended for development and debugging only."
+            "Raw serial and packet inspection are intentionally not enabled in "
+            "the user diagnostics queue. Diagnostic records contain only "
+            "allowlisted technical metadata."
         ))
         lo.addWidget(note_card)
         lo.addStretch(1)

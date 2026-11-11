@@ -92,11 +92,30 @@ class TXPhysicalBackend:
         file_log("TX", event, details)
 
 
+    def _record_diag(self, event: str, **fields: Any) -> None:
+        # Diagnostics must never interfere with hardware control or transfers.
+        try:
+            from gui_dev_v3.diagnostics import record_local_event
+            record_local_event("tx", event, **fields)
+        except Exception:
+            pass
+
     def scan_ports(self) -> list[str]:
-        return _list_usb_serial_ports()
+        started = time.monotonic()
+        ports = _list_usb_serial_ports()
+        self._record_diag("serial_scan", role="tx", ports_seen=len(ports),
+                          duration_ms=int((time.monotonic() - started) * 1000))
+        return ports
 
     def detect_firmware(self, port: str) -> dict[str, str] | None:
+        started = time.monotonic()
         info = _send_identify(port, "VLC_TX")
+        self._record_diag(
+            "serial_probe", role="tx",
+            result="success" if info else "timeout",
+            baud_rate=115200,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
         if info:
             self._firmware_info = info
         return info
@@ -111,11 +130,16 @@ class TXPhysicalBackend:
             if info and info.get("device") == "VLC_TX":
                 self._port = port
                 if not self._open_serial():
+                    self._record_diag("serial_probe", role="tx", result="busy",
+                                      baud_rate=115200, duration_ms=0)
                     self.log("Error [C02]", f"PySerial failed to open {port}; continuing scan")
                     self._port = None
                     continue
                 self._connected = True
                 fw = info.get("firmware", "tx_unknown")
+                family = "tx_non_dma" if ("non_dma" in fw or "nondma" in fw) else ("tx_dma" if "dma" in fw else "unknown")
+                self._record_diag("serial_connected", role="tx", baud_rate=115200,
+                                  firmware_family=family)
                 fw_label = "Non-DMA" if ("non_dma" in fw or "nondma" in fw) else ("DMA" if "dma" in fw else "TX")
                 self.log("Connected", f"Auto-connected to {port} | Firmware: {fw_label} ({fw})")
                 self.apply_link_settings()
@@ -138,12 +162,18 @@ class TXPhysicalBackend:
             
         self._port = port
         if not self._open_serial():
+            self._record_diag("serial_probe", role="tx", result="busy",
+                              baud_rate=115200, duration_ms=0)
             self._port = None
             self._connected = False
             self.log("Error [C02]", f"PySerial failed to open {port}")
             return False
 
         self._connected = True
+        fw = (self._firmware_info or {}).get("firmware", "")
+        family = "tx_non_dma" if ("non_dma" in fw or "nondma" in fw) else ("tx_dma" if "dma" in fw else "unknown")
+        self._record_diag("serial_connected", role="tx", baud_rate=115200,
+                          firmware_family=family)
         from PySide6.QtCore import QTimer
         self._timer = QTimer()
         self._timer.timeout.connect(self.refresh)
@@ -166,7 +196,10 @@ class TXPhysicalBackend:
         self._controller.disconnect()
 
     def disconnect(self) -> None:
+        was_connected = self._connected
         self._close_serial()
+        if was_connected:
+            self._record_diag("serial_disconnected", role="tx", reason_code="user_disconnect")
         self._port = None
         self._connected = False
         self._firmware_info = None

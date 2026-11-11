@@ -66,10 +66,17 @@ class SettingsManager:
 
 
 def reset_all_settings(mgr: SettingsManager, window: QWidget | None = None) -> None:
-    """Reset this console's QSettings and the shared display-settings JSON."""
+    """Reset both console preference scopes and the shared display settings.
+
+    RX and TX use separate QSettings application scopes under the same
+    organization. Resetting from either console must clear both scopes;
+    otherwise the other console would silently retain its old preferences.
+    """
     from gui_dev_v3.settings_store import AppSettings, save_settings
 
-    mgr.clear()
+    for scope in ("rx", "tx"):
+        SettingsManager(scope).clear()
+
     defaults = AppSettings()
     save_settings(defaults)
     # closeEvent persists the window's in-memory display values. Replace them

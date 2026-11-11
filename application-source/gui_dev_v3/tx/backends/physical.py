@@ -170,6 +170,11 @@ class TXPhysicalBackend:
                     self.log("Error [C02]", f"PySerial failed to open {port}; continuing scan")
                     self._port = None
                     continue
+                if not self._wait_for_firmware_ready():
+                    self._controller.disconnect()
+                    self.log("Error [C03]", f"TX firmware did not acknowledge readiness on {port}")
+                    self._port = None
+                    continue
                 self._connected = True
                 fw = info.get("firmware", "tx_unknown")
                 family = "tx_non_dma" if ("non_dma" in fw or "nondma" in fw) else ("tx_dma" if "dma" in fw else "unknown")
@@ -203,6 +208,12 @@ class TXPhysicalBackend:
             self._connected = False
             self.log("Error [C02]", f"PySerial failed to open {port}")
             return False
+        if not self._wait_for_firmware_ready():
+            self._controller.disconnect()
+            self._port = None
+            self._connected = False
+            self.log("Error [C03]", f"TX firmware did not acknowledge readiness on {port}")
+            return False
 
         self._connected = True
         fw = (self._firmware_info or {}).get("firmware", "")
@@ -226,6 +237,18 @@ class TXPhysicalBackend:
         if not self._port:
             return False
         return self._controller.connect(self._port, expected_role="VLC_TX")
+
+    def _wait_for_firmware_ready(self, timeout: float = 1.5) -> bool:
+        """Confirm the TX command loop responds after the persistent port opens.
+
+        This is a USB-serial readiness check, not an optical synchronization delay.
+        """
+        start_counter = self._controller.line_counter
+        if not self._controller.send_line(""):
+            return False
+        return self._controller.wait_for_line_containing(
+            "TX Ready", timeout=timeout, start_counter=start_counter
+        )
 
     def _close_serial(self) -> None:
         self._controller.disconnect()

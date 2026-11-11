@@ -79,23 +79,25 @@ jobs:
           fi
         shell: bash
 
-      - name: Capture Responsive UI Screenshots
+      - name: Capture Responsive UI Screenshots (100%, 125%, 150%)
         working-directory: application-source
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            xvfb-run python tests/capture_ui_screenshots.py
-          else
-            python tests/capture_ui_screenshots.py
-          fi
+          for scale in 1.0 1.25 1.5; do
+            if [ "$RUNNER_OS" = "Linux" ]; then
+              QT_SCALE_FACTOR="$scale" OPENVLC_SCREENSHOT_SCALE="$scale" xvfb-run python tests/capture_ui_screenshots.py
+            else
+              QT_SCALE_FACTOR="$scale" OPENVLC_SCREENSHOT_SCALE="$scale" python tests/capture_ui_screenshots.py
+            fi
+          done
         shell: bash
 
       - name: Upload UI Screenshots
         uses: actions/upload-artifact@v4
         with:
           name: OpenVLC-UI-Screenshots-${{ matrix.os }}
-          path: application-source/ui-screenshots/*.png
+          path: application-source/ui-screenshots/**/*.png
           if-no-files-found: error
           retention-days: 7
 

@@ -230,7 +230,7 @@ class HardwareConnectionPage(QWidget):
 
         timeout_spin = SpinSetting(5, 1, 120, "seconds")
         bind_spin(timeout_spin, mgr, "connection/timeout", 5)
-        self.opts_card.body.addWidget(SettingRow("Connection Timeout", timeout_spin))
+        self.opts_card.body.addWidget(SettingRow("Firmware Ready Timeout", timeout_spin, "Maximum time to wait for the TX firmware ready response after opening the serial port."))
         lo.addWidget(self.opts_card)
 
         self.status_card = Card("Live Status")

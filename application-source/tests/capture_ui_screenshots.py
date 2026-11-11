@@ -31,6 +31,9 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
         body = getattr(file_panel, "body", None)
         if body is not None:
             layout = body.layout()
+            # Refreshing the page can change child visibility, leaving the
+            # layout geometry stale until the next Qt layout pass.
+            layout.activate()
             for index in range(layout.count()):
                 item = layout.itemAt(index)
                 widget = item.widget()

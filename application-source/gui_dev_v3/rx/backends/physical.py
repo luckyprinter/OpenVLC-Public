@@ -124,13 +124,32 @@ class RXPhysicalBackend:
 
     # ── Port detection ──
 
+    def _record_diag(self, event: str, **fields: Any) -> None:
+        # Diagnostics must never interfere with hardware control or transfers.
+        try:
+            from gui_dev_v3.diagnostics import record_local_event
+            record_local_event("rx", event, **fields)
+        except Exception:
+            pass
+
     def scan_ports(self) -> list[str]:
-        return _list_usb_serial_ports()
+        started = time.monotonic()
+        ports = _list_usb_serial_ports()
+        self._record_diag("serial_scan", role="rx", ports_seen=len(ports),
+                          duration_ms=int((time.monotonic() - started) * 1000))
+        return ports
 
     def detect_firmware(self, port: str) -> dict[str, str] | None:
         """Try IDENTIFY at all known baud rates."""
         for baud in BAUD_RATES:
+            started = time.monotonic()
             info = _send_identify(port, "VLC_RX", baud)
+            self._record_diag(
+                "serial_probe", role="rx",
+                result="success" if info else "timeout",
+                baud_rate=baud,
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
             if info:
                 self._firmware_info = info
                 return info
@@ -149,10 +168,14 @@ class RXPhysicalBackend:
             if info and info.get("device") == "VLC_RX":
                 self._port = port
                 if not self._open_serial():
+                    self._record_diag("serial_probe", role="rx", result="busy",
+                                      baud_rate=RX_BAUD, duration_ms=0)
                     self.log("Error [C02]", f"PySerial failed to open {port}; continuing scan")
                     self._port = None
                     continue
                 self._connected = True
+                self._record_diag("serial_connected", role="rx", baud_rate=RX_BAUD,
+                                  firmware_family="rx")
                 self.log("Connected", f"Auto-connected to {port} (VLC_RX)")
                 self.apply_link_settings()
                 return True
@@ -175,18 +198,25 @@ class RXPhysicalBackend:
 
         self._port = port
         if not self._open_serial():
+            self._record_diag("serial_probe", role="rx", result="busy",
+                              baud_rate=RX_BAUD, duration_ms=0)
             self._port = None
             self._connected = False
             self.log("Error [C02]", f"PySerial failed to open {port}")
             return False
 
         self._connected = True
+        self._record_diag("serial_connected", role="rx", baud_rate=RX_BAUD,
+                          firmware_family="rx")
         self.log("Connected", f"Opened {port} successfully")
         self.apply_link_settings()
         return True
 
     def disconnect(self) -> None:
+        was_connected = self._connected
         self._close_serial()
+        if was_connected:
+            self._record_diag("serial_disconnected", role="rx", reason_code="user_disconnect")
         self._port = None
         self._connected = False
         self._firmware_info = None

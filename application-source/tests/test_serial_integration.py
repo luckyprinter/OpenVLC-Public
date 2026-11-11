@@ -57,6 +57,8 @@ class FakeSerialPort:
         self.is_open = False
 
     def write(self, data: bytes) -> int:
+        if self.port in self.registry.write_errors:
+            raise OSError("mock serial write failed")
         with self.registry.lock:
             self.registry.active_writes += 1
             self.registry.max_active_writes = max(
@@ -99,6 +101,7 @@ class FakeSerialRegistry:
     def __init__(self, fail_ports: set[str] | None = None) -> None:
         self.fail_ports = fail_ports or set()
         self.read_errors: set[str] = set()
+        self.write_errors: set[str] = set()
         self.responses: dict[tuple[str | None, int | None], list[bytes]] = {}
         self.open_ports: set[str] = set()
         self.opens: list[tuple[str | None, int | None, bool | None, bool | None, bool | None]] = []
@@ -207,6 +210,29 @@ def test_rx_backend_serializes_concurrent_writes(fake_serial):
     assert all(results)
     assert fake_serial.max_active_writes == 1
     backend._close_serial()
+
+
+def test_tx_settings_apply_reports_serial_write_failure(fake_serial):
+    from gui_dev_v3.serial.controllers import TXSerialController
+
+    controller = TXSerialController()
+    assert controller.connect("MOCK_TX", expected_role="VLC_TX") is True
+    controller._dma_capable = False
+    fake_serial.write_errors.add("MOCK_TX")
+
+    assert controller.apply_4b5b_settings() is False
+    controller.disconnect()
+
+
+def test_tx_settings_apply_reports_success_when_all_writes_succeed(fake_serial):
+    from gui_dev_v3.serial.controllers import TXSerialController
+
+    controller = TXSerialController()
+    assert controller.connect("MOCK_TX", expected_role="VLC_TX") is True
+    controller._dma_capable = False
+
+    assert controller.apply_4b5b_settings() is True
+    controller.disconnect()
 
 
 def test_failed_open_never_reports_connected(monkeypatch: pytest.MonkeyPatch):

@@ -443,109 +443,42 @@ class DiagnosticsLogsPage(QWidget):
         lo.setContentsMargins(0, 0, 0, 0)
         lo.setSpacing(12)
 
-    def _show_toast(self, msg: str) -> None:
-        from PySide6.QtWidgets import QLabel
-        from PySide6.QtCore import QTimer, Qt
-        from gui_dev_v3.theme import COLORS
-        toast = QLabel(msg, self.window())
-        toast.setObjectName("Toast")
-        toast.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        toast.setStyleSheet(
-            f"background: {COLORS['panel']}; color: {COLORS['amber']}; "
-            f"border: 1px solid {COLORS['amber']}; border-radius: 8px; "
-            f"padding: 10px 20px; font-weight: 700;"
-        )
-        toast.adjustSize()
-        toast.move(self.window().width() - toast.width() - 20, self.window().height() - toast.height() - 20)
-        toast.show()
-        QTimer.singleShot(2000, toast.deleteLater)
+        from gui_dev_v3.diagnostics import build_diagnostics_controls
+        lo.addWidget(build_diagnostics_controls(mgr))
 
-        # 1. Firmware Card (Removed)
-
-        # 2. Signal Monitoring Card
         refresh_card = Card("Signal Monitoring")
         rate_spin = SpinSetting(100, 10, 9999, "ms")
         bind_spin(rate_spin, mgr, "signal/refresh_rate", 100)
         refresh_card.body.addWidget(SettingRow("Signal Refresh Rate", rate_spin))
-
         buffer_spin = SpinSetting(1000, 100, 99999, "samples")
         bind_spin(buffer_spin, mgr, "signal/history_buffer", 1000)
         refresh_card.body.addWidget(SettingRow("History Buffer", buffer_spin))
-
-        rt_graph = RadioNodeSetting(True)
-        bind_radio_node(rt_graph, mgr, "signal/enable_graphs", True)
-        refresh_card.body.addWidget(SettingRow("Enable Real-Time Graphs", rt_graph))
-
-        margin_track = RadioNodeSetting(True)
-        bind_radio_node(margin_track, mgr, "signal/enable_margin", True)
-        refresh_card.body.addWidget(SettingRow("Enable Margin Tracking", margin_track))
-
-        pvo_track = RadioNodeSetting(True)
-        bind_radio_node(pvo_track, mgr, "signal/enable_pvo", True)
-        refresh_card.body.addWidget(SettingRow("Enable PVo Tracking", pvo_track))
-
-        vref_track = RadioNodeSetting(True)
-        bind_radio_node(vref_track, mgr, "signal/enable_vref", True)
-        refresh_card.body.addWidget(SettingRow("Enable Vref Tracking", vref_track))
+        for label, key in [
+            ("Enable Real-Time Graphs", "signal/enable_graphs"),
+            ("Enable Margin Tracking", "signal/enable_margin"),
+            ("Enable PVo Tracking", "signal/enable_pvo"),
+            ("Enable Vref Tracking", "signal/enable_vref"),
+        ]:
+            toggle = RadioNodeSetting(True)
+            bind_radio_node(toggle, mgr, key, True)
+            refresh_card.body.addWidget(SettingRow(label, toggle))
         lo.addWidget(refresh_card)
 
-        # 3. Logging Card
         save_card = Card("Logging Settings")
-        save_rx = RadioNodeSetting(True)
-        bind_radio_node(save_rx, mgr, "logging/save_receive", True)
-        save_card.body.addWidget(SettingRow("Save Receive Logs", save_rx))
-
-        save_err = RadioNodeSetting(True)
-        bind_radio_node(save_err, mgr, "logging/save_errors", True)
-        save_card.body.addWidget(SettingRow("Save Error Logs", save_err))
-
+        for label, key in [
+            ("Save Receive Logs", "logging/save_receive"),
+            ("Save Error Logs", "logging/save_errors"),
+        ]:
+            toggle = RadioNodeSetting(True)
+            bind_radio_node(toggle, mgr, key, True)
+            save_card.body.addWidget(SettingRow(label, toggle))
         max_size = SpinSetting(10, 1, 999, "MB")
         bind_spin(max_size, mgr, "logging/max_size_mb", 10)
         save_card.body.addWidget(SettingRow("Maximum Log Size", max_size))
-
         retention = SpinSetting(30, 1, 999, "days")
         bind_spin(retention, mgr, "logging/retention_days", 30)
         save_card.body.addWidget(SettingRow("Log Retention", retention))
         lo.addWidget(save_card)
-
-        # 4. Developer Card
-        tools_card = Card("Developer Tools")
-        tools_card.body.setSpacing(8)
-        # Arrange developer buttons in a 2-column grid for compactness
-        dev_row1 = QHBoxLayout()
-        dev_row1.setSpacing(8)
-        btn_raw = primary_button("Raw Packet Viewer")
-        btn_raw.clicked.connect(lambda: self._show_toast("Raw Packet Viewer: Not yet implemented"))
-        dev_row1.addWidget(btn_raw)
-        
-        btn_ber = primary_button("BER Debugger")
-        btn_ber.clicked.connect(lambda: self._show_toast("BER Debugger: Not yet implemented"))
-        dev_row1.addWidget(btn_ber)
-        
-        dev_row2 = QHBoxLayout()
-        dev_row2.setSpacing(8)
-        
-        btn_crc = primary_button("CRC Debugger")
-        btn_crc.clicked.connect(lambda: self._show_toast("CRC Debugger: Not yet implemented"))
-        dev_row2.addWidget(btn_crc)
-        
-        btn_ser = primary_button("Serial Console")
-        btn_ser.clicked.connect(lambda: self._show_toast("Serial Console: Not yet implemented"))
-        dev_row2.addWidget(btn_ser)
-        
-        dev_row3 = QHBoxLayout()
-        dev_row3.setSpacing(8)
-        
-        btn_perf = primary_button("Performance Metrics")
-        btn_perf.clicked.connect(lambda: self._show_toast("Performance Metrics: Not yet implemented"))
-        dev_row3.addWidget(btn_perf)
-        
-        dev_row3.addStretch(1)
-        tools_card.body.addLayout(dev_row1)
-        tools_card.body.addLayout(dev_row2)
-        tools_card.body.addLayout(dev_row3)
-        lo.addWidget(tools_card)
-
         lo.addStretch(1)
 
 

@@ -257,11 +257,19 @@ class TXPhysicalBackend:
             return False
         return self._controller.connect(self._port, expected_role="VLC_TX")
 
-    def _wait_for_firmware_ready(self, timeout: float = 1.5) -> bool:
+    def _wait_for_firmware_ready(self, timeout: float | None = None) -> bool:
         """Confirm the TX command loop responds after the persistent port opens.
 
-        This is a USB-serial readiness check, not an optical synchronization delay.
+        The user-configured connection timeout controls this USB-serial
+        readiness wait; it is not an optical synchronization delay.
         """
+        if timeout is None:
+            from gui_dev_v3.settings import SettingsManager
+            try:
+                timeout = float(SettingsManager("tx").get("connection/timeout", 5))
+            except (TypeError, ValueError):
+                timeout = 5.0
+        timeout = max(1.0, min(timeout, 120.0))
         start_counter = self._controller.line_counter
         if not self._controller.send_line(""):
             return False

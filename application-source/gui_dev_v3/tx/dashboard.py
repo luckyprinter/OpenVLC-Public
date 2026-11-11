@@ -91,7 +91,7 @@ class _StatusColumn(QWidget):
 
         self.title_lbl = QLabel(title)
         self.title_lbl.setObjectName("Muted")
-        self.title_lbl.setStyleSheet("font-size: 9px; font-weight: 700; text-transform: uppercase;")
+        self.title_lbl.setStyleSheet("font-size: 11px; font-weight: 700; text-transform: uppercase;")
 
         self.val_lbl = QLabel(value)
         self.val_lbl.setObjectName("Value")
@@ -119,7 +119,7 @@ class DeviceStatusWidget(QFrame):
         layout.setSpacing(8)
         
         title = QLabel("DEVICE STATUS")
-        title.setStyleSheet(f"color: {COLORS['header']}; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; background: transparent;")
+        title.setStyleSheet(f"color: {COLORS['header']}; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; background: transparent;")
         layout.addWidget(title)
         
         cols = QHBoxLayout()

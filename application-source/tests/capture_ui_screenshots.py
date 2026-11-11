@@ -38,7 +38,6 @@ def main() -> int:
         for width, height in WINDOW_SIZES:
             window.resize(width, height)
             app.processEvents()
-            shell.resizeEvent  # Ensure the responsive shell handler is installed.
 
             for page_name, index in pages.items():
                 if index >= shell.nav.count():

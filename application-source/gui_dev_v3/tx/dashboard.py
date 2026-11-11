@@ -642,8 +642,8 @@ class _TXLogPanel(Card):
         )
         self._scroll_area.setWidget(self._log_container)
 
-        self._scroll_area.setMinimumHeight(100)
-        self._scroll_area.setMaximumHeight(200)
+        self._scroll_area.setMinimumHeight(64)
+        self._scroll_area.setMaximumHeight(140)
         self.body.addWidget(self._scroll_area, 1)
 
         self._last_log_len = 0
@@ -720,14 +720,15 @@ class TXDashboardPage(QWidget):
         work_row.addWidget(self._file_details, 5)
         work_row.addWidget(self._session, 4)
         work_row.addWidget(self._bit_stream, 4)
-        outer.addLayout(work_row, 3)
+        outer.addLayout(work_row, 5)
 
-        # A dedicated progress strip follows the main task controls.
+        # Keep the progress strip compact so file controls retain usable height
+        # on short displays and at increased system display scaling.
         self._pipeline = TransmissionPipelineWidget()
         outer.addWidget(self._pipeline, 1)
 
         self._logs = _TXLogPanel(state)
-        outer.addWidget(self._logs, 2)
+        outer.addWidget(self._logs, 1)
 
         self.refresh()
 

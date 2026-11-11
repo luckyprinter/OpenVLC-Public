@@ -22,6 +22,40 @@ PAGES = {
 }
 
 
+def validate_page_geometry(mode: str, page_name: str, shell, width: int, height: int) -> None:
+    """Catch clipped TX controls and table headers before screenshot capture."""
+    if mode == "tx" and page_name == "dashboard":
+        page = shell._page_widgets.get("dashboard")
+        file_panel = getattr(page, "_file_details", None)
+        body = getattr(file_panel, "body", None)
+        if body is not None:
+            layout = body.layout()
+            for index in range(layout.count()):
+                item = layout.itemAt(index)
+                widget = item.widget()
+                if widget is not None and widget.isVisible():
+                    if widget.geometry().bottom() > body.height() + 1:
+                        raise RuntimeError(
+                            f"TX file-details control is clipped at {width}x{height}: "
+                            f"{widget.objectName() or widget.__class__.__name__}"
+                        )
+
+    if mode == "tx" and page_name == "transmit":
+        page = shell._page_widgets.get("transmit")
+        for table_name in ("queue_table", "history_table"):
+            table = getattr(page, table_name, None)
+            if table is None:
+                continue
+            header = table.horizontalHeader()
+            for column in range(table.columnCount()):
+                right = header.sectionViewportPosition(column) + header.sectionSize(column)
+                if right > table.viewport().width() + 2:
+                    raise RuntimeError(
+                        f"TX {table_name} column {column} exceeds its viewport "
+                        f"at {width}x{height}; horizontal overflow must be intentional and accessible"
+                    )
+
+
 def main() -> int:
     app = QApplication.instance() or QApplication([])
     app.setStyle("Fusion")
@@ -60,6 +94,7 @@ def main() -> int:
                 app.processEvents()
                 shell._refresh_current_page()
                 app.processEvents()
+                validate_page_geometry(mode, page_name, shell, width, height)
 
                 filename = f"{mode}_{page_name}_{width}x{height}.png"
                 target = OUTPUT_DIR / filename

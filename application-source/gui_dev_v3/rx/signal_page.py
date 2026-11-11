@@ -385,14 +385,13 @@ class SignalMonitorPage(QWidget):
         self._diag_labels: dict[str, QLabel] = {}
 
         rows = [
-            ("ADC Value (Raw)", "adc_raw"),
+            ("ADC Code (estimated)", "adc_raw"),
             ("ADC Voltage", "adc_voltage"),
             ("Comparator Output", "comparator"),
             ("Threshold (Vref)", "threshold_vref"),
             ("Photodiode Status", "photodiode"),
-            ("Ambient Light (Lux)", "ambient_light"),
-            ("Supply Voltage", "supply_voltage"),
-            ("ADC State", "adc_state"),
+            ("Relative Light Estimate", "ambient_light"),
+            ("ADC Reference (nominal)", "supply_voltage"),
             ("Auto Vref Mode", "vref_mode"),
             ("Vref Target", "vref_target"),
             ("Vref Error", "vref_error"),
@@ -646,15 +645,15 @@ class SignalMonitorPage(QWidget):
             vref_target = f"{sig.pvo - sig.target_margin:.2f} V"
             vref_error = f"{sig.vref - (sig.pvo - sig.target_margin):+.2f} V"
 
-            _set_status_label(self._diag_labels["adc_raw"], str(adc_raw), "default")
+            _set_status_label(self._diag_labels["adc_raw"], f"~{adc_raw}", "default")
             _set_status_label(self._diag_labels["adc_voltage"], f"{sig.pvo:.2f} V", "default")
             _set_status_label(self._diag_labels["comparator"], comp, "default")
             _set_status_label(self._diag_labels["threshold_vref"], f"{sig.vref:.2f} V", "default")
             _set_status_label(self._diag_labels["photodiode"], photo_status, "green" if photo_status == "ACTIVE" else "red")
-            _set_status_label(self._diag_labels["ambient_light"], f"{sig.lux} lx", "default")
+            _set_status_label(self._diag_labels["ambient_light"], f"{sig.lux} (uncal.)", "default")
             _set_status_label(self._diag_labels["supply_voltage"], f"{sig.adc_vref:.2f} V", "default")
-            _set_status_label(self._diag_labels["adc_state"], "STABLE", "green")
-            _set_status_label(self._diag_labels["vref_mode"], "AUTO", "default")
+            vref_mode = "AUTO" if self._settings_mgr.get("link/vref_auto", False) else "MANUAL"
+            _set_status_label(self._diag_labels["vref_mode"], vref_mode, "default")
             _set_status_label(self._diag_labels["vref_target"], vref_target, "default")
             _set_status_label(self._diag_labels["vref_error"], vref_error, "default")
 

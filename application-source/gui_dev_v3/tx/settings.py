@@ -21,6 +21,7 @@ from gui_dev_v3.settings import (
     bind_slider_spin,
     bind_theme_picker,
     bind_radio_node,
+    reset_all_settings,
     SliderSpinSetting,
     FreeformSpinSetting,
     RadioNodeSetting,
@@ -98,7 +99,7 @@ class GeneralDisplayPage(QWidget):
         return self._window
 
     def _on_reset_clicked(self) -> None:
-        self._mgr.clear()
+        reset_all_settings(self._mgr, self._get_window())
         from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(self, "Settings Reset", "All settings have been reset to defaults. Please restart the application for all changes to take effect.")
 

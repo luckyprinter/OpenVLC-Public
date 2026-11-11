@@ -112,6 +112,15 @@ def list_serial_ports() -> list[SerialPortInfo]:
 
 
 def probe_serial_port(device: str) -> tuple[str, list[str]]:
+    """Probe one port under the same cross-process lock used by both backends."""
+    try:
+        with serial_scan_lock():
+            return _probe_serial_port_locked(device)
+    except TimeoutError:
+        return ("error", [])
+
+
+def _probe_serial_port_locked(device: str) -> tuple[str, list[str]]:
     """Auto-detect firmware role by probing at RX baud (460800) then TX baud (115200).
 
     Returns ("rx"|"tx"|"unknown"|"error", lines_received).

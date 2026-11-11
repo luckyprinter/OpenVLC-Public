@@ -70,6 +70,9 @@ class TXPhysicalBackend:
             on_log=self._controller_log,
         )
         self._transmission_thread: threading.Thread | None = None
+        # Auto-connect runs off the GUI thread so serial discovery cannot freeze the UI.
+        self._connect_thread: threading.Thread | None = None
+        self._connecting: bool = False
         self._latest_status: dict[str, Any] = {}
         # Preserved completion metrics — never wiped by idle polls
         self._last_completion: dict[str, Any] = {}
@@ -410,20 +413,42 @@ class TXPhysicalBackend:
             mode = mgr.get("connection/mode", "Auto Detect (Recommended)")
             auto_conn = mgr.get("connection/auto_connect", True)
             
-            if auto_conn:
+            if auto_conn and not self._connecting:
+                # Throttle scans and run discovery in the background. Serial
+                # probing can take several seconds per port and must not block
+                # the GUI event loop.
                 now = time.time()
                 if not hasattr(self, "_last_scan_time"):
                     self._last_scan_time = 0
-                scan_interval = mgr.get("connection/scan_interval", 3)
-                
+                try:
+                    scan_interval = max(1.0, float(mgr.get("connection/scan_interval", 3)))
+                except (TypeError, ValueError):
+                    scan_interval = 3.0
+
                 if (now - self._last_scan_time) > scan_interval:
                     self._last_scan_time = now
-                    if mode == "Manual":
-                        target_port = mgr.get("connection/port", "")
-                        if target_port:
-                            self.connect(target_port)
-                    else:
-                        self.auto_connect()
+                    target_port = (
+                        str(mgr.get("connection/port", "") or "")
+                        if mode == "Manual" else ""
+                    )
+                    self._connecting = True
+
+                    def _bg_connect() -> None:
+                        try:
+                            if mode == "Manual":
+                                if target_port:
+                                    self.connect(target_port)
+                            else:
+                                self.auto_connect()
+                        finally:
+                            self._connecting = False
+
+                    self._connect_thread = threading.Thread(
+                        target=_bg_connect,
+                        daemon=True,
+                        name="tx-serial-auto-connect",
+                    )
+                    self._connect_thread.start()
 
         if not self._connected or not self._controller.is_connected:
             if self._connected:

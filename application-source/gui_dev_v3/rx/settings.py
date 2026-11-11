@@ -273,7 +273,7 @@ class ConnectionChannelPage(QWidget):
 
         timeout_spin = SpinSetting(5, 1, 120, "seconds")
         bind_spin(timeout_spin, mgr, "connection/timeout", 5)
-        self.conn_card.body.addWidget(SettingRow("Connection Timeout", timeout_spin))
+        self.conn_card.body.addWidget(SettingRow("Firmware Ready Timeout", timeout_spin, "Maximum time to wait for the RX firmware ready response after opening the serial port."))
         
         # Live status inside Connection Settings
         self._port_label = muted_label("Port: —")

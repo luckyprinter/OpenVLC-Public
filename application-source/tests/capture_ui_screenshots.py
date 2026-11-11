@@ -39,6 +39,17 @@ def main() -> int:
             window.resize(width, height)
             app.processEvents()
 
+            expected_sidebar = 72 if width < 1120 else 224
+            if shell.sidebar.width() != expected_sidebar:
+                raise RuntimeError(
+                    f"{mode.upper()} sidebar width {shell.sidebar.width()} "
+                    f"does not match expected {expected_sidebar} at {width}x{height}"
+                )
+            if shell.sidebar.geometry().right() >= shell._main_area.geometry().left():
+                raise RuntimeError(f"{mode.upper()} sidebar overlaps the workspace at {width}x{height}")
+            if shell.pages.width() <= 0 or shell.pages.height() <= 0:
+                raise RuntimeError(f"{mode.upper()} page area has no usable size at {width}x{height}")
+
             for page_name, index in pages.items():
                 if index >= shell.nav.count():
                     raise RuntimeError(f"Missing {mode.upper()} navigation page: {page_name}")

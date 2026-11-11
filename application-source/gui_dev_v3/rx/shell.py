@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 import qtawesome as qta
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QStackedWidget, QVBoxLayout, QWidget
 
 from gui_dev_v3.app_state import POLL_INTERVAL_MS, RXAppState, build_default_state
@@ -118,6 +118,7 @@ class RXShell(QWidget):
 
         # App title in sidebar
         title = QLabel("VLC Receiver")
+        self._sidebar_title = title
         title.setObjectName("Title")
         title.setStyleSheet(
             "font-size: 17px; padding-left: 6px;"
@@ -126,6 +127,7 @@ class RXShell(QWidget):
         sidebar_layout.addWidget(title)
 
         subtitle = QLabel("Visible Light\nCommunication")
+        self._sidebar_subtitle = subtitle
         subtitle.setObjectName("Muted")
         subtitle.setStyleSheet(
             "font-size: 12px; padding-left: 6px; padding-bottom: 8px; min-height: 30px;"
@@ -136,8 +138,10 @@ class RXShell(QWidget):
         self.nav = QListWidget()
         self.nav.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.nav.setSpacing(2)
+        self.nav.setIconSize(QSize(18, 18))
+        self._nav_items: list[tuple[QListWidgetItem, str]] = []
         self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.nav.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.nav.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         sidebar_layout.addWidget(self.nav, 1)
 
         # ── Connection Info Card (bottom of sidebar) ────────────────────
@@ -167,10 +171,12 @@ class RXShell(QWidget):
         self._conn_firmware.setStyleSheet("font-size: 11px; background: transparent;")
         conn_card_layout.addWidget(self._conn_firmware)
 
+        self._conn_card = conn_card
         sidebar_layout.addWidget(conn_card)
 
         # Version footer
         version = QLabel("v3.0 · PySide6")
+        self._sidebar_version = version
         version.setObjectName("Muted")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
         version.setStyleSheet("font-size: 11px; padding: 6px;")
@@ -200,6 +206,46 @@ class RXShell(QWidget):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._on_poll_timer)
         self._timer.start(POLL_INTERVAL_MS)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Use an icon-only sidebar on compact windows; keep normal font sizes."""
+        super().resizeEvent(event)
+        compact = self.width() < 1120
+        if compact == getattr(self, "_compact_sidebar", None):
+            return
+        self._compact_sidebar = compact
+
+        if compact:
+            self.sidebar.setFixedWidth(72)
+            self._sidebar_title.setText("VLC RX")
+            self._sidebar_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._sidebar_title.setStyleSheet("font-size: 13px; font-weight: 700;")
+            self._sidebar_subtitle.hide()
+            self._sidebar_version.hide()
+            self._conn_status.hide()
+            self._conn_device.hide()
+            self._conn_firmware.hide()
+            self._conn_card.layout().setContentsMargins(6, 8, 6, 8)
+            self.nav.setStyleSheet("QListWidget::item { padding: 10px 0; }")
+            for item, label in self._nav_items:
+                item.setText("")
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item.setToolTip(label)
+        else:
+            self.sidebar.setFixedWidth(224)
+            self._sidebar_title.setText("VLC Receiver")
+            self._sidebar_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            self._sidebar_title.setStyleSheet("font-size: 17px; padding-left: 6px;")
+            self._sidebar_subtitle.show()
+            self._sidebar_version.show()
+            self._conn_status.show()
+            self._conn_device.show()
+            self._conn_firmware.show()
+            self._conn_card.layout().setContentsMargins(8, 8, 8, 8)
+            self.nav.setStyleSheet("")
+            for item, label in self._nav_items:
+                item.setText(label)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
     def _build_footer(self) -> QWidget:
         """Build bottom footer status bar."""
@@ -350,7 +396,9 @@ class RXShell(QWidget):
             except Exception:
                 icon = qta.icon("fa5s.circle")  # Fallback
             item = QListWidgetItem(icon, label)
+            item.setToolTip(label)
             self.nav.addItem(item)
+            self._nav_items.append((item, label))
             page = page_map.get(page_key)
             if page:
                 self._page_widgets[page_key] = page

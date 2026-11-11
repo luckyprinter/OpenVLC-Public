@@ -76,6 +76,8 @@ class TXPhysicalBackend:
         self._active_file: str = "No file"
         self._log_queue: list[dict[str, str]] = []
         self._last_logged: dict[str, str] = {}
+        self._active_transfer_started: float | None = None
+        self._transfer_diag_recorded: bool = False
 
     def _controller_log(self, msg: str) -> None:
         self.log("Serial", msg)
@@ -99,6 +101,31 @@ class TXPhysicalBackend:
             record_local_event("tx", event, **fields)
         except Exception:
             pass
+
+    @staticmethod
+    def _diagnostic_size_bucket(size_bytes: int) -> str:
+        if size_bytes <= 0:
+            return "empty"
+        if size_bytes < 1024:
+            return "under_1kib"
+        if size_bytes < 16 * 1024:
+            return "1_to_16kib"
+        if size_bytes <= 80 * 1024:
+            return "16_to_80kib"
+        return "over_80kib"
+
+    @staticmethod
+    def _elapsed_ms(value: Any) -> int | None:
+        try:
+            parts = str(value).split(":")
+            if len(parts) != 3:
+                return None
+            minutes, seconds, millis = (int(part) for part in parts)
+            if minutes < 0 or not 0 <= seconds < 60 or not 0 <= millis < 1000:
+                return None
+            return (minutes * 60 + seconds) * 1000 + millis
+        except (TypeError, ValueError):
+            return None
 
     def scan_ports(self) -> list[str]:
         started = time.monotonic()
@@ -227,7 +254,32 @@ class TXPhysicalBackend:
                 "total_chunks": payload.get("total_chunks", 0),
                 "chunk":        payload.get("chunk", 0),
             }
-        
+            if not self._transfer_diag_recorded:
+                size_bytes = int(payload.get("size", 0) or 0)
+                duration_ms = self._elapsed_ms(payload.get("elapsed_time"))
+                if duration_ms is None and self._active_transfer_started is not None:
+                    duration_ms = int((time.monotonic() - self._active_transfer_started) * 1000)
+                self._record_diag(
+                    "transfer_completed", role="tx",
+                    size_bucket=self._diagnostic_size_bucket(size_bytes),
+                    duration_ms=max(0, duration_ms or 0),
+                    chunk_count=int(payload.get("total_chunks", 0) or 0),
+                )
+                self._transfer_diag_recorded = True
+        elif stage in {"Send failed", "CRC Failure", "CRC mismatch", "Transfer timeout"}:
+            if not self._transfer_diag_recorded:
+                size_bytes = int(payload.get("size", 0) or 0)
+                duration_ms = self._elapsed_ms(payload.get("elapsed_time"))
+                if duration_ms is None and self._active_transfer_started is not None:
+                    duration_ms = int((time.monotonic() - self._active_transfer_started) * 1000)
+                reason = "crc_mismatch" if "CRC" in stage else ("transfer_timeout" if "timeout" in stage.lower() else "unknown")
+                self._record_diag(
+                    "transfer_failed", role="tx", reason_code=reason,
+                    size_bucket=self._diagnostic_size_bucket(size_bytes),
+                    duration_ms=max(0, duration_ms or 0), retry_count=0,
+                )
+                self._transfer_diag_recorded = True
+
         self._latest_status.update(payload)
         
     def start_transmission(self, filepath: str) -> None:
@@ -236,6 +288,8 @@ class TXPhysicalBackend:
             
         path = Path(filepath)
         self._active_file = path.name
+        self._active_transfer_started = time.monotonic()
+        self._transfer_diag_recorded = False
         
         # Run in background to prevent GUI freeze
         self._transmission_thread = threading.Thread(

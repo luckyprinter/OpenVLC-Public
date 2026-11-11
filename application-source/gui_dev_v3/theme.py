@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Literal
 
 ThemeMode = Literal[
-    "midnight_navy", "charcoal", "espresso", "synthwave", "arctic_light",
+    "graphite_lab", "midnight_navy", "charcoal", "espresso", "synthwave", "arctic_light",
     "dark", "light",  # legacy aliases kept for compatibility
 ]
 AccentName = Literal["blue", "cyan", "green", "violet", "amber", "rose", "teal"]
@@ -599,7 +599,7 @@ QListWidget {{
 }}
 QListWidget::item {{
     padding: {item_padding};
-    border-radius: 7px;
+    border-radius: 9px;
     color: {t['muted']};
     margin: 1px 0px;
 }}
@@ -620,7 +620,7 @@ QFrame#Card {{
     background: {t['panel']};
     border: 1px solid {t['border']};
     border-top: 1px solid {t.get('border_glow', t['border'])};
-    border-radius: 10px;
+    border-radius: 14px;
 }}
 QFrame#ChartFrame {{
     background: {t['panel']};
@@ -845,7 +845,7 @@ QWidget#FooterBar {{
     border-top: 1px solid {t['border']};
 }}
 QWidget#HeaderBar {{
-    background: {footer_bg};
+    background: {t['panel']};
     border-bottom: 1px solid {t['border']};
 }}
 

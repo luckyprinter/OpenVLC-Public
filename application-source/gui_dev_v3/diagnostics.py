@@ -31,7 +31,7 @@ _ALLOWED_FIELDS: dict[str, frozenset[str]] = {
     "serial_probe": frozenset({"role", "result", "baud_rate", "duration_ms"}),
     "serial_connected": frozenset({"role", "baud_rate", "firmware_family"}),
     "serial_disconnected": frozenset({"role", "reason_code"}),
-    "calibration_completed": frozenset({"result", "iterations", "target_margin_mv", "measured_margin_mv", "pwm_duty"}),
+    "calibration_completed": frozenset({"result", "iterations", "target_margin_mv", "measured_margin_mv", "pwm_duty", "target_vref_mv", "measured_vref_mv", "pwm_percent"}),
     "transfer_completed": frozenset({"role", "size_bucket", "duration_ms", "chunk_count", "crc_ok", "ber_zero"}),
     "transfer_failed": frozenset({"role", "reason_code", "size_bucket", "duration_ms", "retry_count"}),
 }
@@ -55,6 +55,9 @@ _INT_RANGES = {
     "target_margin_mv": (0, 5000),
     "measured_margin_mv": (0, 5000),
     "pwm_duty": (0, 255),
+    "target_vref_mv": (0, 5000),
+    "measured_vref_mv": (0, 5000),
+    "pwm_percent": (0, 100),
     "chunk_count": (0, 1_000_000),
     "retry_count": (0, 100_000),
 }

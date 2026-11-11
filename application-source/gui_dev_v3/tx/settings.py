@@ -384,7 +384,7 @@ class TXSettingsPage(QWidget):
             # Use the gated helper so DMA_MODE/PREAMBLE/CARRIER are only sent
             # to DMA-capable firmware. Sending them to tx_non_dma.ino causes
             # 'TX_ERROR: unknown command' which disrupts the non-DMA blinking.
-            self._state.apply_link_settings_from_ui(
+            applied = self._state.apply_link_settings_from_ui(
                 freq=freq,
                 preamble=preamble,
                 gap=gap,
@@ -395,6 +395,16 @@ class TXSettingsPage(QWidget):
                 quiet=quiet,
                 dma_mode=dma_mode,
             )
+            from PySide6.QtWidgets import QMessageBox
+            if applied:
+                QMessageBox.information(self, "TX Settings", "Hardware settings were sent to the transmitter.")
+            else:
+                QMessageBox.warning(
+                    self,
+                    "TX Settings Not Applied",
+                    "The transmitter is not connected or a serial write failed. "
+                    "Check the TX connection and reapply the settings.",
+                )
         else:
             self._state.update_simulation_params(
                 symbol_hz=freq,

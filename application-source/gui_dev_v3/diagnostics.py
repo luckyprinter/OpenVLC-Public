@@ -68,7 +68,10 @@ def _safe_value(key: str, value: Any) -> str | int | float | bool | None:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return None
         low, high = _INT_RANGES[key]
-        number = int(value)
+        try:
+            number = int(value)
+        except (ValueError, OverflowError):
+            return None
         return number if low <= number <= high else None
     if key in {"app_version", "python_version", "qt_version", "pyserial_version"}:
         if not isinstance(value, str) or len(value) > 32:

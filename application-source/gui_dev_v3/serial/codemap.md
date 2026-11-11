@@ -41,7 +41,7 @@ The serial reader runs in a background thread so incoming firmware messages can 
 
 ## Important distinction
 
-The TX and RX desktop applications are separate processes. Their ready pings confirm each board to its own application. There is no direct TX-app-to-RX-app readiness channel in this architecture, so the operator must still ensure the RX is ready before starting an optical test.
+The unified launcher can host both TX and RX consoles in one process, and separate instances can also be launched. In either arrangement, each backend performs its own board-readiness check; there is no coordinated TX-to-RX readiness gate or cross-process readiness channel. The operator must still ensure the RX is ready before starting an optical test.
 
 ## Testing boundary
 

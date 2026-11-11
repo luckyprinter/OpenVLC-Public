@@ -34,7 +34,7 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
                 item = layout.itemAt(index)
                 widget = item.widget()
                 if widget is not None and widget.isVisible():
-                    if widget.geometry().bottom() > body.height() + 1:
+                    if widget.geometry().bottom() > body.geometry().bottom() + 1:
                         raise RuntimeError(
                             f"TX file-details control is clipped at {width}x{height}: "
                             f"{widget.objectName() or widget.__class__.__name__}"

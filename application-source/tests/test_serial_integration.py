@@ -182,8 +182,8 @@ def test_tx_and_rx_identification_probes_use_exclusive_non_resetting_open(
     from gui_dev_v3.rx.backends.physical import _send_identify as identify_rx
     from gui_dev_v3.tx.backends.physical import _send_identify as identify_tx
 
-    fake_serial.responses[("MOCK_TX", 115200)] = [b"TX Ready\\n"]
-    fake_serial.responses[("MOCK_RX", 460800)] = [b"RX Ready\\n"]
+    fake_serial.responses[("MOCK_TX", 115200)] = [b"TX Ready\n"]
+    fake_serial.responses[("MOCK_RX", 460800)] = [b"RX Ready\n"]
     monkeypatch.setattr("time.sleep", lambda _seconds: None)
 
     assert identify_tx("MOCK_TX", "VLC_TX")["device"] == "VLC_TX"

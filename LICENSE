@@ -1,10 +1,88 @@
-Copyright (c) 2026 RM. All rights reserved.
+OpenVLC Academic Evaluation License (OAEL) 1.0
+Copyright (c) 2026 Reymart Martinez. All rights reserved.
 
-Redistribution and use in source and binary forms, with or without modification, are permitted solely for academic evaluation or peer review purposes, provided that the following conditions are met:
+IMPORTANT
+This is a custom, restricted-use license. It is not an OSI-approved open-source
+license. Access to the source code does not grant permission for commercial use.
 
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-3. Any publication, thesis, report, or academic work that utilizes, references, or builds upon this software or firmware must explicitly cite the original author (Reymart Martinez).
-4. This software, firmware, and associated documentation may not be used, copied, modified, merged, published, distributed, sublicensed, or sold for commercial purposes, or any purposes outside of academic evaluation, without the prior written consent of the copyright holder.
+1. DEFINITIONS
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+"Project Materials" means the original software source code, firmware source
+code, and project documentation in this repository that are authored by
+Reymart Martinez.
+
+"Academic Purpose" means non-commercial study, teaching, academic research,
+academic evaluation, or peer review carried out by an individual or an
+educational or research institution. An activity whose primary purpose is
+commercial development, commercial service delivery, or commercial advantage
+is not an Academic Purpose.
+
+"Third-Party Components" means software, libraries, firmware components,
+assets, or other materials that are not authored by the copyright holder and
+are identified as third-party material or are otherwise subject to separate
+license terms.
+
+2. LIMITED PERMISSION
+
+Subject to the conditions in this license, the copyright holder grants you a
+limited, worldwide, non-exclusive, royalty-free permission to use, reproduce,
+study, and modify the Project Materials solely for an Academic Purpose.
+
+You may share original or modified copies of the Project Materials with other
+recipients solely for an Academic Purpose, provided that each copy is
+accompanied by this license and the recipients are informed that their use is
+subject to these same terms.
+
+3. CONDITIONS
+
+When sharing source-code copies, you must retain this copyright notice and
+include a copy of this license.
+
+When sharing binary copies, you must reproduce this copyright notice and
+include this license in the accompanying documentation or other materials.
+
+If an academic publication, thesis, report, presentation, or other scholarly
+work uses, evaluates, or builds upon the Project Materials, you must
+acknowledge and cite the original author, Reymart Martinez, and the OpenVLC
+System Suite repository. Where relevant, also cite the associated thesis.
+
+You must not remove or misrepresent the original authorship or attribution.
+
+4. RESTRICTIONS
+
+Without prior written permission from the copyright holder, you may not use,
+reproduce, modify, distribute, sublicense, sell, or otherwise exploit the
+Project Materials for commercial purposes or for purposes outside the
+Academic Purpose defined above.
+
+This license does not grant trademark rights or permission to imply
+endorsement by the copyright holder.
+
+5. THIRD-PARTY COMPONENTS
+
+Third-Party Components are not relicensed under this license. They remain
+subject to their own copyright notices and license terms. If a copy or
+distribution of the Project Materials includes or bundles Third-Party
+Components, you are responsible for complying with the applicable terms for
+those components in addition to this license.
+
+If a Third-Party Component license grants rights that differ from or are
+broader than the permissions in this license, that component's own license
+governs that component. Nothing in this license is intended to restrict rights
+that a recipient receives directly under a Third-Party Component license.
+
+6. NO WARRANTY
+
+THE PROJECT MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN
+NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY CLAIM,
+DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR
+OTHERWISE, ARISING FROM, OUT OF, OR IN CONNECTION WITH THE PROJECT MATERIALS
+OR THE USE OR OTHER DEALINGS IN THE PROJECT MATERIALS.
+
+7. PERMISSION REQUESTS
+
+For permission to use the Project Materials outside the scope of this license,
+contact the copyright holder through the contact method published in the
+repository or the associated project documentation.

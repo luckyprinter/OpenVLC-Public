@@ -149,6 +149,22 @@ def test_tx_and_rx_sessions_can_open_distinct_ports_concurrently(fake_serial):
     assert fake_serial.open_ports == set()
 
 
+def test_tx_reader_marks_connection_lost_after_unplug(fake_serial):
+    session = SerialSession("tx")
+
+    assert session.connect("MOCK_TX") is True
+    fake_serial.read_errors.add("MOCK_TX")
+
+    deadline = time.monotonic() + 1.0
+    while session.is_connected and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    assert session.is_connected is False
+    assert session.serial_obj is None
+    assert fake_serial.open_ports == set()
+    session.disconnect()
+
+
 def test_failed_open_never_reports_connected(monkeypatch: pytest.MonkeyPatch):
     registry = FakeSerialRegistry(fail_ports={"MOCK_BUSY"})
     monkeypatch.setitem(sys.modules, "serial", registry.module())

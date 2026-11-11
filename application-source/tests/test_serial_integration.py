@@ -208,6 +208,9 @@ def test_tx_and_rx_identification_probes_use_exclusive_non_resetting_open(
 def test_general_role_scanner_probe_uses_safe_exclusive_open(fake_serial):
     from gui_dev_v3.serial.detection import probe_serial_port
 
+    # The scanner probes RX baud first. Keep that attempt neutral so the
+    # fake port does not incorrectly impersonate RX before the TX baud probe.
+    fake_serial.responses[("MOCK_TX", 460800)] = [b"NO_MATCH\n"] * 6
     fake_serial.responses[("MOCK_TX", 115200)] = [b"TX Ready\n"]
 
     role, lines = probe_serial_port("MOCK_TX")

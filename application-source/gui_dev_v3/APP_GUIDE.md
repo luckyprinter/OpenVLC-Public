@@ -129,6 +129,38 @@ Do not start by reading the largest backend file from top to bottom. First under
 
 The physical backends are the bridge between the GUI's application state and the serial communication layer. The RX backend currently owns its persistent serial reader directly; TX uses `TXSerialController`, which inherits from `SerialSession`.
 
+
+### Supporting packages
+
+#### Data layer: `gui_dev_v3/data/`
+
+| File | Plain-language responsibility |
+|---|---|
+| `status.py` | Reads runtime status JSON files produced by the hardware/legacy bridge. |
+| `records.py` | Loads and parses transfer records, logs, and signal-quality details. |
+| `session.py` | Converts status and transfer information into the structured session model shown by the GUI. |
+| `codemap.md` | Explains the data package. |
+| `experiments.db` | SQLite database file, not a Python module. |
+
+#### Logic layer: `gui_dev_v3/logic/`
+
+| File | Plain-language responsibility |
+|---|---|
+| `ber_bridge.py` | Pure data-quality calculations and helpers, including BER test payload generation, file comparison, and transfer-quality calculations. |
+| `codemap.md` | Explains the logic package. |
+
+#### Backend implementations
+
+| File | Plain-language responsibility |
+|---|---|
+| `rx/backends/physical.py` | Real receiver hardware implementation. |
+| `rx/backends/simulation.py` | Simulated receiver behavior for UI testing without the ESP32. |
+| `tx/backends/physical.py` | Real transmitter hardware implementation. |
+| `tx/backends/simulation.py` | Simulated transmitter behavior for UI testing without the ESP32. |
+| `rx/backends/codemap.md`, `tx/backends/codemap.md` | Architecture notes for the corresponding backend packages. |
+
+A file named `__init__.py` marks a folder as a Python package and may expose selected classes/functions for easier imports. It is not normally where the main hardware logic lives.
+
 ## 5. What happens when the user connects?
 
 ### TX connection

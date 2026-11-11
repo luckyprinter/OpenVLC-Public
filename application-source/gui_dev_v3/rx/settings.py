@@ -380,24 +380,39 @@ class ConnectionChannelPage(QWidget):
         rep = self.rep_set.isChecked()
         inv = self.inv_set.isChecked()
 
-        self._state.send_firmware_command(f"FREQ={freq}\n")
-        self._state.send_firmware_command(f"PREAMBLE={preamble}\n")
-        self._state.send_firmware_command(f"PHASE={phase}\n")
-        self._state.send_firmware_command(f"MAJ={1 if maj else 0}\n")
-        self._state.send_firmware_command(f"REPORT={1 if rep else 0}\n")
-        self._state.send_firmware_command(f"INVERT={1 if inv else 0}\n")
-        self._state.send_firmware_command(f"VREF_MARGIN={vref_margin}\n")
-        self._state.send_firmware_command(f"VREF_PWM_FS={vref_pwm}\n")
-        self._state.send_firmware_command(f"VREF_SETTLE_MS={vref_settle}\n")
-        self._state.send_firmware_command("VREF_MODE=AUTO\n" if vref_auto else "VREF_MODE=MANUAL\n")
-        # VREF_SET must be sent LAST because the firmware blocks/delays to let the RC filter settle.
-        # Sending it earlier causes the ESP32's 64-byte UART buffer to overflow with the remaining commands.
-        self._state.send_firmware_command(f"VREF_SET={vref_set}\n")
-        
-        if vref_auto:
-            self._state.send_firmware_command("VREF_CAL\n")
-            
-        self._show_toast("Hardware settings applied to receiver")
+        # Keep the established command order. In particular, VREF_SET stays
+        # last among configuration commands because firmware may block while
+        # the reference filter settles. Stop immediately if the serial write
+        # fails so we never report a successful apply after a partial send.
+        commands = [
+            f"FREQ={freq}\n",
+            f"PREAMBLE={preamble}\n",
+            f"PHASE={phase}\n",
+            f"MAJ={1 if maj else 0}\n",
+            f"REPORT={1 if rep else 0}\n",
+            f"INVERT={1 if inv else 0}\n",
+            f"VREF_MARGIN={vref_margin}\n",
+            f"VREF_PWM_FS={vref_pwm}\n",
+            f"VREF_SETTLE_MS={vref_settle}\n",
+            "VREF_MODE=AUTO\n" if vref_auto else "VREF_MODE=MANUAL\n",
+            f"VREF_SET={vref_set}\n",
+        ]
+        for command in commands:
+            if not self._state.send_firmware_command(command):
+                self._show_toast(
+                    f"Could not apply settings: serial write failed at {command.strip()}. "
+                    "Check the RX connection and reapply."
+                )
+                return
+
+        if vref_auto and not self._state.send_firmware_command("VREF_CAL\n"):
+            self._show_toast(
+                "Settings were sent, but VREF_CAL could not be sent. "
+                "Check the RX connection and retry calibration."
+            )
+            return
+
+        self._show_toast("Hardware settings sent to receiver")
 
     def refresh(self, state: RXAppState) -> None:
         if state is None:

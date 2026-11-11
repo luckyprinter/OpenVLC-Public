@@ -219,3 +219,16 @@ def test_general_role_scanner_probe_uses_safe_exclusive_open(fake_serial):
         ("MOCK_TX", 115200, False, False, True),
     ]
     assert fake_serial.open_ports == set()
+
+
+def test_tx_persistent_connection_waits_for_firmware_ready(fake_serial):
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    backend = TXPhysicalBackend()
+    backend._port = "MOCK_TX"
+
+    assert backend._open_serial() is True
+    assert backend._wait_for_firmware_ready(timeout=0.5) is True
+
+    backend._controller.disconnect()
+    assert fake_serial.open_ports == set()

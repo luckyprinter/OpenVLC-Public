@@ -78,7 +78,16 @@ class _BaseWindow(QMainWindow):
             self.setWindowTitle(f"{title} (v{VERSION} - {BUILD_DATE})")
         except ImportError:
             self.setWindowTitle(title)
-        self.setMinimumSize(QSize(1024, 700))
+        # Use Qt's logical screen geometry so the minimum size respects
+        # Windows/Linux display scaling and smaller laptop panels.
+        screen = QApplication.primaryScreen()
+        available = screen.availableGeometry() if screen else None
+        if available is not None:
+            min_width = max(640, min(1024, available.width() - 32))
+            min_height = max(480, min(700, available.height() - 48))
+        else:
+            min_width, min_height = 1024, 700
+        self.setMinimumSize(QSize(min_width, min_height))
         self.settings = load_settings()
         self._apply_display_mode()
         self._apply_theme()
@@ -111,9 +120,14 @@ class _BaseWindow(QMainWindow):
         for key, w, h in RESOLUTION_PRESETS:
             if key == preset_key:
                 self.settings.resolution = preset_key
-                # Enforce minimum size of 1024x700
-                w = max(w, 1024)
-                h = max(h, 700)
+                # Respect the current screen's available logical geometry.
+                screen = self.screen() or QApplication.primaryScreen()
+                available = screen.availableGeometry() if screen else None
+                if available is not None:
+                    w = min(w, max(self.minimumWidth(), available.width() - 24))
+                    h = min(h, max(self.minimumHeight(), available.height() - 40))
+                w = max(w, self.minimumWidth())
+                h = max(h, self.minimumHeight())
                 self.resize(w, h)
                 return
         # Fallback to default if preset not found

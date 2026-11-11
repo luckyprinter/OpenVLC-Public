@@ -122,6 +122,9 @@ class SerialSession:
             # Prevent Windows from resetting the ESP32 and dropping the handle
             ser.dtr = False
             ser.rts = False
+            # POSIX pySerial uses an exclusive OS lock; Windows serial handles
+            # are exclusive at the driver level.
+            ser.exclusive = True
             ser.open()
             self.serial_obj = ser
             self.is_connected = True

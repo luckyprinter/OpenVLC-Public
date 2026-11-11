@@ -142,3 +142,20 @@ def test_rx_persistent_open_disables_dtr_and_rts(fake_serial, monkeypatch):
 
     backend._close_serial()
     assert fake_serial.open_ports == set()
+
+
+
+def test_reconnect_stops_previous_reader_before_opening_new_port(fake_serial):
+    session = SerialSession("tx")
+
+    assert session.connect("MOCK_TX_1") is True
+    previous_reader = session._reader_thread
+    assert previous_reader is not None
+
+    assert session.connect("MOCK_TX_2") is True
+    assert previous_reader.is_alive() is False
+    assert session.serial_obj.port == "MOCK_TX_2"
+    assert fake_serial.open_ports == {"MOCK_TX_2"}
+
+    session.disconnect()
+    assert fake_serial.open_ports == set()

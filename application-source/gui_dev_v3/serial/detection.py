@@ -66,19 +66,32 @@ def probe_serial_port(device: str) -> tuple[str, list[str]]:
     for baud in _PROBE_BAUDS:
         lines: list[str] = []
         try:
-            ser = serial.Serial(device, baud, timeout=0.4)
-            for _ in range(6):
-                ser.write(b"\n")
-                try:
-                    raw = ser.readline()
-                    if raw:
-                        line = raw.decode("utf-8", errors="replace").strip()
-                        if line:
-                            lines.append(line)
-                except Exception:
-                    break
-            ser.close()
+            # Configure modem-control lines before opening: opening a USB-UART
+            # port with DTR/RTS asserted can reset some ESP32 boards. Exclusive
+            # ownership prevents the TX and RX app scanners from probing the
+            # same POSIX serial device simultaneously.
+            ser = serial.Serial()
+            ser.port = device
+            ser.baudrate = baud
+            ser.timeout = 0.4
+            ser.dtr = False
+            ser.rts = False
+            ser.exclusive = True
+            ser.open()
+            with ser:
+                for _ in range(6):
+                    ser.write(b"\n")
+                    try:
+                        raw = ser.readline()
+                        if raw:
+                            line = raw.decode("utf-8", errors="replace").strip()
+                            if line:
+                                lines.append(line)
+                    except Exception:
+                        break
         except Exception:
+            # A busy/locked port is not a firmware mismatch; another scan pass
+            # can retry after the other application releases it.
             continue
 
         # Check banner lines for role markers

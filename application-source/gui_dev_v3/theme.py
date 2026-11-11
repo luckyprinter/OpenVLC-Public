@@ -639,7 +639,8 @@ QLabel#Toast {{
 }}
 
 /* ── Inputs ─────────────────────────────────────────────────────── */
-QComboBox, QLineEdit {{
+QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox,
+QPlainTextEdit, QTextEdit {{
     background: {t['panel_alt']};
     border: 1px solid {t['border']};
     border-radius: 7px;
@@ -647,12 +648,19 @@ QComboBox, QLineEdit {{
     color: {t['text']};
     selection-background-color: {t['accent']};
 }}
-QComboBox:hover, QLineEdit:hover {{
+QComboBox:hover, QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover,
+QPlainTextEdit:hover, QTextEdit:hover {{
     border-color: {t['secondary']};
 }}
-QComboBox:focus, QLineEdit:focus {{
+QComboBox:focus, QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
+QPlainTextEdit:focus, QTextEdit:focus {{
     border-color: {t['accent']};
-    border-width: 1px;
+}}
+QComboBox:disabled, QLineEdit:disabled, QSpinBox:disabled,
+QDoubleSpinBox:disabled, QPlainTextEdit:disabled, QTextEdit:disabled {{
+    color: {t['muted']};
+    background: {t['panel']};
+    border-color: {t['border']};
 }}
 QComboBox::drop-down {{
     border: none;
@@ -665,6 +673,32 @@ QComboBox QAbstractItemView {{
     border: 1px solid {t['border']};
     border-radius: 6px;
     padding: 4px;
+}}
+QCheckBox, QRadioButton {{
+    spacing: 8px;
+    color: {t['text']};
+    background: transparent;
+}}
+QCheckBox:disabled, QRadioButton:disabled {{
+    color: {t['muted']};
+}}
+QCheckBox::indicator, QRadioButton::indicator {{
+    width: 16px;
+    height: 16px;
+}}
+QCheckBox::indicator:unchecked, QRadioButton::indicator:unchecked {{
+    background: {t['panel_alt']};
+    border: 1px solid {t['muted']};
+}}
+QCheckBox::indicator:checked, QRadioButton::indicator:checked {{
+    background: {t['accent']};
+    border: 1px solid {t['accent']};
+}}
+QToolTip {{
+    background: {t['panel']};
+    color: {t['text']};
+    border: 1px solid {t['border']};
+    padding: 6px 8px;
 }}
 
 /* ── Buttons ────────────────────────────────────────────────────── */

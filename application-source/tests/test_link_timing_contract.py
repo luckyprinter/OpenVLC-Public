@@ -23,7 +23,7 @@ def test_tx_default_link_configuration_command_order(monkeypatch):
     controller = TXSerialController()
     controller._dma_capable = False
     commands = []
-    controller.send_line = commands.append
+    controller.send_line = lambda command: (commands.append(command) or True)
     controller.status = lambda *_args, **_kwargs: None
 
     controller.apply_4b5b_settings()

@@ -67,3 +67,33 @@ def test_save_settings_atomically_round_trips(settings_paths: Path) -> None:
     assert settings_store.load_settings() == expected
     assert json.loads(settings_paths.read_text(encoding="utf-8"))["theme"] == "charcoal"
     assert list(settings_paths.parent.glob("*.tmp")) == []
+
+
+
+def test_reset_clears_console_and_shared_display_settings(
+    settings_paths: Path,
+) -> None:
+    from gui_dev_v3.settings import reset_all_settings
+
+    class FakeManager:
+        cleared = False
+
+        def clear(self) -> None:
+            self.cleared = True
+
+    class FakeWindow:
+        settings = settings_store.AppSettings(
+            theme="synthwave",
+            resolution="1366x768",
+            fullscreen=True,
+            borderless=True,
+        )
+
+    manager = FakeManager()
+    window = FakeWindow()
+
+    reset_all_settings(manager, window)
+
+    assert manager.cleared is True
+    assert window.settings == settings_store.AppSettings()
+    assert settings_store.load_settings() == settings_store.AppSettings()

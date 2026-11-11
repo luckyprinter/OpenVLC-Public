@@ -238,13 +238,28 @@ class SerialSession:
                         self._append_line(line)
                         self.handle_line(line)
             except serial.SerialException as exc:
-                self.log(f"Serial disconnected unexpectedly: {exc}")
-                self.status("Connection Lost", str(exc), state="error")
-                self.is_connected = False
+                if self._running:
+                    self._mark_reader_failed(exc)
                 break
             except Exception as exc:
-                self.log(f"Reader error: {exc}")
+                if self._running:
+                    self._mark_reader_failed(exc)
                 break
+
+    def _mark_reader_failed(self, exc: Exception) -> None:
+        """Invalidate and release a TX serial handle after an unexpected read failure."""
+        self._running = False
+        with self._write_lock:
+            ser = self.serial_obj
+            self.serial_obj = None
+            if ser is not None and getattr(ser, "is_open", False):
+                try:
+                    ser.close()
+                except Exception:
+                    pass
+        self.is_connected = False
+        self.log(f"Serial disconnected unexpectedly: {type(exc).__name__}")
+        self.status("Connection Lost", type(exc).__name__, state="error")
 
     # ── Hooks for subclasses ─────────────────────────────────────────────────
 

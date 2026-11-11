@@ -193,10 +193,9 @@ def test_tx_session_serializes_concurrent_writes(fake_serial):
     session.disconnect()
 
 
-def test_rx_backend_serializes_concurrent_writes(fake_serial, monkeypatch):
+def test_rx_backend_serializes_concurrent_writes(fake_serial):
     from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
 
-    monkeypatch.setattr("gui_dev_v3.rx.backends.physical.time.sleep", lambda _seconds: None)
     backend = RXPhysicalBackend()
     backend._port = "MOCK_RX"
     assert backend._open_serial() is True

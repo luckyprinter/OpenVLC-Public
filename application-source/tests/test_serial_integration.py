@@ -66,6 +66,8 @@ class FakeSerialPort:
 
     def readline(self) -> bytes:
         time.sleep(0.002)
+        if self.port in self.registry.read_errors:
+            raise OSError("mock USB serial device removed")
         return self._responses.pop(0) if self._responses else b""
 
     def reset_input_buffer(self) -> None:
@@ -84,6 +86,7 @@ class FakeSerialPort:
 class FakeSerialRegistry:
     def __init__(self, fail_ports: set[str] | None = None) -> None:
         self.fail_ports = fail_ports or set()
+        self.read_errors: set[str] = set()
         self.responses: dict[tuple[str | None, int | None], list[bytes]] = {}
         self.open_ports: set[str] = set()
         self.opens: list[tuple[str | None, int | None, bool | None, bool | None, bool | None]] = []
@@ -246,6 +249,30 @@ def test_tx_persistent_connection_waits_for_firmware_ready(fake_serial):
 
     backend._controller.disconnect()
     assert fake_serial.open_ports == set()
+
+
+def test_rx_reader_marks_connection_lost_after_unplug(fake_serial, monkeypatch):
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    monkeypatch.setattr("gui_dev_v3.rx.backends.physical.time.sleep", lambda _seconds: None)
+    backend = RXPhysicalBackend()
+    backend._port = "MOCK_RX"
+    backend._record_diag = lambda *_args, **_kwargs: None
+    backend.log = lambda *_args, **_kwargs: None
+
+    assert backend._open_serial() is True
+    backend._connected = True
+    fake_serial.read_errors.add("MOCK_RX")
+
+    deadline = time.monotonic() + 1.0
+    while backend.is_connected and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    assert backend.is_connected is False
+    assert backend._ser is None
+    assert backend._port is None
+    assert fake_serial.open_ports == set()
+    backend._close_serial()
 
 
 def test_serial_scan_lock_serializes_separate_processes(tmp_path: Path):

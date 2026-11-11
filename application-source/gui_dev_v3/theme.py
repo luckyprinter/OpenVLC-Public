@@ -686,13 +686,25 @@ QCheckBox::indicator, QRadioButton::indicator {{
     width: 16px;
     height: 16px;
 }}
-QCheckBox::indicator:unchecked, QRadioButton::indicator:unchecked {{
+QCheckBox::indicator:unchecked {{
     background: {t['panel_alt']};
     border: 1px solid {t['muted']};
+    border-radius: 3px;
 }}
-QCheckBox::indicator:checked, QRadioButton::indicator:checked {{
+QCheckBox::indicator:checked {{
     background: {t['accent']};
     border: 1px solid {t['accent']};
+    border-radius: 3px;
+}}
+QRadioButton::indicator:unchecked {{
+    background: {t['panel_alt']};
+    border: 1px solid {t['muted']};
+    border-radius: 8px;
+}}
+QRadioButton::indicator:checked {{
+    background: {t['accent']};
+    border: 1px solid {t['accent']};
+    border-radius: 8px;
 }}
 QToolTip {{
     background: {t['panel']};

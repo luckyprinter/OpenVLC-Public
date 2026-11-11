@@ -324,17 +324,19 @@ class RXPhysicalBackend:
             return False
 
     def _serial_reader_loop(self) -> None:
-        """Background thread: read every line from serial and put into _line_queue.
+        """Read firmware output until stopped or the serial link fails.
 
-        This is the equivalent of vlc_beta's poll_serial() — it drains the UART
-        buffer continuously so no async firmware messages (RX_FILE_HEX, SYNC events,
-        transfer notices) are ever lost to reset_input_buffer() calls.
+        A read exception or a port that has closed unexpectedly is treated as
+        a lost connection. The backend clears its live connection state and
+        closes the stale handle so the normal auto-connect loop can retry.
         """
         while not self._reader_stop.is_set():
             ser = self._ser
-            if ser is None or not ser.is_open:
-                time.sleep(0.05)
-                continue
+            if ser is None:
+                break
+            if not ser.is_open:
+                self._mark_serial_lost(ser, ConnectionError("Serial port closed"))
+                break
             try:
                 line_bytes = ser.readline()
                 if line_bytes:
@@ -342,8 +344,27 @@ class RXPhysicalBackend:
                     if line:
                         # Dispatch file-data lines immediately in this thread
                         self._dispatch_line(line)
-            except Exception:
-                time.sleep(0.05)
+            except Exception as exc:
+                if self._reader_stop.is_set():
+                    break
+                self._mark_serial_lost(ser, exc)
+                break
+
+    def _mark_serial_lost(self, ser: Any, exc: Exception) -> None:
+        """Invalidate and release an unexpectedly failed RX serial connection."""
+        if self._reader_stop.is_set():
+            return
+        self._reader_stop.set()
+        if self._ser is ser:
+            self._ser = None
+            self._connected = False
+            self._port = None
+        try:
+            ser.close()
+        except Exception:
+            pass
+        self._record_diag("serial_disconnected", role="rx", reason_code="serial_error")
+        self.log("Serial Disconnected", f"RX serial reader stopped ({type(exc).__name__})")
 
     def _dispatch_line(self, line: str) -> None:
         """Dispatch a firmware line to the appropriate handler.

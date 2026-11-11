@@ -72,6 +72,7 @@ def test_save_settings_atomically_round_trips(settings_paths: Path) -> None:
 
 def test_reset_clears_console_and_shared_display_settings(
     settings_paths: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from gui_dev_v3.settings import reset_all_settings
 
@@ -89,7 +90,6 @@ def test_reset_clears_console_and_shared_display_settings(
         def clear(self) -> None:
             cleared_scopes.append(self.scope)
 
-    monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr("gui_dev_v3.settings.SettingsManager", FakeScopedManager)
 
     class FakeWindow:
@@ -109,4 +109,3 @@ def test_reset_clears_console_and_shared_display_settings(
     assert cleared_scopes == ["tx"]
     assert window.settings == settings_store.AppSettings()
     assert settings_store.load_settings() == settings_store.AppSettings()
-    monkeypatch.undo()

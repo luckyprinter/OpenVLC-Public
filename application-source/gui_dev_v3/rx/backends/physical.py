@@ -105,6 +105,9 @@ class RXPhysicalBackend:
         self._last_lq_line: str | None = None  # most recent LQ line seen by reader
         self._reader_thread: threading.Thread | None = None
         self._reader_stop: threading.Event = threading.Event()
+        # Prevent concurrent GUI/calibration writes from interleaving and
+        # prevent cleanup from closing the port during a write.
+        self._write_lock = threading.Lock()
         # Set only after the persistent RX command loop answers the ready ping.
         self._ready_event: threading.Event = threading.Event()
         # Active transfer tracking
@@ -309,8 +312,9 @@ class RXPhysicalBackend:
             # The firmware answers a blank line only after setup() has completed
             # and loop() is processing serial commands. This replaces reliance
             # on a fixed startup sleep as the readiness signal.
-            ser.write(b"\n")
-            ser.flush()
+            with self._write_lock:
+                ser.write(b"\n")
+                ser.flush()
             if not self._ready_event.wait(timeout=1.5):
                 self.log("Readiness Timeout", f"RX firmware did not answer ready ping on {self._port}")
                 self._close_serial()
@@ -355,14 +359,15 @@ class RXPhysicalBackend:
         if self._reader_stop.is_set():
             return
         self._reader_stop.set()
-        if self._ser is ser:
-            self._ser = None
-            self._connected = False
-            self._port = None
-        try:
-            ser.close()
-        except Exception:
-            pass
+        with self._write_lock:
+            if self._ser is ser:
+                self._ser = None
+                self._connected = False
+                self._port = None
+            try:
+                ser.close()
+            except Exception:
+                pass
         self._record_diag("serial_disconnected", role="rx", reason_code="serial_error")
         self.log("Serial Disconnected", f"RX serial reader stopped ({type(exc).__name__})")
 
@@ -686,23 +691,26 @@ class RXPhysicalBackend:
         if self._reader_thread is not None and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=1.0)
         self._reader_thread = None
-        if self._ser is not None:
-            try:
-                self._ser.close()
-            except Exception:
-                pass
-            self._ser = None
+        with self._write_lock:
+            if self._ser is not None:
+                try:
+                    self._ser.close()
+                except Exception:
+                    pass
+                self._ser = None
 
     def send_command(self, cmd: str) -> bool:
-        """Write cmd string over serial."""
-        if not self._connected or not self._ser:
-            return False
-        try:
-            self._ser.write(cmd.encode("utf-8"))
-            self._ser.flush()
-            return True
-        except Exception:
-            return False
+        """Write a complete command without interleaving concurrent writers."""
+        with self._write_lock:
+            ser = self._ser
+            if not self._connected or ser is None:
+                return False
+            try:
+                ser.write(cmd.encode("utf-8"))
+                ser.flush()
+                return True
+            except Exception:
+                return False
 
     def apply_link_settings(self) -> None:
         """Apply saved settings to physical RX firmware."""
@@ -767,8 +775,8 @@ class RXPhysicalBackend:
         if self._ser is None:
             return None
         try:
-            self._ser.write(LQ_POLL_CMD)
-            self._ser.flush()
+            if not self.send_command(LQ_POLL_CMD.decode("ascii")):
+                return None
             # Wait briefly for reader thread to catch the response
             deadline = time.time() + 0.6
             while time.time() < deadline:

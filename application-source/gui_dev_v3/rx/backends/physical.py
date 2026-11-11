@@ -290,7 +290,7 @@ class RXPhysicalBackend:
             # The firmware answers a blank line only after setup() has completed
             # and loop() is processing serial commands. This replaces reliance
             # on a fixed startup sleep as the readiness signal.
-            ser.write(b"\\n")
+            ser.write(b"\n")
             ser.flush()
             if not self._ready_event.wait(timeout=1.5):
                 self.log("Readiness Timeout", f"RX firmware did not answer ready ping on {self._port}")

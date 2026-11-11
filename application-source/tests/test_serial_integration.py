@@ -55,7 +55,7 @@ class FakeSerialPort:
         self.is_open = False
 
     def write(self, data: bytes) -> int:
-        if data == b"\\n" and not self._responses:
+        if data == b"\n" and not self._responses:
             if self.baudrate == 115200:
                 self._responses.append(b"TX Ready\\n")
             elif self.baudrate == 460800:

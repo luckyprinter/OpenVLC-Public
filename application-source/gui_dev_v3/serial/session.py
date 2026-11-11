@@ -115,6 +115,8 @@ class SerialSession:
             import serial  # type: ignore[import-untyped]
 
             self.disconnect()
+            if self._reader_thread is not None and self._reader_thread.is_alive():
+                raise RuntimeError("Previous serial reader did not stop; refusing overlapping connection")
             ser = serial.Serial()
             ser.port = device
             ser.baudrate = baud
@@ -147,12 +149,23 @@ class SerialSession:
 
     def disconnect(self) -> None:
         self._running = False
-        if self.serial_obj and self.serial_obj.is_open:
+        ser = self.serial_obj
+        self.serial_obj = None
+        if ser is not None and getattr(ser, "is_open", False):
             try:
-                self.serial_obj.close()
+                ser.close()
             except Exception:
                 pass
-        self.serial_obj = None
+
+        # A reader from the previous connection must stop before a new port
+        # can be installed, otherwise reconnects can create two readers on the
+        # same new serial object.
+        reader = self._reader_thread
+        if reader is not None and reader.is_alive() and reader is not threading.current_thread():
+            reader.join(timeout=1.0)
+        if reader is None or not reader.is_alive():
+            self._reader_thread = None
+
         self.is_connected = False
         self.log("Disconnected")
         self.status("Disconnected", "", state="idle")

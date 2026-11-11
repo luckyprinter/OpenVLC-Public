@@ -65,6 +65,19 @@ class SettingsManager:
         self._settings.sync()
 
 
+def reset_all_settings(mgr: SettingsManager, window: QWidget | None = None) -> None:
+    """Reset this console's QSettings and the shared display-settings JSON."""
+    from gui_dev_v3.settings_store import AppSettings, save_settings
+
+    mgr.clear()
+    defaults = AppSettings()
+    save_settings(defaults)
+    # closeEvent persists the window's in-memory display values. Replace them
+    # too, otherwise closing after reset would silently restore the old values.
+    if window is not None and hasattr(window, "settings"):
+        window.settings = defaults
+
+
 def bind_toggle(toggle: ToggleSetting, mgr: SettingsManager, key: str, default: bool = True) -> None:
     """Load initial value from settings and save on toggle."""
     toggle.setChecked(mgr.get(key, default))  # type: ignore[arg-type]

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -330,18 +330,17 @@ class _ActivityLogPanel(Card):
 
 
 class RXDashboardPage(QWidget):
-    """Dashboard with live panels that auto-refresh from vlc_beta data."""
+    """Reception overview; detailed live waveforms remain on the Signal page."""
 
     def __init__(self, state: RXAppState, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._state = state
 
-        # Main layout
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(20, 16, 20, 20)
+        outer.setContentsMargins(16, 12, 16, 12)
         outer.setSpacing(12)
 
-        # --- Top Row: 3 panels ---
+        # At-a-glance status and measurements.
         self._reception = _ReceptionStatusPanel(state)
         self._perf = _PerformanceMetricsPanel(state)
         self._signal_mon = _SignalMonitorPanel(state)
@@ -353,76 +352,38 @@ class RXDashboardPage(QWidget):
         top_grid.addWidget(self._signal_mon, 1)
         outer.addLayout(top_grid)
 
-        # --- Splitter for Middle & Bottom Rows ---
-        splitter = QSplitter(Qt.Orientation.Vertical)
-        splitter.setChildrenCollapsible(False)
+        # File and decoder details share the working area. The live waveform
+        # is intentionally kept on the dedicated Signal page to avoid showing
+        # the same visualization twice and to keep this overview uncluttered.
+        detail_widget = QWidget()
+        detail_grid = QHBoxLayout(detail_widget)
+        detail_grid.setContentsMargins(0, 0, 0, 0)
+        detail_grid.setSpacing(12)
 
-        # --- Middle Row: Waveform (50%) | Bit Decode (20%) | File Info (30%) ---
-        mid_widget = QWidget()
-        mid_grid = QHBoxLayout(mid_widget)
-        mid_grid.setContentsMargins(0, 0, 0, 0)
-        mid_grid.setSpacing(10)
-        
-        self._signal_waveform = _SignalWaveformPanel()
         self._bit_decode = _BitDecodePanel(state)
         self._file_info = _FileInfoPanel(state)
+        detail_grid.addWidget(self._file_info, 1)
+        detail_grid.addWidget(self._bit_decode, 1)
 
-        mid_grid.addWidget(self._signal_waveform, 5)
-        mid_grid.addWidget(self._bit_decode, 2)
-        mid_grid.addWidget(self._file_info, 3)
-
-        # --- Bottom Row: Activity Log ---
         self._activity_log = _ActivityLogPanel(state)
-        
-        splitter.addWidget(mid_widget)
+
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.setChildrenCollapsible(False)
+        splitter.addWidget(detail_widget)
         splitter.addWidget(self._activity_log)
-        
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
-        
         outer.addWidget(splitter, 1)
 
-        # High-frequency sampler (100 ms)
-        self._last_sample_index = 0
-        self._sample_timer = QTimer(self)
-        self._sample_timer.timeout.connect(self._sample_waveform)
-        self._sample_timer.start(100)
-
-        # Initial refresh
         self.refresh()
 
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        if self._state and self._state._simulation:
-            self._last_sample_index = self._state._simulation._sample_counter
-        if hasattr(self, "_sample_timer") and not self._sample_timer.isActive():
-            self._sample_timer.start(100)
-
-    def hideEvent(self, event) -> None:
-        super().hideEvent(event)
-        if hasattr(self, "_sample_timer") and self._sample_timer.isActive():
-            self._sample_timer.stop()
-
-    def shutdown(self) -> None:
-        if hasattr(self, "_sample_timer"):
-            self._sample_timer.stop()
-            try:
-                self._sample_timer.timeout.disconnect()
-            except Exception:
-                pass
-
-    def _sample_waveform(self) -> None:
-        if self._state is not None:
-            self._last_sample_index = self._signal_waveform.refresh_telemetry(self._state, self._last_sample_index)
-
     def refresh(self, state: RXAppState | None = None) -> None:
-        """Refresh all dashboard panels from current state. Called by shell timer."""
+        """Refresh the overview panels from the current receiver state."""
         if state is not None:
             self._state = state
         self._reception.refresh(self._state)
         self._perf.refresh(self._state)
         self._signal_mon.refresh(self._state)
-        self._signal_waveform.refresh(self._state)
         self._bit_decode.refresh(self._state)
         self._file_info.refresh(self._state)
         self._activity_log.refresh(self._state)

@@ -531,6 +531,7 @@ def _send_identify(port: str, expected_device: str) -> dict[str, str] | None:
         ser.timeout = 0.5
         ser.dtr = False
         ser.rts = False
+        ser.exclusive = True
         ser.open()
         with ser:
             time.sleep(0.2)

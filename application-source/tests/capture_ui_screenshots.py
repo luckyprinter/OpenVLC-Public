@@ -40,9 +40,14 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
                             f"{widget.objectName() or widget.__class__.__name__}"
                         )
 
-    if mode == "tx" and page_name == "transmit":
-        page = shell._page_widgets.get("transmit")
-        for table_name in ("queue_table", "history_table"):
+    if mode == "tx":
+        page = shell._page_widgets.get(page_name)
+        table_names = {
+            "transmit": ("queue_table", "history_table"),
+            "file_manager": ("file_table",),
+            "logs": ("logs_table",),
+        }.get(page_name, ())
+        for table_name in table_names:
             table = getattr(page, table_name, None)
             if table is None:
                 continue
@@ -51,8 +56,8 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
                 right = header.sectionViewportPosition(column) + header.sectionSize(column)
                 if right > table.viewport().width() + 2:
                     raise RuntimeError(
-                        f"TX {table_name} column {column} exceeds its viewport "
-                        f"at {width}x{height}; horizontal overflow must be intentional and accessible"
+                        f"TX {page_name} {table_name} column {column} exceeds its viewport "
+                        f"at {width}x{height}; table headers must fit or expose horizontal scrolling"
                     )
 
 

@@ -164,6 +164,11 @@ class TXSerialController(SerialSession):
         user_wants_dma = bool(mgr.get("link/dma_mode", False))
         use_dma = user_wants_dma and self.dma_capable
 
+        # Normalize these once before either the single-file or batched path.
+        # The batching branch must use the same validated values as _send_stream().
+        chunk_size = max(16, min(int(chunk_bytes), 1024))
+        round_count = max(1, int(rounds))
+
         if not use_dma and len(data) > MAX_STREAM_FILE_BYTES:
             import math
             group_id = random.randint(1, 65535)
@@ -205,8 +210,6 @@ class TXSerialController(SerialSession):
             return True
 
         name_bytes = path.name.encode("utf-8", errors="replace")[:MAX_NAME_BYTES]
-        chunk_size  = max(16, min(int(chunk_bytes), 1024))
-        round_count = max(1, int(rounds))
         tid         = random.randint(1, 65535)
         file_crc    = crc16_ccitt(data)
 

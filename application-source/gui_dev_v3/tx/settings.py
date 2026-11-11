@@ -202,16 +202,40 @@ class HardwareConnectionPage(QWidget):
             QPushButton:hover { background-color: #fbbf24; }
         """)
         def _on_force_connect():
+            from PySide6.QtWidgets import QMessageBox
+
             port = self.port_combo.currentText()
-            if port and port != "No ports found" and self._state:
-                self._state.set_mode("physical")
-                for btn in mode_group._buttons:
-                    if btn.text() == "Manual":
-                        btn.setChecked(True)
-                        break
-                self._mgr.set("connection/port", port)
-                self._state.force_connect_serial(port)
-                self._show_toast(f"Forced connection to {port}")
+            if not port or port == "No ports found" or not self._state:
+                return
+
+            answer = QMessageBox.warning(
+                self,
+                "Force Connect",
+                f"Attempt to open {port} without first identifying it as a VLC TX device?\n\n"
+                "Use this only when normal detection fails. The firmware-ready check "
+                "will still be required after the port opens.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+            self._state.set_mode("physical")
+            for btn in mode_group._buttons:
+                if btn.text() == "Manual":
+                    btn.setChecked(True)
+                    break
+            self._mgr.set("connection/port", port)
+            connected = self._state.force_connect_serial(port)
+            if connected:
+                self._show_toast(f"Connected to {port} (forced identification bypass)")
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Connection Failed",
+                    f"Could not establish a firmware-ready connection on {port}. "
+                    "Check that the correct ESP32 is connected and try again.",
+                )
         force_btn.clicked.connect(_on_force_connect)
         
         port_layout.addWidget(QLabel("Target Port:"))

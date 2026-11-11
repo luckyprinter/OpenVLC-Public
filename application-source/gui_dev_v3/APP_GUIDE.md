@@ -4,10 +4,12 @@ This guide explains the Python desktop application in plain language. It is inte
 
 ## 1. What is this software?
 
-The application is a **Python desktop GUI** built with **PySide6 (Qt for Python)**. It has two separate user-facing applications:
+The application is a **Python desktop GUI** built with **PySide6 (Qt for Python)**. Its main entry point opens a unified launcher with two operational consoles:
 
-- **TX (transmitter):** chooses a file, configures the transmitter, sends the file to the TX ESP32, and displays transmission progress.
-- **RX (receiver):** connects to the RX ESP32, displays signal and receiver status, receives file data, checks integrity, and provides logs and analysis tools.
+- **TX (transmitter) console:** chooses a file, configures the transmitter, sends the file to the TX ESP32, and displays transmission progress.
+- **RX (receiver) console:** connects to the RX ESP32, displays signal and receiver status, receives file data, checks integrity, and provides logs and analysis tools.
+
+The TX and RX consoles have separate state and backend objects. The normal `main()` entry point hosts both in one `VLCMainWindow`; command-line flags can open a console directly. Two separately launched instances can also run independently.
 
 The ESP32 firmware performs the real-time optical transmission and reception. The Python application controls the boards over USB serial, displays information, and manages files and test records. Python does not generate the optical waveform itself.
 
@@ -249,3 +251,161 @@ Do not assume a function controls the optical signal just because it is in the T
 ## 10. Testing limitation
 
 Mock serial tests can verify host-side connection logic, command ordering, parsing, and error handling. They cannot prove that the ESP32 USB-UART adapter behaves exactly like the mock, that DTR/RTS wiring does not reset a particular board, or that the optical link works. Those require physical validation with both ESP32 boards and the LED/photodiode setup.
+
+
+## 10. Execution walkthrough: from launching the program to showing a page
+
+This section follows the actual call path in the current source.
+
+### A. `app.py`: the entry point
+
+Start with `main()`. In simplified order, it:
+
+1. Loads optional design tokens and applies them to the theme.
+2. Configures Qt high-DPI behavior.
+3. Creates the `QApplication` object. This is the Qt application runtime; there should normally be one per process.
+4. Loads bundled fonts, selects the Fusion widget style, and applies the stylesheet.
+5. Creates `VLCMainWindow`.
+6. Checks command-line flags such as `--tx`, `--rx`, or `--smoke-test`.
+7. Shows the window and enters `app.exec()`, Qt's event loop.
+
+**Important distinction:** `app.exec()` is not an infinite loop written by the developer. It is Qt's event loop. It waits for events such as mouse clicks, key presses, timers, and signals, then dispatches the connected handlers.
+
+`VLCMainWindow` owns a `QStackedWidget`. Think of this as a deck of pages where only one page is visible at a time. The launcher is added first. When the user chooses TX or RX, `launch_mode()` creates that console only if it has not already been created, then makes it the visible widget.
+
+Useful methods:
+- `load_bundled_fonts()`: registers local TTF font files with Qt.
+- `load_design_tokens()`: reads optional design configuration from `design.json`.
+- `_BaseWindow.__init__()`: loads window settings and applies the display mode and theme.
+- `VLCMainWindow.launch_mode(mode)`: lazily creates the selected TX or RX state and shell.
+- `VLCMainWindow.return_to_launcher()`: calls console cleanup before removing its widget.
+- `main()`: creates the runtime and starts the event loop.
+
+### B. State files: the application's working memory
+
+The GUI should not be responsible for opening serial ports or parsing firmware messages. Instead, it reads values from a state object.
+
+#### `app_state.py` — RX state
+
+The main class is `RXAppState`. It stores receiver-facing values such as:
+- the current session and latest transfer;
+- signal measurements and activity log;
+- whether the serial device is connected;
+- physical or simulated mode;
+- the reference/original file used for comparison;
+- captured signal samples for a reception session.
+
+The most important methods are:
+
+| Method | Meaning |
+|---|---|
+| `__post_init__()` | Initializes capture bookkeeping and performs the first refresh. |
+| `subscribe(callback)` | Registers a GUI listener that wants to know when state changes. |
+| `notify()` | Calls a snapshot of the registered listeners. |
+| `set_mode(mode)` | Switches between physical and simulated backends. |
+| `_refresh()` | Asks the active backend for a snapshot. |
+| `_apply_phy_snapshot(snapshot)` | Copies real-hardware results into RX state. |
+| `_apply_sim_snapshot(snapshot)` | Copies simulated results into RX state. |
+| `refresh()` | Public periodic refresh; also tracks and saves reception captures. |
+| `send_firmware_command(cmd)` | Sends a command only when physical mode is active. |
+| `cleanup()` | Stops and releases the backend resources. |
+
+A **snapshot** is a package of values representing the backend's current view at a particular refresh. The state layer copies that package into fields that the GUI can display.
+
+The `subscribe` / `notify` pattern is an observer pattern: a page registers interest, and the state tells its listeners when updated. A callback is simply a function that is called later in response to an event.
+
+#### `tx_app_state.py` — TX state
+
+The main class is `TXAppState`. It stores transmitter-facing values such as selected filename, file size, encoding, symbol rate, progress, elapsed time, data rate, connection status, activity log, and session history.
+
+Important methods:
+- `_refresh()`: chooses the physical or simulation backend and asks it for a snapshot.
+- `_apply_phy_snapshot()` / `_apply_sim_snapshot()`: copies backend values into the TX state.
+- `start_transmission(filepath)`: forwards the selected file to the active backend.
+- `send_firmware_command(cmd)`: forwards a raw command only to a connected physical backend.
+- `apply_link_settings_from_ui(...)`: applies UI settings through the TX controller when physical mode is active.
+- `refresh()`: refreshes values, loads a saved capture when available, and notifies listeners.
+- `cleanup()`: closes physical connections and stops simulation.
+
+**Why have a separate state class for TX and RX?** They display different information and have different actions. Keeping them separate avoids one large state object full of unrelated transmitter and receiver fields.
+
+### C. Shell files: assembling the window
+
+`rx/shell.py` and `tx/shell.py` are the top-level layouts for their respective consoles. A shell is the frame around the pages, not the code that performs optical transmission.
+
+Each shell:
+1. Receives its state object.
+2. Restores the saved physical/simulated mode.
+3. Builds the sidebar and navigation list.
+4. Creates a `QStackedWidget` to hold the pages.
+5. Builds the footer and connection-status area.
+6. Connects the navigation selection signal to `_on_nav_changed()`.
+7. Starts a `QTimer` that periodically calls `_on_poll_timer()`.
+
+The shell's `_build_pages()` method creates the actual page objects and adds them to the page stack. The page map connects a stable key such as `dashboard` or `settings` to its widget.
+
+The timer is important:
+- RX shell currently polls at `POLL_INTERVAL_MS`, which is 1000 ms (one second).
+- TX shell currently polls every 100 ms (ten times per second).
+
+On each tick, `_on_poll_timer()` calls `state.refresh()`, updates the connection indicators, and asks the visible page to refresh if it provides a `refresh()` method. This is why a dashboard can update without the user manually pressing a refresh button.
+
+When leaving a console, `cleanup()` stops its timers and calls `state.cleanup()`. Cleanup is essential: a serial reader or timer left running after a window is removed can continue using resources unexpectedly.
+
+### D. One complete example: clicking Send in TX
+
+Use this chain when tracing a button:
+
+```text
+TX dashboard / transmit page
+        |
+        | user clicks Send
+        v
+TXAppState.start_transmission(filepath)
+        |
+        v
+TXPhysicalBackend.start_transmission(filepath)
+        |
+        | creates a background thread
+        v
+TXSerialController.send_file(path)
+        |
+        | sends serial commands and file blocks
+        v
+TX ESP32 firmware
+        |
+        | generates the optical signal
+        v
+LED driver and LED
+```
+
+The key concept is **delegation**. Each layer passes work to the layer responsible for it:
+- The page handles the user interaction.
+- The state object routes the action to the active backend.
+- The physical backend prepares the hardware operation and manages its lifecycle.
+- The serial controller implements the command/transfer protocol.
+- The firmware performs the time-sensitive optical work.
+
+The background thread is important because sending a file may involve many serial writes and waits for acknowledgements. Running that work on the GUI thread could make the window stop responding until the operation finishes.
+
+### E. How to trace any button or setting
+
+For any control, use this five-step method:
+
+1. **Find the widget:** search the page file for the button or input label.
+2. **Find its signal connection:** look for `.clicked.connect(...)`, `.valueChanged.connect(...)`, or a Qt signal/slot connection.
+3. **Follow the callback:** identify the function that runs after the click or value change.
+4. **Follow delegation:** check whether it calls the state object, a backend, or a settings manager.
+5. **Find the side effect:** determine whether it changes a displayed value, writes a settings file, sends a serial command, starts a thread, or saves a record.
+
+Do not assume a button talks directly to the ESP32. Follow the function calls until you reach the serial write.
+
+## 11. Important boundaries and details to explain accurately
+
+- **The GUI does not create the optical waveform.** The Python application sends commands and file bytes to the ESP32; firmware handles the time-sensitive optical signaling.
+- **Physical and simulated are different backends.** Simulation is useful for exercising the UI and workflow, but a simulated success is not evidence that the LED, photodiode, analog front end, or optical channel works.
+- **TX completion is not the same as RX verification.** A TX-side completion status means the TX-side operation finished; receiver CRC and BER results must come from the RX-side data and comparison.
+- **The readiness ping is a serial check.** `TX Ready` or `RX Ready` confirms that the firmware command loop responds over USB serial. It is not an optical synchronization signal.
+- **No cross-console readiness coordinator currently exists.** TX and RX each check their own board. The operator still needs to make sure the receiver is ready before starting a test.
+- **Mock serial tests are host-side tests.** They can test Python command handling and connection cleanup, but they cannot reproduce USB-UART electrical behavior, ESP32 boot/reset behavior, firmware timing, or light transmission.
+- **Do not explain a Python-side setting as a measured hardware value unless the firmware or hardware path confirms it.** Some dashboard fields are presentation defaults or status summaries. Trace the source before claiming a value is being measured.

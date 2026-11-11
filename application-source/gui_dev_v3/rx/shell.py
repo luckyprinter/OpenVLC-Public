@@ -184,9 +184,33 @@ class RXShell(QWidget):
 
         content.addWidget(self.sidebar)
 
-        # ── Content area ────────────────────────────────────────────────
+        # ── Main workspace: page header + active page ───────────────────
+        main_area = QWidget()
+        main_layout = QVBoxLayout(main_area)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        header = QWidget()
+        header.setObjectName("HeaderBar")
+        header.setFixedHeight(52)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(20, 0, 20, 0)
+        header_layout.setSpacing(10)
+
+        self._page_heading = QLabel("Dashboard")
+        self._page_heading.setStyleSheet("font-size: 15px; font-weight: 700; background: transparent;")
+        header_layout.addWidget(self._page_heading)
+        header_layout.addStretch(1)
+
+        workspace_label = QLabel("RECEIVER WORKSPACE")
+        workspace_label.setObjectName("Muted")
+        workspace_label.setStyleSheet("font-size: 10px; font-weight: 700; letter-spacing: 1px; background: transparent;")
+        header_layout.addWidget(workspace_label)
+        main_layout.addWidget(header)
+
         self.pages = QStackedWidget()
-        content.addWidget(self.pages, 1)
+        main_layout.addWidget(self.pages, 1)
+        content.addWidget(main_area, 1)
 
         outer.addLayout(content, 1)
 
@@ -427,7 +451,8 @@ class RXShell(QWidget):
 
     def _on_nav_changed(self, index: int) -> None:
         if 0 <= index < len(SIDEBAR_TABS):
-            _, page_key, _ = SIDEBAR_TABS[index]
+            label, page_key, _ = SIDEBAR_TABS[index]
+            self._page_heading.setText(label)
             page = self._page_widgets.get(page_key)
             if page:
                 self.pages.setCurrentWidget(page)

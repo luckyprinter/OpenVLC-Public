@@ -111,3 +111,25 @@ def test_tx_and_rx_processes_can_append_to_one_queue_without_corruption(tmp_path
     assert len(entries) == 120
     assert sum(entry["data"]["role"] == "tx" for entry in entries) == 60
     assert sum(entry["data"]["role"] == "rx" for entry in entries) == 60
+
+
+
+def test_calibration_summary_accepts_only_bounded_vref_metrics(tmp_path):
+    store = LocalDiagnostics(tmp_path / "diag.jsonl", enabled=True)
+    assert store.record(
+        "calibration_completed",
+        result="success",
+        iterations=12,
+        target_vref_mv=1700,
+        measured_vref_mv=1688,
+        pwm_percent=57,
+        raw_lq="private serial text",
+    )
+    entry = json.loads(store.export_text())
+    assert entry["data"] == {
+        "result": "success",
+        "iterations": 12,
+        "target_vref_mv": 1700,
+        "measured_vref_mv": 1688,
+        "pwm_percent": 57,
+    }

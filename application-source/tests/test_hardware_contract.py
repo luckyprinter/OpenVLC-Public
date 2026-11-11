@@ -96,11 +96,6 @@ def test_method2_handles_two_empty_files() -> None:
     assert result["strict_ber"] == 0.0
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=UnboundLocalError,
-    reason="Known defect: non-DMA batching uses chunk_size/round_count before initialization.",
-)
 def test_non_dma_large_file_batching_uses_configured_chunk_and_rounds(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

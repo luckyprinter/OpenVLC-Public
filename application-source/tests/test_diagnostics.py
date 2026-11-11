@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 
 from gui_dev_v3.diagnostics import LocalDiagnostics
 
@@ -74,3 +75,39 @@ def test_non_finite_numeric_values_are_rejected(tmp_path):
     store.record("serial_scan", role="rx", ports_seen=float("nan"), duration_ms=float("inf"))
     entry = json.loads(store.export_text())
     assert entry["data"] == {"role": "rx"}
+
+
+
+def _write_diagnostics_from_process(path: str, role: str, count: int) -> None:
+    store = LocalDiagnostics(path, enabled=True)
+    for _ in range(count):
+        assert store.record("serial_disconnected", role=role, reason_code="user_disconnect")
+
+
+def test_tx_and_rx_processes_can_append_to_one_queue_without_corruption(tmp_path):
+    path = str(tmp_path / "shared-diagnostics.jsonl")
+    context = multiprocessing.get_context("spawn")
+    tx = context.Process(target=_write_diagnostics_from_process, args=(path, "tx", 60))
+    rx = context.Process(target=_write_diagnostics_from_process, args=(path, "rx", 60))
+
+    tx.start()
+    rx.start()
+    tx.join(timeout=20)
+    rx.join(timeout=20)
+
+    if tx.is_alive():
+        tx.terminate()
+        tx.join()
+        raise AssertionError("TX diagnostics writer did not finish")
+    if rx.is_alive():
+        rx.terminate()
+        rx.join()
+        raise AssertionError("RX diagnostics writer did not finish")
+    assert tx.exitcode == 0
+    assert rx.exitcode == 0
+
+    lines = (tmp_path / "shared-diagnostics.jsonl").read_text(encoding="utf-8").splitlines()
+    entries = [json.loads(line) for line in lines]
+    assert len(entries) == 120
+    assert sum(entry["data"]["role"] == "tx" for entry in entries) == 60
+    assert sum(entry["data"]["role"] == "rx" for entry in entries) == 60

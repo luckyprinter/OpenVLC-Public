@@ -51,10 +51,9 @@ class TransmitPage(QWidget):
         self.queue_table.verticalHeader().setDefaultSectionSize(32)
         qhdr = self.queue_table.horizontalHeader()
         qhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)          # Filename
-        qhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)            # Size
-        qhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)            # Status
-        self.queue_table.setColumnWidth(1, 70)
-        self.queue_table.setColumnWidth(2, 90)
+        qhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents) # Size
+        qhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents) # Status
+        qhdr.setMinimumSectionSize(64)
         self.queue_table.setFixedHeight(220)
         self.queue_table.verticalHeader().setVisible(False)
         self.queue_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -71,13 +70,11 @@ class TransmitPage(QWidget):
         self.history_table.setHorizontalHeaderLabels(["Time", "File", "Throughput", "Outcome"])
         self.history_table.verticalHeader().setDefaultSectionSize(32)
         hhdr = self.history_table.horizontalHeader()
-        hhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)       # Time
-        hhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)     # File
-        hhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)       # Throughput
-        hhdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)       # Outcome
-        self.history_table.setColumnWidth(0, 80)
-        self.history_table.setColumnWidth(2, 110)
-        self.history_table.setColumnWidth(3, 80)
+        hhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents) # Time
+        hhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)            # File
+        hhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)   # Throughput
+        hhdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)   # Outcome
+        hhdr.setMinimumSectionSize(64)
         self.history_table.verticalHeader().setVisible(False)
         self.history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.history_table.setAlternatingRowColors(True)

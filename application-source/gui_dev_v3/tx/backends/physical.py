@@ -127,6 +127,14 @@ class TXPhysicalBackend:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _safe_nonnegative_int(value: Any) -> int:
+        """Parse optional controller metrics without letting diagnostics disrupt TX."""
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
     def scan_ports(self) -> list[str]:
         started = time.monotonic()
         ports = _list_usb_serial_ports()
@@ -255,7 +263,7 @@ class TXPhysicalBackend:
                 "chunk":        payload.get("chunk", 0),
             }
             if not self._transfer_diag_recorded:
-                size_bytes = int(payload.get("size", 0) or 0)
+                size_bytes = self._safe_nonnegative_int(payload.get("size", 0))
                 duration_ms = self._elapsed_ms(payload.get("elapsed_time"))
                 if duration_ms is None and self._active_transfer_started is not None:
                     duration_ms = int((time.monotonic() - self._active_transfer_started) * 1000)
@@ -263,7 +271,7 @@ class TXPhysicalBackend:
                     "transfer_completed", role="tx",
                     size_bucket=self._diagnostic_size_bucket(size_bytes),
                     duration_ms=max(0, duration_ms or 0),
-                    chunk_count=int(payload.get("total_chunks", 0) or 0),
+                    chunk_count=self._safe_nonnegative_int(payload.get("total_chunks", 0)),
                 )
                 self._transfer_diag_recorded = True
         elif stage in {"Send failed", "CRC Failure", "CRC mismatch", "Transfer timeout"}:

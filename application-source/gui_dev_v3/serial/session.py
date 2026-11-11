@@ -68,6 +68,8 @@ class SerialSession:
         self.on_status  = on_status or (lambda payload: None)
         self.serial_obj: Any = None
         self._lock      = threading.Lock()
+        # Serialize writes and prevent disconnect from closing a port mid-write.
+        self._write_lock = threading.Lock()
         self._is_connected = False
         # Bounded deque — old entries dropped automatically at maxlen.
         self._last_lines: deque[str] = deque(maxlen=_MAX_LOG_LINES)
@@ -149,13 +151,15 @@ class SerialSession:
 
     def disconnect(self) -> None:
         self._running = False
-        ser = self.serial_obj
-        self.serial_obj = None
-        if ser is not None and getattr(ser, "is_open", False):
-            try:
-                ser.close()
-            except Exception:
-                pass
+        # Wait for an in-flight write before closing the underlying handle.
+        with self._write_lock:
+            ser = self.serial_obj
+            self.serial_obj = None
+            if ser is not None and getattr(ser, "is_open", False):
+                try:
+                    ser.close()
+                except Exception:
+                    pass
 
         # A reader from the previous connection must stop before a new port
         # can be installed, otherwise reconnects can create two readers on the
@@ -174,18 +178,24 @@ class SerialSession:
     # ── I/O ─────────────────────────────────────────────────────────────────
 
     def send_line(self, line: str) -> bool:
-        if not self.is_connected or self.serial_obj is None:
-            self.log("Not connected")
-            return False
-        try:
-            data = (line + "\n").encode("utf-8")
-            self.serial_obj.write(data)
-            self.log(f">> {line}")
-            return True
-        except Exception as exc:
-            self.log(f"Send error: {exc}")
+        error: Exception | None = None
+        with self._write_lock:
+            ser = self.serial_obj
+            if not self.is_connected or ser is None:
+                self.log("Not connected")
+                return False
+            try:
+                data = (line + "\n").encode("utf-8")
+                ser.write(data)
+            except Exception as exc:
+                error = exc
+
+        if error is not None:
+            self.log(f"Send error: {error}")
             self.disconnect()  # Handle hot unplug during send
             return False
+        self.log(f">> {line}")
+        return True
 
     @property
     def line_counter(self) -> int:

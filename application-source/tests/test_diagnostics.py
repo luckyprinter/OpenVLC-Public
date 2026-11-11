@@ -66,3 +66,11 @@ def test_disable_stops_recording_and_clear_deletes_queue(tmp_path):
     assert len(store.export_text().splitlines()) == 1
     store.clear()
     assert store.export_text() == ""
+
+
+
+def test_non_finite_numeric_values_are_rejected(tmp_path):
+    store = LocalDiagnostics(tmp_path / "diag.jsonl", enabled=True)
+    store.record("serial_scan", role="rx", ports_seen=float("nan"), duration_ms=float("inf"))
+    entry = json.loads(store.export_text())
+    assert entry["data"] == {"role": "rx"}

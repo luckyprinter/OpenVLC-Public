@@ -122,7 +122,7 @@ def save_settings(settings: AppSettings) -> None:
         ) as temp_file:
             temp_path = Path(temp_file.name)
             json.dump(asdict(settings), temp_file, indent=2)
-            temp_file.write("\\n")
+            temp_file.write("\n")
             temp_file.flush()
             os.fsync(temp_file.fileno())
         os.replace(temp_path, SETTINGS_PATH)

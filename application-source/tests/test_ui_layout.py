@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication
 from gui_dev_v3.app import VLCMainWindow
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.rx.dashboard import RXDashboardPage
-from gui_dev_v3.settings import ThemePickerGrid
+from gui_dev_v3.settings import SettingsContainer, ThemePickerGrid
 
 
 @pytest.fixture(scope="module")
@@ -130,3 +130,25 @@ def test_theme_picker_reflows_to_two_columns_on_narrow_width(qapp):
     ]
     assert max(column for _row, column, _row_span, _column_span in positions) < 2
     picker.close()
+
+
+def test_settings_container_reduces_gutters_on_compact_width(qapp):
+    page = QWidget()
+    settings = SettingsContainer([("General", page)])
+    settings.resize(700, 500)
+    settings.show()
+    qapp.processEvents()
+
+    wrapper_layout = settings._page_wrappers[0].layout()
+    margins = wrapper_layout.contentsMargins()
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (
+        10, 12, 10, 12
+    )
+
+    settings.resize(1000, 700)
+    qapp.processEvents()
+    margins = wrapper_layout.contentsMargins()
+    assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (
+        24, 20, 24, 24
+    )
+    settings.close()

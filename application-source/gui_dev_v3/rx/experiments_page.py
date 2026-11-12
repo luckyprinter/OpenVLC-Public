@@ -195,7 +195,7 @@ class ExperimentsPage(QWidget):
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         """Stack experiment creation and saved records on compact workspaces."""
         super().resizeEvent(event)
-        compact = self.width() < 900 or self.height() < 620
+        # Reserve the two-column form/table layout for genuinely roomy workspaces.\n        # The available page width is smaller than the window after the shell rail,\n        # and high-DPI scaling can further reduce the logical work area.\n        compact = self.width() < 1100 or self.height() < 740
         if compact == self._compact_layout:
             return
         self._compact_layout = compact

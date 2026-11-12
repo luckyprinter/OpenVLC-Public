@@ -162,7 +162,7 @@ class ReceivePage(QWidget):
         self.progress_bar.update()
 
         # Update terminal text
-        # If simulated, decode ascii representation of chunk payloads
+        # Decode the received payload for the file preview
         # We look at accumulated received bytes or construct a preview from received chunks
         decoded_text = ""
         # Sort chunks by index

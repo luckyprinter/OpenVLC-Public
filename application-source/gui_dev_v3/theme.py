@@ -13,8 +13,6 @@ Legacy aliases: "dark" → midnight_navy, "light" → arctic_light
 
 from __future__ import annotations
 
-import sys
-from PySide6.QtGui import QFontDatabase, QGuiApplication
 
 from typing import Literal
 
@@ -569,51 +567,6 @@ def build_qss() -> str:
     title_size = "20px" if current_density == "comfortable" else "18px"
     section_size = "11px" if current_density == "comfortable" else "10px"
 
-    # Resolve a single installed family instead of passing a CSS-style family
-    # list to Qt. QSS fallback parsing differs across platforms and can turn
-    # the whole UI monospaced when the first bundled family is unavailable.
-    declared_font_list = t.get(
-        "fontUi", '"Inter", "Segoe UI", Arial, sans-serif'
-    )
-    if QGuiApplication.instance() is None:
-        # APP_QSS is also built at module import time, before QApplication
-        # exists. Defer system-font discovery until the app is initialized.
-        ui_font = declared_font_list
-    else:
-        available_fonts = {
-            family.lower(): family for family in QFontDatabase.families()
-        }
-        declared_fonts = [
-            part.strip().strip('"').strip("'")
-            for part in declared_font_list.split(",")
-        ]
-        if sys.platform == "win32":
-            # Arial is present on supported Windows desktop versions and is a
-            # safe proportional fallback even when Qt's offscreen font
-            # database does not enumerate the installed Segoe UI families.
-            selected_font = (
-                available_fonts.get("inter")
-                or available_fonts.get("segoe ui")
-                or "Arial"
-            )
-        else:
-            platform_fonts = (
-                "DejaVu Sans", "Noto Sans", "Liberation Sans", "Sans Serif"
-            )
-            selected_font = next(
-                (
-                    available_fonts[name.lower()]
-                    for name in (*declared_fonts, *platform_fonts)
-                    if name.lower() in available_fonts
-                ),
-                None,
-            )
-            if selected_font is None:
-                selected_font = QFontDatabase.systemFont(
-                    QFontDatabase.SystemFont.GeneralFont
-                ).family()
-        ui_font = f'"{selected_font}"'
-
     # Derive glow border color safely
     border_glow = t.get("border_glow", t["border"])
     accent_glow = t.get("accent_glow", t["accent"] + "33")
@@ -624,7 +577,7 @@ def build_qss() -> str:
 QWidget {{
     background: {t['bg']};
     color: {t['text']};
-    font-family: {ui_font};
+    font-family: {t.get('fontUi', '"Inter", "Segoe UI", Arial, sans-serif')};
     font-size: {font_size};
 }}
 QMainWindow, QStackedWidget {{ background: {t['bg']}; }}

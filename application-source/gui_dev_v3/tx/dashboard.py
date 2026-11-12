@@ -138,21 +138,7 @@ class DeviceStatusWidget(QFrame):
         
     def refresh(self, state: TXAppState) -> None:
         connected = state.serial_connected
-        mode = state.mode
-        
-        if mode == "simulated":
-            if connected:
-                self.box_connection.setValue("Connected (Simulated)", COLORS["green"])
-                self.box_firmware.setValue("Virtual Channel", COLORS["value"])
-                self.box_protocol.setValue("VLC Beta v3.0", COLORS["value"])
-                self.box_usb.setValue("UDP localhost:9902 (Active)", COLORS["green"])
-            else:
-                self.box_connection.setValue("Waiting for RX Link (Sim)", COLORS["amber"])
-                self.box_firmware.setValue("Virtual Channel", COLORS["value"])
-                self.box_protocol.setValue("VLC Beta v3.0", COLORS["value"])
-                self.box_usb.setValue("UDP localhost:9902 (Listening)", COLORS["muted"])
-        else:
-            if connected:
+        if connected:
                 self.box_connection.setValue("Hardware Connected", COLORS["green"])
                 physical = getattr(state, "_physical", None)
                 firmware_info = getattr(physical, "_firmware_info", None) if physical else None
@@ -374,16 +360,8 @@ class FileDetailsWidget(Card):
             f"QPushButton:hover {{ background-color: {COLORS['header']}; }}"
         )
         
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setMinimumHeight(30)
-        self.cancel_btn.setStyleSheet(
-            f"QPushButton {{ background-color: {COLORS['red']}; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-weight: 700; font-size: 11px; }}"
-            f"QPushButton:hover {{ background-color: #ff5c5c; }}"
-        )
-        
         btn_row.addWidget(self.select_btn)
         btn_row.addWidget(self.start_btn)
-        btn_row.addWidget(self.cancel_btn)
         self.body.addLayout(btn_row)
         
     def refresh(self, state: TXAppState) -> None:
@@ -420,8 +398,6 @@ class FileDetailsWidget(Card):
             self.row_crc.setValue("Idle", COLORS["muted"])
             
         self.start_btn.setEnabled(not is_transmitting and state.serial_connected)
-        self.cancel_btn.setVisible(is_transmitting)
-        self.start_btn.setVisible(not is_transmitting)
 
 
 # ── Section 5: ENCODED BIT STREAM ────────────────────────────────────
@@ -714,7 +690,6 @@ class TXDashboardPage(QWidget):
         self._file_details = FileDetailsWidget()
         self._file_details.select_btn.clicked.connect(self._on_select_file_clicked)
         self._file_details.start_btn.clicked.connect(self._on_start_clicked)
-        self._file_details.cancel_btn.clicked.connect(self._on_cancel_clicked)
         self._session = CurrentSessionWidget()
         self._bit_stream = DigitalBitstreamWidget()
         work_row.addWidget(self._file_details, 5)
@@ -780,11 +755,6 @@ class TXDashboardPage(QWidget):
             if filepath:
                 file_log("TX", "User Action", f"Clicked Start Transmission for {Path(filepath).name}")
                 self._state.start_transmission(filepath)
-
-    def _on_cancel_clicked(self) -> None:
-        if self._state.mode == "simulated" and self._state._simulation:
-            self._state._simulation.stop()
-            self._state.refresh()
 
     def refresh(self, state: TXAppState | None = None) -> None:
         if state is not None:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -289,4 +290,34 @@ def test_rx_ber_metrics_reflow_on_compact_display(qapp):
         for index in range(page._stats_grid.count())
     ]
     assert max(column for _row, column, _row_span, _column_span in wide_positions) < 6
+    page.close()
+
+
+def test_rx_receive_clear_is_display_only_and_does_not_immediately_repopulate(qapp):
+    page = ReceivePage()
+    page._last_text = "received payload"
+    page.terminal.setPlainText("received payload")
+
+    page._on_clear_terminal()
+    assert page.terminal.toPlainText() == ""
+    assert page._last_text == "received payload"
+    assert not page.reset_btn.isEnabled()
+    assert "does not currently expose" in page.reset_btn.toolTip()
+
+    chunk = SimpleNamespace(index=0, received=b"received payload")
+    transfer = SimpleNamespace(
+        filename="sample.txt",
+        tid=1,
+        received_chunks=1,
+        total_chunks=1,
+        chunks=[chunk],
+        status=None,
+    )
+    state = SimpleNamespace(transfer=transfer, is_receiving=True, progress_percent=50)
+    page.refresh(state)
+    assert page.terminal.toPlainText() == ""
+
+    chunk.received = b"received payload plus new data"
+    page.refresh(state)
+    assert page.terminal.toPlainText() == "received payload plus new data"
     page.close()

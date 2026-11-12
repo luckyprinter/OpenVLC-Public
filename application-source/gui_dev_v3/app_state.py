@@ -44,6 +44,7 @@ class RXAppState:
 
     def __post_init__(self) -> None:
         self._last_tid = 0
+        self._method2_comparison: dict[str, Any] | None = None
         self._phys_capture_active = False
         self._phys_capture_start_time = 0.0
         self._phys_pvo: list[float] = []
@@ -128,6 +129,43 @@ class RXAppState:
         from gui_dev_v3.data import save_session_capture
         save_session_capture(updated)
 
+    def set_method2_comparison(self, tid: int, comparison: dict[str, Any]) -> None:
+        """Keep the full live Method 2 result and persist its strict BER."""
+        with self._lock:
+            if int(tid) != self.transfer.tid:
+                return
+            self._method2_comparison = {
+                "tid": int(tid),
+                "overlap_ber": comparison.get("overlap_ber"),
+                "strict_ber": comparison.get("strict_ber"),
+                "bit_accuracy": comparison.get("bit_accuracy"),
+                "strict_bit_errors": comparison.get("strict_bit_errors"),
+                "overlap_bytes": comparison.get("overlap_bytes"),
+                "expected_bytes": comparison.get("expected_bytes"),
+                "length_delta": comparison.get("length_delta"),
+            }
+        self.apply_method2_result(tid, comparison.get("strict_ber"))
+
+    def get_method2_comparison(self) -> dict[str, Any] | None:
+        """Return the current transfer's reference comparison, if available."""
+        with self._lock:
+            current = self._method2_comparison
+            if current is not None and current.get("tid") == self.transfer.tid:
+                return dict(current)
+            capture = self.current_capture
+            if (
+                capture is not None
+                and capture.tid == self.transfer.tid
+                and capture.ber_method == "method2_reference_file"
+            ):
+                return {
+                    "tid": capture.tid,
+                    "overlap_ber": None,
+                    "strict_ber": capture.ber,
+                    "bit_accuracy": None,
+                }
+        return None
+
     def send_firmware_command(self, cmd: str) -> bool:
         """Send command to physical firmware if active."""
         with self._lock:
@@ -186,6 +224,7 @@ class RXAppState:
         current_tid = self.session.latest_transfer.tid if (self.session and self.session.latest_transfer) else 0
         if current_tid != self._last_tid:
             self._last_tid = current_tid
+            self._method2_comparison = None
             self.current_capture = None
             self._phys_capture_active = False
 

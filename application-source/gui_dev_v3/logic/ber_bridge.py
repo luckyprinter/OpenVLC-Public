@@ -15,12 +15,14 @@ def _build_result(expected_size: int, received_size: int, overlap_bit_errors: in
     strict_bits = max(expected_size, received_size) * 8
     length_delta = received_size - expected_size
     strict_bit_errors = overlap_bit_errors + abs(length_delta) * 8
-    strict_ber = strict_bit_errors / strict_bits if strict_bits else 0.0
-    overlap_ber = overlap_bit_errors / overlap_bits if overlap_bits else 0.0
+    # BER is undefined when there are no bits to compare; do not report a
+    # mathematically misleading 0.00% for two empty files.
+    strict_ber = strict_bit_errors / strict_bits if strict_bits else None
+    overlap_ber = overlap_bit_errors / overlap_bits if overlap_bits else None
     return {
         "expected_bytes": expected_size, "received_bytes": received_size,
         "overlap_bytes": overlap_bytes, "overlap_ber": overlap_ber,
-        "strict_ber": strict_ber, "bit_accuracy": 1.0 - strict_ber,
+        "strict_ber": strict_ber, "bit_accuracy": 1.0 - strict_ber if strict_ber is not None else None,
         "overlap_bit_errors": overlap_bit_errors,
         "strict_bit_errors": strict_bit_errors, "strict_bits": strict_bits,
         "byte_mismatches": overlap_byte_mismatches + abs(length_delta),

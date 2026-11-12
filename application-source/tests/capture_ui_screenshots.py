@@ -109,6 +109,11 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
                     f"bottom={bottom}, card_height={file_panel.height()}"
                 )
 
+    if mode == "tx" and page_name == "transmit":
+        page = shell._page_widgets.get("transmit")
+        if page is not None and not page.state.serial_connected and page.start_btn.isEnabled():
+            raise RuntimeError(f"TX batch start must be disabled while hardware is disconnected at {width}x{height}")
+
     if mode == "tx":
         page = shell._page_widgets.get(page_name)
         table_names = {

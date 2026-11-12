@@ -46,8 +46,7 @@ class ReceivePage(QWidget):
             "background: transparent; letter-spacing: 1.5px;"
         )
         status_row.addWidget(self.status_badge)
-        status_row.addStretch(1)
-        
+
         self.filename_lbl = value_label("No file transfer")
         self.filename_lbl.setWordWrap(True)
         self.filename_lbl.setMinimumWidth(0)

@@ -104,6 +104,9 @@ class RXPhysicalBackend:
         self._active_total_chunks: int = 0
         self._active_received_chunks: int = 0
         self._active_filename: str = ""
+        # Preserve batch identity from RX_TRANSFER_NOTICE for CRC-failure handling.
+        # The display filename is decorated below and no longer carries the VLCB1~ prefix.
+        self._active_is_batch: bool = False
         self._active_total_size: int = 0
         self._save_dir: Path = Path.home() / "vlc_rx_captures"
         # Last completed transfer — persisted so UI tabs can read it after reception
@@ -452,6 +455,7 @@ class RXPhysicalBackend:
                         batch_info = f" [Batch Part {part_index}/{part_count}]"
 
                 self._active_tid = tid
+                self._active_is_batch = is_batch
                 self._active_started_monotonic = time.monotonic()
                 self._active_total_chunks = total_chunks
                 self._active_received_chunks = 0
@@ -618,6 +622,7 @@ class RXPhysicalBackend:
             )
             self._active_tid = None
             self._active_filename = None
+            self._active_is_batch = False
             self._active_total_chunks = 0
             self._active_received_chunks = 0
             self._active_total_size = 0
@@ -649,9 +654,10 @@ class RXPhysicalBackend:
                 
                 # Update the active transfer if it matches
                 if self._active_tid == tid:
-                    if self._active_filename and self._active_filename.startswith("VLCB1~"):
+                    if self._active_is_batch:
                         self._active_tid = None
                         self._active_filename = None
+                        self._active_is_batch = False
                         self._active_total_chunks = 0
                         self._active_received_chunks = 0
                         return
@@ -688,6 +694,7 @@ class RXPhysicalBackend:
                         chunks=[],
                     )
                     self._active_tid = None
+                    self._active_is_batch = False
                     self._active_started_monotonic = None
         except Exception as e:
             self._log_queue.append({"time": now, "event": "RX CRC Fail Error", "details": str(e)[:120]})

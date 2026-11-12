@@ -1,4 +1,4 @@
-"""Mock data matching the VLC Transmitter dashboard from the UI image."""
+"""Neutral transmitter data models shared by the GUI and physical backend."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class TXSettings:
-    """Transmission settings matching the TX dashboard design."""
+    """Configuration values reported by or sent to the TX firmware."""
     encoding: str = "4B5B"
     modulation: str = "NRZ / OOK"
     symbol_rate: str = "15,000 sym/s"
@@ -17,20 +17,20 @@ class TXSettings:
 
 @dataclass
 class TXFileInfo:
-    """File info matching the TX dashboard design."""
-    filename: str = "thesis.pdf"
-    filetype: str = "PDF Document"
-    size_bytes: int = 24_810  # 24.81 KiB
-    total_chunks: int = 97
+    """Metadata for the file currently selected for transmission."""
+    filename: str = "No file"
+    filetype: str = ""
+    size_bytes: int = 0
+    total_chunks: int = 0
     chunk_size: int = 256
 
 
 @dataclass
 class TXProgress:
-    """Transmission progress matching the TX dashboard."""
+    """Progress counters reported by the transmitter firmware."""
     percent: int = 0
     current_chunk: int = 0
-    total_chunks: int = 97
+    total_chunks: int = 0
     elapsed_time: str = "00:00:00"
     estimated_time: str = "00:00:00"
     data_rate: str = "0 bps"
@@ -38,11 +38,11 @@ class TXProgress:
 
 @dataclass
 class TXState:
-    """Full TX state matching the dashboard image."""
+    """Combined transmitter state used by the application."""
     file: TXFileInfo = field(default_factory=TXFileInfo)
     settings: TXSettings = field(default_factory=TXSettings)
     progress: TXProgress = field(default_factory=TXProgress)
-    status: str = "Ready to transmit"
-    serial_connected: bool = True
-    port: str = "COM6"
+    status: str = "Offline — no hardware"
+    serial_connected: bool = False
+    port: str = "—"
     activity_log: list[dict[str, str]] = field(default_factory=list)

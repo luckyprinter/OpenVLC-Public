@@ -522,6 +522,12 @@ class SettingsContainer(QWidget):
         super().resizeEvent(event)
         compact = self.width() < 900
         self._nav_panel.setFixedWidth(156 if compact else 200)
+        # Long category labels need a second line at high scaling; a fixed
+        # 42px row clips them even though word wrapping is enabled.
+        for index in range(self._nav_list.count()):
+            item = self._nav_list.item(index)
+            if item is not None:
+                item.setSizeHint(QSize(0, 56 if compact else 42))
         margins = (10, 12, 10, 12) if compact else (24, 20, 24, 24)
         for wrapper in self._page_wrappers:
             layout = wrapper.layout()

@@ -767,18 +767,18 @@ class RXPhysicalBackend:
         vref_auto = 1 if mgr.get("link/vref_auto", False) else 0
         majority_sampling = 1 if mgr.get("link/majority_sampling", True) else 0
         commands = [
-            f"FREQ={symbol_hz}\\n",
-            f"PHASE={sample_phase_pct}\\n",
-            f"MAJ={majority_sampling}\\n",
-            "REPORT=1\\n",
-            f"VREF_MARGIN={vref_margin_mv}\\n",
-            f"VREF_PWM_FS={vref_pwm_full_scale_mv}\\n",
-            f"VREF_SETTLE_MS={vref_settle_ms}\\n",
-            "VREF_MODE=AUTO\\n" if vref_auto else "VREF_MODE=MANUAL\\n",
+            f"FREQ={symbol_hz}\n",
+            f"PHASE={sample_phase_pct}\n",
+            f"MAJ={majority_sampling}\n",
+            "REPORT=1\n",
+            f"VREF_MARGIN={vref_margin_mv}\n",
+            f"VREF_PWM_FS={vref_pwm_full_scale_mv}\n",
+            f"VREF_SETTLE_MS={vref_settle_ms}\n",
+            "VREF_MODE=AUTO\n" if vref_auto else "VREF_MODE=MANUAL\n",
         ]
         if not vref_auto:
             # VREF_SET must be last: firmware delays while the RC filter settles.
-            commands.append(f"VREF_SET={vref_target_mv}\\n")
+            commands.append(f"VREF_SET={vref_target_mv}\n")
 
         for command in commands:
             if not self.send_command(command):

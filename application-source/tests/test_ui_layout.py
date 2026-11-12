@@ -18,6 +18,7 @@ from gui_dev_v3.rx.ber_analyzer_page import BERAnalyzerPage
 from gui_dev_v3.rx.experiments_page import ExperimentsPage
 from gui_dev_v3.rx.table_builder_page import TableBuilderPage
 from gui_dev_v3.rx.export_page import ExportPage
+from gui_dev_v3.rx import experiment_store as experiment_store_module
 from gui_dev_v3.rx import export_page as export_page_module
 from gui_dev_v3.rx.inspect_page import InspectPage
 from gui_dev_v3.rx.signal_page import SignalMonitorPage
@@ -327,7 +328,9 @@ def test_rx_receive_clear_is_display_only_and_does_not_immediately_repopulate(qa
     page.close()
 
 
-def test_rx_experiments_stack_form_and_saved_records_on_compact_display(qapp):
+def test_rx_experiments_stack_form_and_saved_records_on_compact_display(qapp, monkeypatch, tmp_path):
+    monkeypatch.setattr(experiment_store_module, "STORE_DIR", tmp_path)
+    monkeypatch.setattr(experiment_store_module, "STORE_PATH", tmp_path / "experiments.json")
     page = ExperimentsPage()
     page.resize(680, 500)
     page.show()

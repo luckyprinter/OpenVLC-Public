@@ -121,8 +121,8 @@ def build_session_from_status(role: str, transfer: TransferRecord | None = None)
 def build_empty_session() -> SessionState:
     """Build an empty session when no status data is available.
 
-    All fields are explicitly set to zero/empty to prevent leaking
-    dataclass defaults (e.g. data_rate=3.42, lux=420) into offline state.
+    All fields are explicitly set to unavailable/empty values so offline
+    state never presents measurements that were not actually collected.
     """
     empty_transfer = TransferRecord(
         tid=0,

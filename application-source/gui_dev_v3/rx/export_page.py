@@ -82,8 +82,9 @@ class SessionInspectorCard(Card):
         empty_lo.addWidget(self.empty_title)
 
         self.empty_desc = QLabel(
-            "Select an entry from the history list to review its high-fidelity "
-            "analog waveforms, decoded digital bitstream, and protocol timeline."
+            "Select an entry from the history list to review saved PVo/Vref/margin "
+            "telemetry and protocol events. Raw OOK samples are shown only when "
+            "the firmware has actually captured them."
         )
         self.empty_desc.setStyleSheet("font-size: 12px; color: #8C99AA;")
         self.empty_desc.setWordWrap(True)
@@ -123,13 +124,13 @@ class SessionInspectorCard(Card):
         self.waveform_lo.setContentsMargins(8, 8, 8, 8)
         self.waveform_lo.setSpacing(8)
 
-        from gui_dev_v3.rx.signal_widgets import OOKWaveformWidget
-        self.ook_waveform = OOKWaveformWidget()
-        self.ook_waveform.setMinimumHeight(280)
+        from gui_dev_v3.rx.signal_widgets import SignalWaveform
+        self.signal_waveform = SignalWaveform()
+        self.signal_waveform.setMinimumHeight(280)
 
-        self.waveform_lo.addWidget(self.ook_waveform, 1)
+        self.waveform_lo.addWidget(self.signal_waveform, 1)
 
-        self.tabs.addTab(self.waveform_tab, "Waveforms")
+        self.tabs.addTab(self.waveform_tab, "Telemetry Trend")
 
         # ── Tab 3: Bitstream ──
         self.bitstream_tab = QWidget()
@@ -151,7 +152,7 @@ class SessionInspectorCard(Card):
             }
         """)
         self.bitstream_lo.addWidget(self.bitstream_text)
-        self.tabs.addTab(self.bitstream_tab, "Bitstream")
+        self.tabs.addTab(self.bitstream_tab, "Raw OOK Samples")
 
         # ── Tab 4: Protocol Logs ──
         self.protocol_tab = QWidget()
@@ -201,8 +202,8 @@ class SessionInspectorCard(Card):
         self.empty_title.setText("Capture Not Available")
         self.empty_desc.setText(
             f"No physical capture was saved for {filename}. The transfer record "
-            "remains available, but synthetic waveforms and protocol events are "
-            "not generated or presented as hardware measurements."
+            "remains available, but telemetry trends, raw OOK samples, and protocol "
+            "events are not invented or presented as hardware measurements."
         )
         self.stacked.setCurrentIndex(0)
 
@@ -240,19 +241,28 @@ class SessionInspectorCard(Card):
         ))
         self.info_group.body.addWidget(DetailRow("CRC Status", capture.crc_status, value_color=status_color))
 
-        # Update Waveforms
-        self.ook_waveform.set_playback_mode(True, capture.ook_bits)
+        # Replay only the voltage telemetry actually saved in the capture.
+        self.signal_waveform.set_playback_mode(True, capture)
 
-        # Update Bitstream
-        # Format the bits cleanly: group by 8 bits with space, wrapping after 64 bits
-        bit_str = ""
-        for idx, bit in enumerate(capture.ook_bits):
-            bit_str += str(bit)
-            if (idx + 1) % 8 == 0:
-                bit_str += " "
-            if (idx + 1) % 64 == 0:
-                bit_str += "\n"
-        self.bitstream_text.setPlainText(bit_str.strip() or "No bits decoded in this capture session.")
+        # Older releases stored low-rate PVo>Vref decisions in ook_bits. Those
+        # values are retained for data compatibility but are not symbol-rate
+        # OOK samples, so label them explicitly instead of calling them bits.
+        if capture.ook_bits:
+            legacy_text = (
+                "Legacy threshold-state samples from low-rate PVo/Vref telemetry. "
+                "These are NOT decoded symbol-rate OOK bits.\\n\\n"
+            )
+            bit_values = "".join(str(bit) for bit in capture.ook_bits)
+            grouped = " ".join(
+                bit_values[index:index + 8]
+                for index in range(0, len(bit_values), 8)
+            )
+            self.bitstream_text.setPlainText(legacy_text + grouped)
+        else:
+            self.bitstream_text.setPlainText(
+                "Raw comparator/bit samples are not available in this capture. "
+                "The current firmware does not stream symbol-rate OOK samples."
+            )
 
         # Update Protocol Logs table
         self.protocol_table.setRowCount(len(capture.protocol_events))

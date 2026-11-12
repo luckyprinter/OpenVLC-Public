@@ -54,9 +54,12 @@ class ExperimentsPage(QWidget):
         layout = QVBoxLayout(self)
         self._main_layout = layout
         layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(24)
-        self._compact_layout = False
+        # Build in the narrow-safe arrangement first. A horizontal two-panel
+        # minimum width can otherwise prevent the widget from ever receiving
+        # the resize event needed to enter compact mode.
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+        self._compact_layout = True
 
         # Page title
         title = QLabel("EXPERIMENTS")
@@ -65,10 +68,10 @@ class ExperimentsPage(QWidget):
         layout.addWidget(title)
 
         # Two-panel body
-        body = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        body = QBoxLayout(QBoxLayout.Direction.TopToBottom)
         self._body_layout = body
         body.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
-        body.setSpacing(24)
+        body.setSpacing(12)
         layout.addLayout(body, 1)
 
         # ── Left Panel: New Experiment Form ──

@@ -1,3 +1,6 @@
+import time
+
+from gui_dev_v3.logic.batch_assembler import BatchAssembler
 from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
 
 
@@ -22,3 +25,19 @@ def test_batch_crc_failure_uses_batch_flag_not_decorated_filename(monkeypatch):
     assert backend._active_tid is None
     assert backend._active_is_batch is False
     assert backend._active_started_monotonic is None
+
+
+def test_rx_poll_prunes_expired_incomplete_batches():
+    backend = RXPhysicalBackend()
+    backend._batch_assembler = BatchAssembler(ttl_seconds=1)
+    old_time = time.monotonic() - 2
+    backend._batch_assembler.add_part(
+        group_id="expired", part_index=1, part_count=2, full_crc=0x1234,
+        filename="large.bin", part_data=b"part", part_crc_ok=True,
+        part_chunks=1, tid=50, now=old_time,
+    )
+
+    backend._prune_expired_batches()
+
+    assert backend._batch_assembler.pending_count == 0
+    assert any(item["event"] == "Batch Expired" for item in backend._log_queue)

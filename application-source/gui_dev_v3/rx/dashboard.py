@@ -383,7 +383,8 @@ class RXDashboardPage(QWidget):
         """Keep the overview useful on short/high-DPI laptop work areas."""
         super().resizeEvent(event)
         compact = self.width() < 900 or self.height() < 620
-        if compact == self._compact_layout:
+        show_activity = not compact and self.height() >= 720
+        if compact == self._compact_layout and show_activity == self._activity_log.isVisible():
             return
         self._compact_layout = compact
 
@@ -392,7 +393,7 @@ class RXDashboardPage(QWidget):
         self._bit_decode.setVisible(not compact)
         # Keep the file/progress panel tall on ordinary laptop displays;
         # recent activity is secondary and has its own dedicated logs view.
-        self._activity_log.setVisible(not compact and self.height() >= 720)
+        self._activity_log.setVisible(show_activity)
         self._file_info.filesize_row.setVisible(not compact)
         self._file_info.received_size_row.setVisible(not compact)
         if compact:

@@ -582,8 +582,8 @@ class TXDashboardPage(QWidget):
     def _apply_compact_layout(self) -> None:
         """Prioritize file actions on short displays; history has its own page."""
         height = self.height()
-        show_pipeline = height >= 720
-        show_recent_logs = height >= 740
+        show_pipeline = height >= 640
+        show_recent_logs = height >= 680
         self._pipeline.setVisible(show_pipeline)
         self._logs.setVisible(show_recent_logs)
 

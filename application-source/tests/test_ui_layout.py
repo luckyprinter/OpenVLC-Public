@@ -178,6 +178,7 @@ def test_settings_container_reduces_gutters_on_compact_width(qapp):
     qapp.processEvents()
 
     assert settings._nav_list.focusPolicy().name == "StrongFocus"
+    assert settings._nav_panel.width() == 180
     assert settings._nav_list.accessibleName() == "Settings sections"
     assert settings._nav_list.wordWrap()
     assert settings._nav_list.item(0).text() == "General & Display"

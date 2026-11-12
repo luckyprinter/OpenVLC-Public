@@ -268,3 +268,43 @@ def test_refresh_expires_incomplete_batches_without_new_fragments(monkeypatch):
 
     assert backend._batch_assembler.pending_count == 0
     assert any(item["event"] == "Batch Expired" for item in snapshot.activity_log)
+
+
+def test_firmware_crc_failure_discards_active_batch_group(monkeypatch):
+    import time
+    from gui_dev_v3.logic.batch_assembler import BatchAssembler
+    from gui_dev_v3.models import TransferStatus
+
+    monkeypatch.setattr(logger, "file_log", lambda *_args, **_kwargs: None)
+    backend = RXPhysicalBackend()
+    backend._record_diag = lambda *_args, **_kwargs: None
+    backend._batch_assembler = BatchAssembler()
+    backend._batch_assembler.add_part(
+        group_id="firmware-crc",
+        part_index=1,
+        part_count=2,
+        full_crc=0x1234,
+        filename="failed.bin",
+        part_data=b"first",
+        part_crc_ok=True,
+        part_chunks=1,
+        tid=81,
+    )
+    backend._active_tid = 81
+    backend._active_batch_group_id = "firmware-crc"
+    backend._active_filename = "failed.bin (Part 1/2)"
+    backend._active_total_size = 10
+    backend._active_total_chunks = 2
+    backend._active_received_chunks = 1
+    backend._active_started_monotonic = time.monotonic()
+
+    backend._handle_file_crc_fail(
+        "RX_FILE_CRC_FAIL:81:got=0000:expected=1234"
+    )
+
+    assert backend._batch_assembler.pending_count == 0
+    assert backend._active_batch_group_id is None
+    assert backend._active_tid is None
+    assert backend._active_started_monotonic is None
+    assert backend._last_completed_transfer.status == TransferStatus.CRC_FAILED
+    assert backend._last_completed_transfer.quality.strict_ber is None

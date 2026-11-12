@@ -171,7 +171,10 @@ class _PerformanceMetricsPanel(Card):
         )
         self.crc_row.setStatus(crc_status or "—", crc_color)
         self.margin_row.setValue(f"{sig.margin:.3f} V")
-        self.data_rate_row.setValue(f"{sig.data_rate:.2f} kbps" if sig.data_rate > 0 else "— kbps")
+        self.data_rate_row.setValue(
+            f"{sig.data_rate:.2f} kbps"
+            if sig.data_rate is not None and sig.data_rate > 0 else "—"
+        )
 
 
 class _SignalMonitorPanel(Card):

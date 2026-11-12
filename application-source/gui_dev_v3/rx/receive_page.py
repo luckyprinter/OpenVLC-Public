@@ -134,6 +134,7 @@ class ReceivePage(QWidget):
         self.reset_btn.setToolTip(
             "Unavailable: the receiver backend does not currently expose a safe transfer reset."
         )
+        self.reset_btn.hide()
         btn_lo.addWidget(self.reset_btn)
         
         control_card.body.addLayout(btn_lo)

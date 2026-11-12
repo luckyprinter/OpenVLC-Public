@@ -447,6 +447,8 @@ def test_rx_auto_connect_prioritizes_only_rx_saved_port(monkeypatch):
         "get",
         lambda self, key, default=None: "RX_PREFERRED" if key == "connection/port" else default,
     )
+    saved = []
+    monkeypatch.setattr(SettingsManager, "set", lambda self, key, value: saved.append((self.scope, key, value)))
     backend = RXPhysicalBackend()
     attempts = []
     backend.scan_ports = lambda: ["OTHER", "RX_PREFERRED"]
@@ -463,6 +465,7 @@ def test_rx_auto_connect_prioritizes_only_rx_saved_port(monkeypatch):
     assert backend._auto_connect_locked() is True
     assert attempts == ["RX_PREFERRED"]
     assert backend.port == "RX_PREFERRED"
+    assert saved == [("rx", "connection/port", "RX_PREFERRED")]
     backend._connected = False
 
 
@@ -475,6 +478,8 @@ def test_tx_auto_connect_prioritizes_only_tx_saved_port(monkeypatch):
         "get",
         lambda self, key, default=None: "TX_PREFERRED" if key == "connection/port" else default,
     )
+    saved = []
+    monkeypatch.setattr(SettingsManager, "set", lambda self, key, value: saved.append((self.scope, key, value)))
     backend = TXPhysicalBackend()
     attempts = []
     backend.scan_ports = lambda: ["OTHER", "TX_PREFERRED"]
@@ -492,4 +497,5 @@ def test_tx_auto_connect_prioritizes_only_tx_saved_port(monkeypatch):
     assert backend._auto_connect_locked() is True
     assert attempts == ["TX_PREFERRED"]
     assert backend.port == "TX_PREFERRED"
+    assert saved == [("tx", "connection/port", "TX_PREFERRED")]
     backend._connected = False

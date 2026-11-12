@@ -3,7 +3,7 @@
 Layout (professional engineering dashboard):
 ┌──────────────────────────────────────────────────────────────────┐
 │ LIVE SIGNAL STATUS                                              │
-│ [PVo] [Vref] [Margin] [State] [Signal Quality] [Noise Level]    │
+│ [PVo] [Vref] [Margin] [State] [Margin Level] [Margin Error]    │
 ├─────────────────────────────┬──────────────────┬────────────────┤
 │                             │ RECEIVER          │ MARGIN          │
 │ SIGNAL WAVEFORMS (LIVE)     │ DIAGNOSTICS       │ ANALYSIS        │
@@ -23,8 +23,6 @@ High-frequency sampler (100 ms) feeds the waveform buffer.
 """
 
 from __future__ import annotations
-
-import math
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor

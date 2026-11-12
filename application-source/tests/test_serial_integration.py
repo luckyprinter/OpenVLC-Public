@@ -425,6 +425,39 @@ def test_rx_reader_marks_connection_lost_after_unplug(fake_serial, monkeypatch):
     backend._close_serial()
 
 
+def test_rx_backend_reconnects_after_unplug(fake_serial, monkeypatch):
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    monkeypatch.setattr("gui_dev_v3.rx.backends.physical.time.sleep", lambda _seconds: None)
+    backend = RXPhysicalBackend()
+    backend._port = "MOCK_RX"
+    backend._record_diag = lambda *_args, **_kwargs: None
+    backend.log = lambda *_args, **_kwargs: None
+
+    assert backend._open_serial() is True
+    backend._connected = True
+    fake_serial.read_errors.add("MOCK_RX")
+
+    deadline = time.monotonic() + 1.0
+    while backend.is_connected and time.monotonic() < deadline:
+        time.sleep(0.005)
+
+    assert backend.is_connected is False
+    assert fake_serial.open_ports == set()
+
+    fake_serial.read_errors.remove("MOCK_RX")
+    backend._port = "MOCK_RX"
+    assert backend._open_serial() is True
+    backend._connected = True
+
+    assert backend.is_connected is True
+    assert backend.port == "MOCK_RX"
+    assert fake_serial.open_ports == {"MOCK_RX"}
+
+    backend.disconnect()
+    assert fake_serial.open_ports == set()
+
+
 def test_serial_scan_lock_serializes_separate_processes(tmp_path: Path):
     """TX/RX launched as separate processes must not probe ports concurrently."""
     ctx = multiprocessing.get_context("spawn")

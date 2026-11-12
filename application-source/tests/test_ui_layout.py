@@ -153,6 +153,47 @@ def test_rx_dashboard_does_not_present_offline_defaults_as_measurements(qapp):
     assert signal.lux_row.val.text() == "—"
 
 
+def test_rx_signal_page_uses_unavailable_markers_when_disconnected(qapp):
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QLabel
+    from gui_dev_v3.rx.signal_page import SignalMonitorPage
+
+    signal = SimpleNamespace(
+        pvo=0.0,
+        vref=0.0,
+        margin=0.0,
+        target_margin=0.365,
+        data_rate=0.0,
+        ber=0.0,
+        strict_ber=0.0,
+        crc_status="",
+        lux=0,
+        adc_vref=0.0,
+    )
+    quality = SimpleNamespace(crc_status="", strict_ber=0.0, bit_errors=0, compared_bytes=0)
+    transfer = SimpleNamespace(
+        quality=quality,
+        tid=0,
+        total_chunks=0,
+        received_chunks=0,
+        filename="",
+        time_label="",
+        size_bytes=0,
+    )
+    state = SimpleNamespace(serial_connected=False, signal=signal, transfer=transfer)
+
+    page = SignalMonitorPage(state)
+    try:
+        page.refresh(state)
+        for metric in (page._metric_pvo, page._metric_vref, page._metric_margin):
+            value = metric.findChild(QLabel, "Value")
+            assert value is not None
+            assert value.text() == "—"
+    finally:
+        page.shutdown()
+
+
 def test_theme_picker_shows_curated_presets_and_keeps_saved_legacy_theme(qapp):
     from gui_dev_v3.settings import ThemePickerGrid
 

@@ -51,7 +51,6 @@ class RXAppState:
         self._phys_vref: list[float] = []
         self._phys_margin: list[float] = []
         self._phys_time: list[float] = []
-        self._phys_bits: list[int] = []
         self._phys_events: list[dict[str, Any]] = []
         self._refresh()
 
@@ -238,7 +237,6 @@ class RXAppState:
                 self._phys_vref = []
                 self._phys_margin = []
                 self._phys_time = []
-                self._phys_bits = []
                 self._phys_events = [{"time": 0.0, "event": "START", "details": f"Physical reception started for TID {current_tid}"}]
                 print(f"Physical capture session started for TID {current_tid}")
 
@@ -249,9 +247,6 @@ class RXAppState:
                 self._phys_pvo.append(self.signal.pvo)
                 self._phys_vref.append(self.signal.vref)
                 self._phys_margin.append(self.signal.margin)
-
-                bit = 1 if self.signal.pvo > self.signal.vref else 0
-                self._phys_bits.append(bit)
 
                 if not is_rec:
                     self._phys_capture_active = False
@@ -276,7 +271,8 @@ class RXAppState:
                         pvo_samples=self._phys_pvo,
                         vref_samples=self._phys_vref,
                         margin_samples=self._phys_margin,
-                        ook_bits=self._phys_bits,
+                        # No raw comparator/bit samples are streamed by current firmware.
+                        ook_bits=[],
                         protocol_events=self._phys_events,
                         ber_method="unavailable",
                     )

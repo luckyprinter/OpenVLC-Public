@@ -362,6 +362,20 @@ def test_rx_table_builder_stacks_column_lists_on_compact_display(qapp):
     assert page._three_col_layout.direction() == QBoxLayout.Direction.TopToBottom
     assert page._arrow_layout.direction() == QBoxLayout.Direction.LeftToRight
 
+    # Wide but short windows keep the picker in three columns while using
+    # compact spacing; the 1024x700 workspace is narrow enough to stack it.
+    page.resize(1022, 574)
+    qapp.processEvents()
+    assert page._compact_layout
+    assert not page._narrow_layout
+    assert page._three_col_layout.direction() == QBoxLayout.Direction.LeftToRight
+
+    page.resize(936, 554)
+    qapp.processEvents()
+    assert page._compact_layout
+    assert page._narrow_layout
+    assert page._three_col_layout.direction() == QBoxLayout.Direction.TopToBottom
+
     page.resize(1200, 800)
     qapp.processEvents()
     assert not page._compact_layout

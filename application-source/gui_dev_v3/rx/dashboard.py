@@ -379,8 +379,36 @@ class RXDashboardPage(QWidget):
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
         outer.addWidget(splitter, 1)
+        self._splitter = splitter
+        self._detail_widget = detail_widget
+        self._compact_layout = False
 
         self.refresh()
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Keep the overview useful on short/high-DPI laptop work areas.
+
+        The dashboard is a summary, not the place to force every diagnostic
+        metric into a narrow viewport. On compact logical sizes, retain the
+        two most useful cards (receiver state and received-file progress) and
+        leave detailed BER/signal metrics on their dedicated pages.
+        """
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+
+        self._perf.setVisible(not compact)
+        self._signal_mon.setVisible(not compact)
+        self._bit_decode.setVisible(not compact)
+        self._activity_log.setVisible(not compact)
+
+        # Keep the file summary visible in the compact dashboard; hide only
+        # secondary diagnostics and the activity feed, which have dedicated
+        # destinations elsewhere in the workspace.
+        self._file_info.setVisible(True)
+        self._reception.setVisible(True)
 
     def refresh(self, state: RXAppState | None = None) -> None:
         """Refresh the overview panels from the current receiver state."""

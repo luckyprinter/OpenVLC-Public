@@ -17,19 +17,33 @@ def test_parts_are_reassembled_in_index_order():
     assert assembler.pending_count == 0
 
 
-def test_duplicate_part_replaces_without_double_counting():
+def test_identical_duplicate_part_is_idempotent():
     assembler = BatchAssembler()
     assembler.add_part(group_id="2", part_index=1, part_count=2, full_crc=0x2222,
                        filename="x.bin", part_data=b"old", part_crc_ok=True,
                        part_chunks=2, tid=1, now=1.0)
-    assembler.add_part(group_id="2", part_index=1, part_count=2, full_crc=0x2222,
-                       filename="x.bin", part_data=b"new", part_crc_ok=True,
-                       part_chunks=3, tid=1, now=2.0)
+    # A retransmitted copy must not change bytes, chunk counts, or transfer identity.
+    assert assembler.add_part(group_id="2", part_index=1, part_count=2, full_crc=0x2222,
+                              filename="x.bin", part_data=b"old", part_crc_ok=True,
+                              part_chunks=2, tid=99, now=2.0) is None
     result = assembler.add_part(group_id="2", part_index=2, part_count=2, full_crc=0x2222,
                                 filename="x.bin", part_data=b"!", part_crc_ok=True,
                                 part_chunks=1, tid=2, now=3.0)
-    assert result["data"] == b"new!"
-    assert result["total_chunks"] == 4
+    assert result["data"] == b"old!"
+    assert result["total_chunks"] == 3
+    assert result["last_tid"] == 2
+
+
+def test_conflicting_duplicate_part_discards_ambiguous_batch():
+    assembler = BatchAssembler()
+    assembler.add_part(group_id="3", part_index=1, part_count=2, full_crc=0x3333,
+                       filename="x.bin", part_data=b"first", part_crc_ok=True,
+                       part_chunks=2, tid=1, now=1.0)
+    with pytest.raises(ValueError, match="conflicting duplicate"):
+        assembler.add_part(group_id="3", part_index=1, part_count=2, full_crc=0x3333,
+                           filename="x.bin", part_data=b"other", part_crc_ok=True,
+                           part_chunks=2, tid=2, now=2.0)
+    assert assembler.pending_count == 0
 
 
 def test_invalid_index_crc_and_metadata_are_rejected():

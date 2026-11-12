@@ -580,6 +580,7 @@ class SignalWaveform(QWidget):
     def set_time_window(self, seconds: float) -> None:
         """Change the visible time window in seconds."""
         self._time_window = float(seconds)
+        self._empty_text.setPos(self._time_window / 2, 1.75)
         if self._times:
             t_latest = self._times[-1]
             if self._follow_cb.isChecked():

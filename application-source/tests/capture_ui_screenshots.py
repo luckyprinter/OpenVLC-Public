@@ -30,7 +30,9 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
         file_panel = getattr(page, "_file_details", None)
         body = getattr(file_panel, "body", None)
         if body is not None:
-            layout = body.layout()
+            # Card.body is already a QVBoxLayout; activate it before measuring.
+            layout = body
+            layout.activate()
             for index in range(layout.count()):
                 item = layout.itemAt(index)
                 widget = item.widget()

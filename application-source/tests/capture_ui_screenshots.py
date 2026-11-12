@@ -8,7 +8,7 @@ import sys
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication
 
 from gui_dev_v3.app import VLCMainWindow, load_bundled_fonts
@@ -70,10 +70,16 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
             for column in range(table.columnCount()):
                 right = header.sectionViewportPosition(column) + header.sectionSize(column)
                 if right > table.viewport().width() + 2:
-                    raise RuntimeError(
-                        f"TX {page_name} {table_name} column {column} exceeds its viewport "
-                        f"at {width}x{height}; table headers must fit or expose horizontal scrolling"
+                    can_scroll = (
+                        table.horizontalScrollBarPolicy()
+                        != Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+                        and table.horizontalScrollBar().maximum() > 0
                     )
+                    if not can_scroll:
+                        raise RuntimeError(
+                            f"TX {page_name} {table_name} column {column} exceeds its viewport "
+                            f"at {width}x{height} without a usable horizontal scrollbar"
+                        )
 
 
 def main() -> int:

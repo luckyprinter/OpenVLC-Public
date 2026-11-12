@@ -13,7 +13,7 @@ import pytest
 
 from gui_dev_v3.logic.ber_bridge import compare_payload_bits
 from gui_dev_v3.serial.detection import BAUDRATE_RX, BAUDRATE_TX, baud_for_role
-from gui_dev_v3.serial.session import MAX_STREAM_FILE_BYTES, crc16_ccitt
+from gui_dev_v3.serial.session import MAX_NAME_BYTES, MAX_STREAM_FILE_BYTES, crc16_ccitt
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -146,3 +146,35 @@ def test_non_dma_large_file_batching_uses_configured_chunk_and_rounds(
         1,
     ]
     assert all(chunk == 300 for _part_size, chunk in sent_parts)
+
+
+
+def test_tx_rejects_filename_that_exceeds_firmware_metadata_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gui_dev_v3 import settings
+    from gui_dev_v3.serial.controllers import TXSerialController
+
+    class FakeSettingsManager:
+        def __init__(self, role: str) -> None:
+            assert role == "tx"
+
+        def get(self, key: str, default: object = None) -> object:
+            if key == "link/dma_mode":
+                return False
+            return default
+
+    monkeypatch.setattr(settings, "SettingsManager", FakeSettingsManager)
+    path = tmp_path / ("x" * (MAX_NAME_BYTES + 1))
+    path.write_bytes(b"small file")
+
+    controller = TXSerialController()
+    controller.is_connected = True
+    controller.serial_obj = object()
+    controller._dma_capable = False
+    sent = []
+    monkeypatch.setattr(controller, "_send_stream", lambda *args, **kwargs: sent.append(args) or True)
+    monkeypatch.setattr(controller, "status", lambda *_args, **_kwargs: None)
+
+    assert controller.send_file(path) is False
+    assert sent == []

@@ -1,4 +1,4 @@
-"""Runtime status readers — reads from vlc_beta state/ directory for live data."""
+"""Runtime status readers for the application-owned state directory."""
 
 from __future__ import annotations
 
@@ -13,9 +13,6 @@ def _resolve_state_dir() -> Path:
     env = os.getenv("VLC_DATA_DIR")
     if env:
         return Path(env).expanduser() / "state"
-    beta = Path(__file__).resolve().parents[3] / "vlc_beta" / "state"
-    if beta.exists():
-        return beta
     project = Path(__file__).resolve().parents[2] / "state"
     project.mkdir(parents=True, exist_ok=True)
     return project
@@ -33,7 +30,7 @@ def status_path(role: str) -> Path:
 
 
 def read_status(role: str) -> dict[str, Any] | None:
-    """Read a status file from the vlc_beta state directory."""
+    """Read a status file from the application-owned state directory."""
     try:
         path = status_path(role)
         if not path.exists():
@@ -59,7 +56,7 @@ def read_migration_status(role: str) -> dict[str, Any] | None:
 
 
 def write_status(role: str, stage: str, detail: str = "", percent: float | None = None, state: str = "idle", **extra: Any) -> None:
-    """Write a status file (compatible with vlc_beta's write_status)."""
+    """Write a status file to the application-owned state directory."""
     import time
 
     target = status_path(role)

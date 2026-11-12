@@ -125,7 +125,6 @@ class TXSerialController(SerialSession):
             commands.append(f"PREAMBLE={preamble_bits}")
             commands.append(f"CARRIER={carrier_hz}")
 
-        commands.append("CONFIG?")
         for cmd in commands:
             if not self.send_line(cmd):
                 self.status(
@@ -135,10 +134,69 @@ class TXSerialController(SerialSession):
                 )
                 return False
 
+        # Snapshot before CONFIG? so an immediate firmware response cannot be
+        # missed between the write and the reader thread processing the line.
+        config_start = self.line_counter
+        if not self.send_line("CONFIG?"):
+            self.status(
+                "Settings verification failed",
+                "Could not request the TX firmware configuration read-back.",
+                state="error",
+            )
+            return False
+
+        if not self.wait_for_line_containing(
+            "TX 4B5B CONFIG:", timeout=2.0, start_counter=config_start
+        ):
+            self.status(
+                "Settings verification failed",
+                "TX firmware did not return its configuration. The serial writes "
+                "completed, but the applied settings could not be confirmed.",
+                state="error",
+            )
+            return False
+
+        new_count = self.line_counter - config_start
+        response_lines = self.last_lines[-new_count:] if new_count > 0 else []
+        config_line = next(
+            (line for line in reversed(response_lines)
+             if line.startswith("TX 4B5B CONFIG:")),
+            None,
+        )
+        reported = {}
+        if config_line:
+            reported = {
+                key: value.strip()
+                for key, value in re.findall(
+                    r"(?:^|[, :])([A-Z_]+)=([^,]+)", config_line
+                )
+            }
+
+        expected = {
+            "MODE": "4B5B",
+            "FREQ": str(freq),
+            "ACTIVE_LOW": str(1 if active_low else 0),
+            "IDLE_ON": str(1 if idle_on else 0),
+            "GAP": str(gap),
+            "FGAP": str(fgap),
+        }
+        mismatches = [
+            f"{key}: requested {value}, firmware reports {reported.get(key, 'missing')}"
+            for key, value in expected.items()
+            if reported.get(key) != value
+        ]
+        if mismatches:
+            self.status(
+                "Settings verification failed",
+                "; ".join(mismatches),
+                state="error",
+            )
+            return False
+
         mode_label = "DMA" if (self.dma_capable and dma_mode) else "Stream"
         self.status(
             "Settings applied",
-            f"4B5B · {freq} Hz · {mode_label} · FGAP {fgap} ms",
+            f"TX firmware confirmed 4B5B · {freq} Hz · {mode_label} · FGAP {fgap} ms",
             state="ready",
         )
         return True

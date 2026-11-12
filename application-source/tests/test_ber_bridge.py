@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.logic.ber_bridge import compare_files, compare_payload_bits
+from gui_dev_v3.models import SessionCapture
 
 
 def test_compare_payload_bits_counts_bit_errors_and_length_delta():
@@ -84,3 +85,36 @@ def test_app_state_method2_uses_selected_reference_and_received_path(tmp_path):
     assert result is not None
     assert result["strict_bit_errors"] == 11
     assert result["strict_ber"] == 11 / 24
+
+
+def test_late_reference_selection_updates_and_persists_completed_capture(tmp_path, monkeypatch):
+    expected = tmp_path / "original.bin"
+    received = tmp_path / "received.bin"
+    expected.write_bytes(b"\\x00\\x0f\\xaa")
+    received.write_bytes(b"\\x01\\x03")
+    capture = SessionCapture(
+        tid=42, timestamp="2026-11-12 12:00:00", filename="received.bin",
+        ber=None, ber_method=None, crc_status="PASS", throughput_kbps=10.0,
+        analog_time=[], pvo_samples=[], vref_samples=[], margin_samples=[],
+        ook_bits=[], protocol_events=[],
+    )
+    saved = []
+    monkeypatch.setattr("gui_dev_v3.data.save_session_capture", saved.append)
+
+    state = RXAppState.__new__(RXAppState)
+    state._lock = threading.Lock()
+    state.expected_file_path = None
+    state.expected_file_data = None
+    state._method2_cache_key = None
+    state._method2_cache = None
+    state.session = SimpleNamespace(
+        latest_transfer=SimpleNamespace(tid=42, received_path=str(received))
+    )
+    state.current_capture = capture
+
+    state.load_expected_file(str(expected))
+
+    assert state.current_capture is not capture
+    assert state.current_capture.ber_method == "method2"
+    assert state.current_capture.ber == 11 / 24
+    assert saved == [state.current_capture]

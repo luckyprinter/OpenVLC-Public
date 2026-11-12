@@ -29,6 +29,15 @@ from gui_dev_v3.tx.placeholders import TransmitPage
 from gui_dev_v3.tx.file_manager_page import FileManagerPage
 
 
+@pytest.fixture(autouse=True)
+def isolate_legacy_export_history(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        export_page_module,
+        "LEGACY_HISTORY_PATH",
+        tmp_path / "no-legacy-history.json",
+    )
+
+
 @pytest.fixture(scope="module")
 def qapp() -> QApplication:
     app = QApplication.instance()

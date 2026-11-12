@@ -2,12 +2,12 @@ name: Build Application
 
 on:
   push:
-    branches: ["refactor/**"]
+    branches: ["refactor/**", "redesign/**"]
     paths:
       - 'application-source/**'
       - '.github/workflows/build_application.yml'
   pull_request:
-    branches: [main]
+    branches: ["main", "refactor/**"]
     paths:
       - 'application-source/**'
       - '.github/workflows/build_application.yml'

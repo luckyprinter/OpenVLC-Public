@@ -78,6 +78,22 @@ class FakeSerialPort:
                 self.registry.active_writes -= 1
         return len(data)
 
+    @property
+    def in_waiting(self) -> int:
+        return len(self._responses[0]) if self._responses else 0
+
+    def read(self, size: int = 1) -> bytes:
+        time.sleep(0.002)
+        if self.port in self.registry.read_errors:
+            raise OSError("mock USB serial device removed")
+        if not self._responses:
+            return b""
+        response = self._responses.pop(0)
+        data, remainder = response[:size], response[size:]
+        if remainder:
+            self._responses.insert(0, remainder)
+        return data
+
     def readline(self) -> bytes:
         time.sleep(0.002)
         if self.port in self.registry.read_errors:

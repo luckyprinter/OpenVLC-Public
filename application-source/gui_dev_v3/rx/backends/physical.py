@@ -1110,9 +1110,8 @@ class RXPhysicalBackend:
         pvo = lq.get("SIGNAL", 0.0)
         vref = lq.get("VREF", 0.0)
         margin = lq.get("MARGIN", 0.0)
-        swing = lq.get("SWING", 0.0)
-        pass_rate = lq.get("PASS_RATE", 100.0)
-        status_str = lq.get("STATUS", "SUCCESS_RANGE")
+        # Only fields consumed by the receiver model are read here. Missing
+        # optional PASS_RATE/STATUS fields are not replaced with success defaults.
 
         # Quality label from margin
         if margin > 0.3:

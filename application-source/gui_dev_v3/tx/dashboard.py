@@ -601,11 +601,11 @@ class TXDashboardPage(QWidget):
         # Keep the progress strip compact so file controls retain usable height
         # on short displays and at increased system display scaling.
         self._pipeline = TransmissionPipelineWidget()
-        self._pipeline.setMaximumHeight(100)
+        self._pipeline.setMinimumHeight(112)
         outer.addWidget(self._pipeline, 1)
 
         self._logs = _TXLogPanel(state)
-        self._logs.setMaximumHeight(108)
+        self._logs.setMaximumHeight(104)
         outer.addWidget(self._logs, 1)
 
         self.refresh()

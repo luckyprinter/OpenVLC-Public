@@ -1138,11 +1138,13 @@ class RXPhysicalBackend:
             margin=round(margin, 3),
             target_margin=0.365,
             adc_vref=3.300,
-            lux=int(pvo * 150) if pvo > 0 else 0,  # rough lux estimate from PVo
-            data_rate=0.0,  # updated by transfer activity
-            ber=0.0,
-            strict_ber=0.0,
-            crc_status="PASS" if pass_rate > 80 else "FAIL",
+            # PVo is not a lux measurement; this receiver has no lux sensor.
+            lux=None,
+            data_rate=None,
+            ber=None,
+            strict_ber=None,
+            # PASS_RATE is a signal-quality statistic, not a file CRC result.
+            crc_status="Unknown",
             time_elapsed="--",
         )
 
@@ -1153,7 +1155,7 @@ class RXPhysicalBackend:
         if self._active_tid is not None:
             from gui_dev_v3.models import TransferQuality, TransferStatus
             in_progress_quality = TransferQuality(
-                label="Receiving…", strict_ber=0.0, bit_accuracy=0.0, bit_errors=0,
+                label="Receiving…", strict_ber=None, bit_accuracy=None, bit_errors=None,
                 total_bits=0, compared_bytes=0, missing_chunks=0, missing_bytes=0,
                 first_issue="None", crc_status="", recovery_rate=0.0,
             )
@@ -1239,13 +1241,19 @@ class RXPhysicalBackend:
                 vref=round(vref, 3),
                 margin=round(margin, 3),
                 target_margin=float(sig_status.get("margin_best_v") or 0.365),
-                adc_vref=3.300,
-                lux=int(pvo * 150) if pvo > 0 else 0,
-                data_rate=float(sig_status.get("rate_bps", 0)) / 1000.0,
-                ber=0.0,
-                strict_ber=0.0,
-                crc_status="PASS" if sig_status.get("state") in ("success", "active") else "Unknown",
-                time_elapsed="--",
+                adc_vref=(
+                    float(sig_status["adc_vref"])
+                    if sig_status.get("adc_vref") is not None else None
+                ),
+                lux=None,
+                data_rate=(
+                    float(sig_status.get("rate_bps") or 0) / 1000.0
+                    if float(sig_status.get("rate_bps") or 0) > 0 else None
+                ),
+                ber=None,
+                strict_ber=None,
+                crc_status=str(sig_status.get("crc_status") or "Unknown"),
+                time_elapsed=str(sig_status.get("time_elapsed") or ""),
             )
             session = SessionState(
                 role=session.role,
@@ -1498,8 +1506,8 @@ def _empty_transfer() -> TransferRecord:
         time_label="", size_bytes=0,
         total_chunks=0, received_chunks=0,
         quality=TransferQuality(
-            label="No Data", strict_ber=0.0, bit_accuracy=100.0,
-            bit_errors=0, total_bits=0, compared_bytes=0,
+            label="No Data", strict_ber=None, bit_accuracy=None,
+            bit_errors=None, total_bits=0, compared_bytes=0,
             missing_chunks=0, missing_bytes=0,
             first_issue="None", crc_status="", recovery_rate=0.0,
         ),

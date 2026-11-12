@@ -309,6 +309,7 @@ def test_rx_receive_clear_is_display_only_and_does_not_immediately_repopulate(qa
     assert page.terminal.toPlainText() == ""
     assert page._last_text == "received payload"
     assert not page.reset_btn.isEnabled()
+    assert page.reset_btn.isHidden()
     assert "does not currently expose" in page.reset_btn.toolTip()
 
     chunk = SimpleNamespace(index=0, received=b"received payload")

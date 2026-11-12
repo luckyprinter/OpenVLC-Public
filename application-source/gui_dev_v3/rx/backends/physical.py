@@ -671,6 +671,7 @@ class RXPhysicalBackend:
             self._active_total_chunks = 0
             self._active_received_chunks = 0
             self._active_started_monotonic = None
+            self._active_batch_group_id = None
             self._log_queue.append({"time": now, "event": "RX File Error", "details": str(e)[:120]})
 
     def _handle_file_crc_fail(self, line: str) -> None:

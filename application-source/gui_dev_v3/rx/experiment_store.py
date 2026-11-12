@@ -19,6 +19,7 @@ def _resolve_store_dir() -> Path:
 
 STORE_DIR = _resolve_store_dir()
 STORE_PATH = STORE_DIR / "experiments.json"
+LEGACY_STORE_PATH = Path.home() / ".vlc_rx" / "experiments.json"
 
 
 class ExperimentStoreError(RuntimeError):
@@ -39,10 +40,15 @@ class Experiment:
 
 def _read_all() -> tuple[list[dict[str, Any]], bool]:
     """Return records and whether the existing store is unreadable or malformed."""
-    if not STORE_PATH.exists():
+    source_path = STORE_PATH
+    if not source_path.exists() and LEGACY_STORE_PATH.exists():
+        # Read the previous user-owned store without deleting or modifying it.
+        # A subsequent successful save writes the current app-data copy.
+        source_path = LEGACY_STORE_PATH
+    if not source_path.exists():
         return [], False
     try:
-        data = json.loads(STORE_PATH.read_text(encoding="utf-8"))
+        data = json.loads(source_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return [], True
     required = {"id", "name", "type", "created_at", "notes"}

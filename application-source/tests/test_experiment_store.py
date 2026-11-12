@@ -93,3 +93,20 @@ def test_legacy_experiment_records_remain_available_and_are_copied_on_save(
     assert created.id == 5
     assert current_path.exists()
     assert legacy_path.read_text(encoding="utf-8") == __import__("json").dumps(original)
+
+def test_corrupt_legacy_experiment_store_blocks_new_store_creation(
+    monkeypatch, tmp_path
+):
+    legacy_path = tmp_path / "legacy" / "experiments.json"
+    legacy_path.parent.mkdir()
+    original = "{ damaged legacy data"
+    legacy_path.write_text(original, encoding="utf-8")
+    current_path = tmp_path / "app-data" / "experiments.json"
+    monkeypatch.setattr(store, "STORE_DIR", current_path.parent)
+    monkeypatch.setattr(store, "STORE_PATH", current_path)
+    monkeypatch.setattr(store, "LEGACY_STORE_PATH", legacy_path)
+
+    with pytest.raises(store.ExperimentStoreError):
+        store.create_experiment("New test", "Distance Test", "")
+    assert not current_path.exists()
+    assert legacy_path.read_text(encoding="utf-8") == original

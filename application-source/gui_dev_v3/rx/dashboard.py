@@ -216,19 +216,19 @@ class _SignalMonitorPanel(Card):
 
 
 class _SignalWaveformPanel(Card):
-    """Signal Waveform — Digital Logic Analyzer."""
+    """Trend of measured PVo, Vref, and margin telemetry."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("Signal Waveforms (Live)", parent)
+        super().__init__("Signal Telemetry Trend", parent)
         self.body.setSpacing(6)
         self.body.setContentsMargins(8, 4, 8, 4)
 
-        self._ook = OOKWaveformWidget(parent=self)
-        self._ook.setMinimumHeight(180)
-        self.body.addWidget(self._ook, 1)
+        self._waveform = SignalWaveform(parent=self)
+        self._waveform.setMinimumHeight(180)
+        self.body.addWidget(self._waveform, 1)
 
     def refresh(self, state: RXAppState) -> None:
-        """Append one measured telemetry point to the trend chart."""
+        """Append one actual telemetry point; never derive synthetic OOK bits."""
         if not state.serial_connected:
             self._waveform.clear_data()
             return

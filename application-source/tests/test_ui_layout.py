@@ -131,7 +131,7 @@ def test_rx_dashboard_simplifies_secondary_panels_on_compact_work_area(qapp):
     assert not dashboard._file_info.received_size_row.isVisible()
     assert not dashboard._perf.isVisible()
     assert not dashboard._signal_mon.isVisible()
-    assert not dashboard._bit_decode.isVisible()
+    assert not dashboard._receiver_state.isVisible()
     assert not dashboard._activity_log.isVisible()
 
     dashboard.resize(1100, 700)
@@ -139,7 +139,7 @@ def test_rx_dashboard_simplifies_secondary_panels_on_compact_work_area(qapp):
     assert not dashboard._compact_layout
     assert dashboard._perf.isVisible()
     assert dashboard._signal_mon.isVisible()
-    assert dashboard._bit_decode.isVisible()
+    assert dashboard._receiver_state.isVisible()
     # On a standard 700 px laptop height, keep the received-file card tall
     # and leave activity details to the dedicated Logs page.
     assert not dashboard._activity_log.isVisible()

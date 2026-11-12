@@ -9,6 +9,7 @@ from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.models import TransferStatus
 from gui_dev_v3.theme import COLORS
 from gui_dev_v3.widgets import Card, ProgressBar, muted_label, value_label, panel_header
+from gui_dev_v3.ui_foundation import PageIntro
 
 
 class ReceivePage(QWidget):
@@ -24,6 +25,12 @@ class ReceivePage(QWidget):
         lo = QVBoxLayout(self)
         lo.setContentsMargins(20, 16, 20, 20)
         lo.setSpacing(12)
+        lo.addWidget(PageIntro(
+            "RECEIVER  /  LIVE SESSION",
+            "Receive monitor",
+            "Track incoming file progress, payload data, and receiver calibration controls.",
+            self,
+        ))
 
         # ── 1. Reception Status Card ──
         self.status_card = Card("Reception Status")

@@ -59,8 +59,9 @@ def test_compare_files_handles_empty_reference(tmp_path):
     result = compare_files(expected, received)
 
     assert result["strict_bits"] == 0
-    assert result["strict_ber"] == 0.0
-    assert result["bit_accuracy"] == 1.0
+    assert result["strict_ber"] is None
+    assert result["overlap_ber"] is None
+    assert result["bit_accuracy"] is None
 
 
 

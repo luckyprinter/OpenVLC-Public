@@ -84,3 +84,34 @@ def test_transfer_history_does_not_infer_ber_from_crc_or_chunks():
     assert record.quality.strict_ber is None
     assert record.quality.bit_accuracy is None
     assert record.quality.bit_errors is None
+
+def test_legacy_capture_is_readable_and_copied_without_deleting_source(tmp_path, monkeypatch):
+    legacy_dir = tmp_path / "legacy-captures"
+    legacy_dir.mkdir()
+    current_dir = tmp_path / "app-data-captures"
+    monkeypatch.setattr(records, "LEGACY_CAPTURE_DIR", legacy_dir)
+    monkeypatch.setattr(records, "CAPTURE_DIR", current_dir)
+    legacy_path = legacy_dir / "session_88.json"
+    original = {
+        "tid": 88,
+        "timestamp": "2026-10-01 10:00:00",
+        "filename": "old.bin",
+        "ber": 0.0,
+        "crc_status": "PASS",
+        "throughput_kbps": 0.0,
+        "analog_time": [],
+        "pvo_samples": [],
+        "vref_samples": [],
+        "margin_samples": [],
+        "ook_bits": [],
+        "protocol_events": [],
+    }
+    raw = json.dumps(original)
+    legacy_path.write_text(raw, encoding="utf-8")
+
+    capture = records.load_session_capture(88)
+
+    assert capture is not None
+    assert capture.filename == "old.bin"
+    assert (current_dir / "session_88.json").read_text(encoding="utf-8") == raw
+    assert legacy_path.read_text(encoding="utf-8") == raw

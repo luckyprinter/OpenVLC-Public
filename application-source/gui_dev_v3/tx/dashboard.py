@@ -433,7 +433,7 @@ class TXConfigurationWidget(Card):
         self._status.setText(
             "TX connected · application profile"
             if state.serial_connected
-            else "TX offline · saved/default profile"
+            else "TX disconnected · defaults"
         )
         self.row_encoding.setValue(state.encoding or "—")
         self.row_modulation.setValue(state.modulation or "—")

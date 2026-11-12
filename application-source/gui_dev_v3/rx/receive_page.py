@@ -164,6 +164,13 @@ class ReceivePage(QWidget):
     def refresh(self, state: RXAppState) -> None:
         """Refresh receive status and payload terminal from current state."""
         self._app_state = state
+        connected = bool(state.serial_connected)
+        self.lock_btn.setEnabled(connected)
+        self.lock_btn.setToolTip(
+            "Toggle the receiver's hardware Vref mode."
+            if connected else
+            "Connect the RX ESP32 before changing its Vref mode."
+        )
         transfer = state.transfer
         is_rec = state.is_receiving
 
@@ -224,7 +231,9 @@ class ReceivePage(QWidget):
             self.terminal.setPlainText(decoded_text)
 
     def _on_lock_vref(self) -> None:
-        """Toggle between Lock Vref and Auto Vref."""
+        """Toggle Vref mode only while a physical receiver is connected."""
+        if self._app_state is None or not self._app_state.serial_connected:
+            return
         self._vref_locked = not self._vref_locked
         if self._vref_locked:
             self.lock_btn.setText("Lock Vref (Fixed)")

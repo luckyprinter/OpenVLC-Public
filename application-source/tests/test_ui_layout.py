@@ -781,3 +781,19 @@ def test_directory_setting_shows_path_from_start_and_preserves_full_value(qapp):
     assert setting.edit.cursorPosition() == 0
     assert setting.edit.toolTip() == full_path
     setting.close()
+
+
+
+def test_rx_dashboard_reports_connection_state_not_decoder_lock(qapp):
+    state = RXAppState()
+    page = RXDashboardPage(state)
+
+    assert page._receiver_state.connection_row.val.text() == "DISCONNECTED"
+    assert page._receiver_state.protocol_row.val.text() == "—"
+
+    state.serial_connected = True
+    page.refresh(state)
+    assert page._receiver_state.connection_row.val.text() == "READY"
+    assert page._receiver_state.protocol_row.val.text() == "4B5B / OOK"
+    assert page._receiver_state.connection_row.val.text() != "LOCKED"
+    page.close()

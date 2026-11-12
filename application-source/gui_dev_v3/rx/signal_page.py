@@ -345,8 +345,8 @@ class SignalMonitorPage(QWidget):
         self._metric_vref = MetricCard("Vref (Threshold)", color="#3b82f6")
         self._metric_margin = MetricCard("Margin (PVo\u2212Vref)", color="#f59e0b")
         self._metric_state = MetricCard("State", color="#26c6da")
-        self._quality_top = CircularGauge("Signal Quality")
-        self._noise_top = CircularGauge("Noise Level", inverted=True)
+        self._quality_top = CircularGauge("Margin Level")
+        self._noise_top = CircularGauge("Margin Error", inverted=True)
         self._metric_grid = grid
         self._metric_widgets = [
             self._metric_pvo, self._metric_vref, self._metric_margin,
@@ -560,12 +560,12 @@ class SignalMonitorPage(QWidget):
         layout.setSpacing(4)
 
         self._quality_bars: dict[str, QualityBar] = {
-            "snr": QualityBar("SNR (Est.)"),
-            "stability": QualityBar("Signal Stability"),
+            "snr": QualityBar("SNR"),
+            "stability": QualityBar("Margin Compliance"),
             "amplitude": QualityBar("Amplitude Stability"),
             "threshold": QualityBar("Threshold Crossings", show_bar=False),
-            "jitter": QualityBar("Jitter (Est.)"),
-            "interference": QualityBar("Interference Level"),
+            "jitter": QualityBar("Jitter"),
+            "interference": QualityBar("Interference"),
         }
 
         for bar in self._quality_bars.values():
@@ -619,6 +619,8 @@ class SignalMonitorPage(QWidget):
             self._metric_state.set_center_footer("No hardware")
             self._quality_top.set_percent(0)
             self._noise_top.set_percent(0)
+            self._quality_top.set_available(False)
+            self._noise_top.set_available(False)
         else:
             self._metric_pvo.set_value(
                 f"{sig.pvo:.2f} V",
@@ -649,14 +651,17 @@ class SignalMonitorPage(QWidget):
                 self._metric_state.set_value_color("#708090")
                 self._metric_state.set_center_footer("No hardware")
 
-            # Signal Quality circular gauge
-            quality_pct = min(100, int((sig.margin / 0.72) * 100)) if sig.margin > 0 else 0
-            self._quality_top.set_percent(quality_pct)
-
-            # Noise Level circular gauge
-            noise_est = abs(sig.margin - sig.target_margin) * 0.1 if sig.target_margin > 0 else 0
-            noise_val = min(100, max(0, int(noise_est * 200)))
-            self._noise_top.set_percent(noise_val)
+            # These gauges describe measured margin values, not estimated
+            # signal quality or noise.
+            self._quality_top.set_available(True)
+            self._noise_top.set_available(True)
+            margin_level_pct = min(100, max(0, int((sig.margin / 0.72) * 100)))
+            margin_error_pct = min(
+                100,
+                max(0, int(abs(sig.margin - sig.target_margin) / max(sig.target_margin, 0.01) * 100)),
+            )
+            self._quality_top.set_percent(margin_level_pct)
+            self._noise_top.set_percent(margin_error_pct)
 
         # --- Diagnostics Panel ---
         if empty:
@@ -754,11 +759,11 @@ class SignalMonitorPage(QWidget):
             transfer_rows = [
                 ("File Name", transfer.filename or "\u2014"),
                 ("Chunks Received", f"{received} / {total}"),
-                ("Packets", str(received + quality.compared_bytes)),
+                ("Packets", "—"),
                 ("CRC Status", quality.crc_status or "\u2014"),
                 ("Method 2 BER", f"{quality.strict_ber * 100:.4f} %" if quality.strict_ber is not None else "Awaiting reference"),
                 ("Bit Errors", str(quality.bit_errors) if quality.bit_errors is not None else "—"),
-                ("Retry Count", "0"),
+                ("Retry Count", "—"),
                 ("Packet Loss", f"{packet_loss:.2f} %"),
                 ("Elapsed Time", transfer.time_label or "\u2014"),
                 ("Data Rate", f"{sig.data_rate:.2f} kbps" if sig.data_rate is not None else "—"),
@@ -795,45 +800,21 @@ class SignalMonitorPage(QWidget):
                 bar.set_value_text("\u2014")
                 bar.set_percent(0)
         else:
-            q = _quality_from_signal(sig)
-            target = sig.target_margin if sig.target_margin > 0 else 0.365
-            deviation = abs(sig.margin - target)
-            stability = max(0, min(100, int(100 - (deviation / target) * 100)))
-            
-            # SNR calculation in dB: 20 * log10(Vref / deviation)
-            vref_val = max(sig.vref, 0.01)
-            deviation_val = max(deviation, 0.001)
-            snr_db = max(0.0, min(40.0, 20.0 * math.log10(vref_val / deviation_val)))
-            snr_pct = min(100, int((snr_db / 40.0) * 100))
-
-            amp_stability = min(100, int((sig.pvo / max(sig.vref, 0.001)) * 80)) if sig.pvo > 0 else 0
-            received_bytes = state.transfer.size_bytes if state.transfer else 0
-            threshold_crossings = received_bytes
-
-            jitter_ns = max(0.1, min(50.0, (100.0 - stability) * 0.5))
-            jitter_pct = min(100, int((jitter_ns / 50.0) * 100))
-
-            interference_pct = min(100, int(deviation * 20))
-
-            self._quality_bars["snr"].set_value_text(f"{snr_db:.1f} dB")
-            self._quality_bars["snr"].set_percent(snr_pct)
-
-            self._quality_bars["stability"].set_value_text(f"{stability} %")
-            self._quality_bars["stability"].set_percent(stability)
-
-            self._quality_bars["amplitude"].set_value_text(f"{amp_stability} %")
-            self._quality_bars["amplitude"].set_percent(amp_stability)
-
-            self._quality_bars["threshold"].set_value_text(str(threshold_crossings))
-            self._quality_bars["threshold"].set_percent(0)
-
-            self._quality_bars["jitter"].set_value_text(f"{jitter_ns:.1f} ns")
-            self._quality_bars["jitter"].set_percent(jitter_pct)
-            self._quality_bars["jitter"].set_inverted(True)
-
-            self._quality_bars["interference"].set_value_text("Low" if interference_pct < 30 else "Medium" if interference_pct < 60 else "High")
-            self._quality_bars["interference"].set_percent(interference_pct)
-            self._quality_bars["interference"].set_inverted(True)
+            # Firmware does not currently expose SNR, jitter, interference, or
+            # threshold-crossing measurements. Do not synthesize these from
+            # unrelated values such as file size or margin deviation.
+            target = max(sig.target_margin, 0.01)
+            deviation = abs(sig.margin - sig.target_margin)
+            margin_compliance = max(
+                0, min(100, int(100 - (deviation / target) * 100))
+            )
+            self._quality_bars["stability"].set_value_text(
+                f"{margin_compliance} %"
+            )
+            self._quality_bars["stability"].set_percent(margin_compliance)
+            for key in ("snr", "amplitude", "threshold", "jitter", "interference"):
+                self._quality_bars[key].set_value_text("—")
+                self._quality_bars[key].set_percent(0)
 
 
 # ---------------------------------------------------------------------------

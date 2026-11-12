@@ -118,6 +118,7 @@ class RXPhysicalBackend:
         self._pwm_autocal_last_pwm: int = -1        # last known PWM duty from firmware
         self._pwm_autocal_iterations: int = 0
         self._active_started_monotonic: float | None = None
+        self._active_batch_group_id: str | None = None
         # Batch reconstruction state for large files
         self._batch_assembler = BatchAssembler()
 
@@ -448,9 +449,11 @@ class RXPhysicalBackend:
                 
                 is_batch = False
                 batch_info = ""
+                self._active_batch_group_id = None
                 if filename.startswith("VLCB1~"):
                     b_parts = filename.split("~", 5)
                     if len(b_parts) == 6:
+                        self._active_batch_group_id = b_parts[1]
                         part_index = int(b_parts[2])
                         part_count = int(b_parts[3])
                         orig_name = b_parts[5]
@@ -530,6 +533,7 @@ class RXPhysicalBackend:
                     raise ValueError("Malformed VLCB1 batch metadata")
                 _, group_id, index_text, count_text, full_crc_text, original_name = metadata
                 batch_group_id = group_id
+                self._active_batch_group_id = group_id
                 self._prune_expired_batches()
                 assembled = self._batch_assembler.add_part(
                     group_id=group_id,
@@ -558,6 +562,7 @@ class RXPhysicalBackend:
                     self._active_total_chunks = 0
                     self._active_received_chunks = 0
                     self._active_started_monotonic = None
+                    self._active_batch_group_id = None
                     return
                 file_bytes = assembled["data"]
                 filename = assembled["filename"]
@@ -654,6 +659,7 @@ class RXPhysicalBackend:
             # Clear active transfer
             self._active_tid = None
             self._active_started_monotonic = None
+            self._active_batch_group_id = None
         except Exception as e:
             if batch_group_id is not None:
                 self._batch_assembler.discard(batch_group_id)
@@ -714,8 +720,11 @@ class RXPhysicalBackend:
                         quality=quality,
                         chunks=[],
                     )
+                    if self._active_batch_group_id:
+                        self._batch_assembler.discard(self._active_batch_group_id)
                     self._active_tid = None
                     self._active_started_monotonic = None
+                    self._active_batch_group_id = None
         except Exception as e:
             self._log_queue.append({"time": now, "event": "RX CRC Fail Error", "details": str(e)[:120]})
 

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QMessageBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui_dev_v3.rx.experiment_store import (
+    ExperimentStoreError,
     create_experiment,
     delete_experiment,
     list_experiments,
@@ -254,7 +256,15 @@ class ExperimentsPage(QWidget):
             return
         exp_type = self._exp_type.currentText()
         notes = self._exp_notes.toPlainText().strip()
-        create_experiment(name, exp_type, notes)
+        try:
+            create_experiment(name, exp_type, notes)
+        except ExperimentStoreError as exc:
+            QMessageBox.warning(
+                self,
+                "Experiment data unavailable",
+                f"Existing experiment data was not changed. {exc}",
+            )
+            return
 
         self._exp_name.clear()
         from datetime import datetime

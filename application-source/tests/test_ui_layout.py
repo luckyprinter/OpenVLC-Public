@@ -488,6 +488,8 @@ def test_tx_start_requires_selected_file_and_connected_hardware(qapp):
     )
     widget.refresh(state)
     assert not widget.start_btn.isEnabled()
+    assert widget.select_btn.height() >= 30
+    assert widget.start_btn.height() >= 30
 
     state.filename = "measured-data.bin"
     widget.refresh(state)

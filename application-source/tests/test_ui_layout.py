@@ -737,8 +737,8 @@ def test_rx_dashboard_does_not_present_an_uncalibrated_lux_estimate(qapp):
     from gui_dev_v3.rx.dashboard import RXDashboardPage
 
     page = RXDashboardPage(RXAppState())
-    labels = [label.text() for label in page.findChildren(__import__(
-        "PySide6.QtWidgets", fromlist=["QLabel"]
-    ).QLabel)]
+    from PySide6.QtWidgets import QLabel
+
+    labels = [label.text() for label in page.findChildren(QLabel)]
 
     assert not any("lux" in label.lower() or "light estimate" in label.lower() for label in labels)

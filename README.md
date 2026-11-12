@@ -177,7 +177,7 @@ The public repository contains the PyInstaller specification used to build the d
 
 ```bash
 cd application-source
-pip install -r requirements.txt
+pip install -r requirements-build.txt
 pyinstaller OpenVLC-v3.spec --clean
 ```
 

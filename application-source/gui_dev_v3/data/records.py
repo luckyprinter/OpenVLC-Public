@@ -20,6 +20,11 @@ LOG_DIR = _resolve_log_dir()
 RECEIVE_FOLDER = Path.home() / "LiFiReceived"
 TRANSFER_RECORDS_DIR = RECEIVE_FOLDER / "transfer_records"
 
+# Bounds for untrusted transfer-record JSON.
+_MAX_SIZE_BYTES = 100_000_000  # 100 MB
+_MAX_CHUNKS = 500_000
+_MAX_TID = 999_999
+
 
 def _log_dir() -> Path:
     LOG_DIR.mkdir(parents=True, exist_ok=True)

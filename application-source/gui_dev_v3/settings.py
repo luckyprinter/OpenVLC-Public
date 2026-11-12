@@ -521,7 +521,7 @@ class SettingsContainer(QWidget):
         """Reduce settings-page gutters on compact laptop work areas."""
         super().resizeEvent(event)
         compact = self.width() < 900
-        self._nav_panel.setFixedWidth(156 if compact else 200)
+        self._nav_panel.setFixedWidth(184 if compact else 200)
         # Long category labels need a second line at high scaling; a fixed
         # 42px row clips them even though word wrapping is enabled.
         for index in range(self._nav_list.count()):

@@ -185,7 +185,7 @@ class ReceivePage(QWidget):
         if self._vref_locked:
             self.lock_btn.setText("Lock Vref (Fixed)")
             self.lock_btn.setStyleSheet(f"background: {COLORS['amber']}; color: black; font-weight: bold;")
-            if self._app_state and self._app_state.mode == "physical":
+            if self._app_state:
                 self._app_state.send_firmware_command("VREF_MODE=MANUAL\n")
         else:
             self.lock_btn.setText("Auto Vref (Auto-Calibrate)")

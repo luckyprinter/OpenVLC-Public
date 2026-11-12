@@ -352,7 +352,7 @@ class RXShell(QWidget):
                 # Dense analysis pages can exceed a laptop's logical height at
                 # 125–150% scaling. Give them one predictable vertical scroll
                 # surface; their own responsive layouts handle horizontal flow.
-                page_container = scrollable(page) if page_key in {"inspect", "signal"} else page
+                page_container = scrollable(page) if page_key in {"receive", "inspect", "signal", "ber_analyzer"} else page
                 self._page_widgets[page_key] = page_container
                 self.pages.addWidget(page_container)
 

@@ -30,10 +30,13 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
         file_panel = getattr(page, "_file_details", None)
         body = getattr(file_panel, "body", None)
         if body is not None:
+            # Refreshing the page can change child visibility, leaving the
+            # layout geometry stale until the next Qt layout pass.
+            layout = body.layout()
+            if layout is not None:
+                layout.activate()
             # The primary file controls must retain their full height and a
             # small bottom inset at compact laptop resolutions.
-            layout = body
-            layout.activate()
             if not page._state.serial_connected and file_panel.start_btn.isEnabled():
                 raise RuntimeError(f"TX Start must be disabled while hardware is disconnected at {width}x{height}")
             for control_name in ("select_btn", "start_btn"):

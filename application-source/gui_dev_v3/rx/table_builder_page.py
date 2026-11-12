@@ -306,7 +306,7 @@ class TableBuilderPage(QWidget):
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         """Stack table-builder columns and form controls on compact screens."""
         super().resizeEvent(event)
-        narrow = self.width() < 900
+        narrow = self.width() < 1000
         compact = narrow or self.height() < 620
         if compact == self._compact_layout and narrow == self._narrow_layout:
             return

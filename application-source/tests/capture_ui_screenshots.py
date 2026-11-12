@@ -212,6 +212,30 @@ def main() -> int:
                     raise RuntimeError(f"Could not save screenshot: {target}")
                 print(f"Captured {target}", flush=True)
 
+                # Study & Data is a nested tab page. Capture each inner tab
+                # explicitly so Export and Table Builder receive the same
+                # visual review as the default Experiments tab.
+                if mode == "rx" and page_name == "study_data":
+                    study_page = shell._page_widgets.get("study_data")
+                    inner_tabs = getattr(study_page, "tabs", None)
+                    if inner_tabs is None or inner_tabs.count() < 3:
+                        raise RuntimeError("RX Study & Data is missing its three inner tabs")
+                    for inner_index, inner_name in (
+                        (0, "experiments"),
+                        (1, "table_builder"),
+                        (2, "export"),
+                    ):
+                        inner_tabs.setCurrentIndex(inner_index)
+                        app.processEvents()
+                        inner_target = OUTPUT_DIR / (
+                            f"rx_study_data_{inner_name}_{width}x{height}.png"
+                        )
+                        if not window.grab().save(str(inner_target), "PNG"):
+                            raise RuntimeError(f"Could not save screenshot: {inner_target}")
+                        print(f"Captured {inner_target}", flush=True)
+                    inner_tabs.setCurrentIndex(0)
+                    app.processEvents()
+
         window.return_to_launcher()
         window.close()
         app.processEvents()

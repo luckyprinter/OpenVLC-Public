@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import threading
-from gui_dev_v3.tx_mock_data import TXFileInfo, TXProgress, TXSettings, TXState
+from gui_dev_v3.tx_models import TXFileInfo, TXProgress, TXSettings, TXState
 from gui_dev_v3.serial.controllers import TXSerialController
 
 # Resolve beta state/log dirs with VLC_DATA_DIR env var fallback

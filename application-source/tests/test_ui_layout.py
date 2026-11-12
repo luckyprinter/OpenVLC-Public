@@ -332,6 +332,8 @@ def test_rx_experiments_stack_form_and_saved_records_on_compact_display(qapp, mo
     monkeypatch.setattr(experiment_store_module, "STORE_DIR", tmp_path)
     monkeypatch.setattr(experiment_store_module, "STORE_PATH", tmp_path / "experiments.json")
     page = ExperimentsPage()
+    assert page._empty_state.isVisible()
+    assert page._table.rowCount() == 0
     page.resize(680, 500)
     page.show()
     qapp.processEvents()
@@ -395,3 +397,20 @@ def test_rx_export_preserves_unreadable_history_instead_of_overwriting(qapp, mon
     assert page._history_data == []
     assert history_path.read_text(encoding="utf-8") == "{ invalid json"
     page.close()
+
+
+def test_experiment_store_starts_empty_and_persists_user_created_records(monkeypatch, tmp_path):
+    monkeypatch.setattr(experiment_store_module, "STORE_DIR", tmp_path)
+    monkeypatch.setattr(experiment_store_module, "STORE_PATH", tmp_path / "experiments.json")
+
+    assert experiment_store_module.list_experiments() == []
+    assert not experiment_store_module.STORE_PATH.exists()
+
+    created = experiment_store_module.create_experiment(
+        "Distance validation", "Distance Test", "Initial test"
+    )
+    assert created.id == 1
+    records = experiment_store_module.list_experiments()
+    assert len(records) == 1
+    assert records[0].name == "Distance validation"
+    assert records[0].notes == "Initial test"

@@ -92,13 +92,6 @@ class _ReceptionStatusPanel(Card):
         badge_layout.setContentsMargins(0, 0, 0, 0)
         
         from PySide6.QtWidgets import QPushButton
-        self.cancel_btn = QPushButton("Abort")
-        self.cancel_btn.setObjectName("CancelBtn")
-        self.cancel_btn.setStyleSheet(f"background: {COLORS['red']}; color: white; border-radius: 4px; padding: 2px 8px; font-weight: bold; font-size: 10px;")
-        self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.cancel_btn.clicked.connect(self._on_cancel)
-        badge_layout.addWidget(self.cancel_btn)
-        
         badge_layout.addStretch(1)
         self.badge = StatusBadge("IDLE", COLORS["muted"])
         badge_layout.addWidget(self.badge)
@@ -112,27 +105,14 @@ class _ReceptionStatusPanel(Card):
         
         self._state = state
 
-    def _on_cancel(self) -> None:
-        if self._state.mode == "simulated" and self._state._simulation:
-            self._state._simulation.cleanup()
-            self._state.notify()
-
     def refresh(self, state: RXAppState) -> None:
         self._state = state
         sig = state.signal
         transfer = state.transfer
 
-        # A disconnected receiver must never be presented as READY. Keep
-        # simulation state visually distinct from a real hardware connection.
-        is_simulated = state.mode == "simulated"
-        is_active = state.is_receiving and (is_simulated or state.serial_connected)
-
-        if is_active and is_simulated:
-            badge_text, badge_color = "RECEIVING · SIM", COLORS["amber"]
-        elif is_active:
+        # A disconnected receiver must never be presented as READY.
+        if state.is_receiving and state.serial_connected:
             badge_text, badge_color = "RECEIVING", COLORS["green"]
-        elif is_simulated:
-            badge_text, badge_color = "SIMULATED", COLORS["amber"]
         elif state.serial_connected:
             badge_text, badge_color = "READY", COLORS["green"]
         else:
@@ -145,8 +125,6 @@ class _ReceptionStatusPanel(Card):
             if transfer.total_chunks > 0 else "—"
         )
         self.time_elapsed_row.setValue(sig.time_elapsed if sig.time_elapsed else "—")
-        # Abort is currently implemented only by the simulation backend.
-        self.cancel_btn.setVisible(is_active and is_simulated)
 
 
 class _PerformanceMetricsPanel(Card):
@@ -233,26 +211,16 @@ class _SignalWaveformPanel(Card):
     def refresh_telemetry(self, state: RXAppState, last_sample_index: int) -> int:
         """Fetch new high-frequency samples and feed OOK widget."""
         sig = state.signal
-        mode = state.mode
-        has_signal = (state.serial_connected or mode == "simulated") and (
-            sig.pvo > 0.01 or mode == "simulated"
-        )
+        has_signal = state.serial_connected and sig.pvo > 0.01
 
         if not has_signal:
             self._ook.clear()
             return last_sample_index
 
-        if mode == "simulated":
-            new_samples = state.get_new_simulation_samples(last_sample_index)
-            for pvo, vref, margin, bit in new_samples:
-                self._ook.push_bit(bit)
-            if new_samples and state._simulation:
-                last_sample_index = state._simulation._sample_counter
         else:
-            # Physical mode fallback (sample snapshot from state)
-            pvo = sig.pvo
-            vref = sig.vref
-            self._ook.set_from_pvo_vref(pvo, vref)
+        pvo = sig.pvo
+        vref = sig.vref
+        self._ook.set_from_pvo_vref(pvo, vref)
 
         return last_sample_index
 

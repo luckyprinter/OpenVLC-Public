@@ -46,7 +46,7 @@ The GUI and hardware code are deliberately separated. A dashboard should display
 If you are new to this codebase, read these files in this order:
 
 1. `app.py` — application startup and which window is launched.
-2. `app_state.py` and `tx_app_state.py` — how the application stores state and chooses a backend.
+2. `app_state.py` and `tx_app_state.py` — how the application stores state and routes commands to physical hardware.
 3. `rx/shell.py` or `tx/shell.py` — how navigation and pages are assembled.
 4. `rx/dashboard.py` or `tx/dashboard.py` — how the main dashboard displays information.
 5. `rx/backends/physical.py` or `tx/backends/physical.py` — how the GUI talks to real ESP32 hardware.
@@ -380,7 +380,7 @@ LED driver and LED
 
 The key concept is **delegation**. Each layer passes work to the layer responsible for it:
 - The page handles the user interaction.
-- The state object routes the action to the active backend.
+- The state object routes the action to the physical hardware backend.
 - The physical backend prepares the hardware operation and manages its lifecycle.
 - The serial controller implements the command/transfer protocol.
 - The firmware performs the time-sensitive optical work.

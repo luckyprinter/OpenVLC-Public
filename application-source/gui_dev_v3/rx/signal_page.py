@@ -573,7 +573,11 @@ class SignalMonitorPage(QWidget):
             self._metric_state.set_center_footer("No hardware")
             self._quality_top.set_percent(0)
             self._noise_top.set_percent(0)
+            self._quality_top.set_available(False)
+            self._noise_top.set_available(False)
         else:
+            self._quality_top.set_available(True)
+            self._noise_top.set_available(True)
             self._metric_pvo.set_value(
                 f"{sig.pvo:.2f} V",
                 sparkline_data=self._pvo_hist[-20:] if self._pvo_hist else None,

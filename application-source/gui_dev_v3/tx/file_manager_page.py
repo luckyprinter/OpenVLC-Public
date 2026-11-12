@@ -80,6 +80,7 @@ class FileManagerPage(QWidget):
         self.file_table = DragDropTable(0, 5)
         self.file_table.setHorizontalHeaderLabels(["Filename", "Type", "Size", "CRC-16", "Est. Time"])
         self.file_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.file_table.horizontalHeader().setMinimumSectionSize(56)
         for i in range(1, 5):
             self.file_table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
         self.file_table.verticalHeader().setDefaultSectionSize(32)

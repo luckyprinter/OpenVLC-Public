@@ -257,7 +257,7 @@ def save_session_capture(capture: SessionCapture) -> None:
         ) as temporary:
             temporary_path = Path(temporary.name)
             json.dump(asdict(capture), temporary, indent=2)
-            temporary.write("\\n")
+            temporary.write("\n")
             temporary.flush()
             os.fsync(temporary.fileno())
         os.replace(temporary_path, path)

@@ -226,6 +226,11 @@ def main() -> int:
         for width, height in WINDOW_SIZES:
             window.resize(width, height)
             app.processEvents()
+            if (width, height) == (680, 500) and (window.width(), window.height()) != (width, height):
+                raise RuntimeError(
+                    "Compact screenshot target was silently clamped: "
+                    f"requested={width}x{height}, actual={window.width()}x{window.height()}"
+                )
 
             expected_sidebar = 72 if width < 1120 else 224
             if shell.sidebar.width() != expected_sidebar:

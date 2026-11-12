@@ -6,7 +6,9 @@ from gui_dev_v3.models import (
     ExperimentMetadata,
     SessionState,
     SignalState,
+    TransferQuality,
     TransferRecord,
+    TransferStatus,
 )
 
 

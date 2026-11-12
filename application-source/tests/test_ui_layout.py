@@ -523,3 +523,28 @@ def test_rx_export_updates_existing_history_after_method2_comparison(qapp, monke
     assert page._history_data[0]["ber"] == 0.0125
     assert page._history_data[0]["ber_method"] == "method2_reference_file"
     page.close()
+
+def test_tx_batch_start_requires_connected_hardware_and_queued_files(qapp):
+    from types import SimpleNamespace
+
+    state = SimpleNamespace(
+        serial_connected=False,
+        transmission_queue=[],
+        session_history=[],
+    )
+    page = TransmitPage(state)
+    assert not page.start_btn.isEnabled()
+
+    state.serial_connected = True
+    state.transmission_queue = [{
+        "filename": "queued.bin",
+        "size": "1 KiB",
+        "status": "Queued",
+    }]
+    page.refresh(state)
+    assert page.start_btn.isEnabled()
+
+    state.serial_connected = False
+    page.refresh(state)
+    assert not page.start_btn.isEnabled()
+    page.close()

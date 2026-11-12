@@ -1137,7 +1137,7 @@ class RXPhysicalBackend:
             vref=round(vref, 3),
             margin=round(margin, 3),
             target_margin=0.365,
-            adc_vref=3.300,
+            adc_vref=None,
             # PVo is not a lux measurement; this receiver has no lux sensor.
             lux=None,
             data_rate=None,

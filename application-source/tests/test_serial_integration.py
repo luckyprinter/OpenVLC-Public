@@ -586,3 +586,86 @@ def test_rx_close_releases_serial_handle_before_joining_reader():
     assert handle_closed.is_set()
     assert backend._ser is None
     assert backend._reader_thread is None
+
+
+def test_rx_auto_connect_falls_back_when_preferred_port_is_busy(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager,
+        "get",
+        lambda self, key, default=None: "RX_PREFERRED" if key == "connection/port" else default,
+    )
+    saved = []
+    monkeypatch.setattr(
+        SettingsManager,
+        "set",
+        lambda self, key, value: saved.append((self.scope, key, value)),
+    )
+    backend = RXPhysicalBackend()
+    attempts = []
+    opened = []
+    backend.scan_ports = lambda: ["RX_PREFERRED", "RX_FALLBACK"]
+    backend.detect_firmware = lambda port: (
+        attempts.append(port)
+        or {"device": "VLC_RX", "firmware": "rx_test", "board": "test"}
+    )
+
+    def open_selected():
+        opened.append(backend.port)
+        return backend.port == "RX_FALLBACK"
+
+    backend._open_serial = open_selected
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._auto_connect_locked() is True
+    assert attempts == ["RX_PREFERRED", "RX_FALLBACK"]
+    assert opened == ["RX_PREFERRED", "RX_FALLBACK"]
+    assert backend.port == "RX_FALLBACK"
+    assert saved == [("rx", "connection/port", "RX_FALLBACK")]
+    backend._connected = False
+
+
+def test_tx_auto_connect_falls_back_when_preferred_port_is_busy(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager,
+        "get",
+        lambda self, key, default=None: "TX_PREFERRED" if key == "connection/port" else default,
+    )
+    saved = []
+    monkeypatch.setattr(
+        SettingsManager,
+        "set",
+        lambda self, key, value: saved.append((self.scope, key, value)),
+    )
+    backend = TXPhysicalBackend()
+    attempts = []
+    opened = []
+    backend.scan_ports = lambda: ["TX_PREFERRED", "TX_FALLBACK"]
+    backend.detect_firmware = lambda port: (
+        attempts.append(port)
+        or {"device": "VLC_TX", "firmware": "tx_test", "board": "test"}
+    )
+
+    def open_selected():
+        opened.append(backend.port)
+        return backend.port == "TX_FALLBACK"
+
+    backend._open_serial = open_selected
+    backend._wait_for_firmware_ready = lambda: True
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._auto_connect_locked() is True
+    assert attempts == ["TX_PREFERRED", "TX_FALLBACK"]
+    assert opened == ["TX_PREFERRED", "TX_FALLBACK"]
+    assert backend.port == "TX_FALLBACK"
+    assert saved == [("tx", "connection/port", "TX_FALLBACK")]
+    backend._connected = False

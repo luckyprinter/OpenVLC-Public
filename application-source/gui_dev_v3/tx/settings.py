@@ -402,31 +402,31 @@ class TXSettingsPage(QWidget):
         quiet = self.quiet_set.isChecked()
         dma_mode = self.dma_set.isChecked()
 
-        if self._state.mode == "physical":
-            # Use the gated helper so DMA_MODE/PREAMBLE/CARRIER are only sent
-            # to DMA-capable firmware. Sending them to tx_non_dma.ino causes
-            # 'TX_ERROR: unknown command' which disrupts the non-DMA blinking.
-            applied = self._state.apply_link_settings_from_ui(
-                freq=freq,
-                preamble=preamble,
-                gap=gap,
-                fgap=fgap,
-                active_low=active_low,
-                idle_on=idle_on,
-                intensity=intensity,
-                quiet=quiet,
-                dma_mode=dma_mode,
+        # Use the gated helper so DMA_MODE/PREAMBLE/CARRIER are only sent
+        # to DMA-capable firmware. Sending them to tx_non_dma.ino causes
+        # 'TX_ERROR: unknown command' which disrupts the non-DMA blinking.
+        applied = self._state.apply_link_settings_from_ui(
+            freq=freq,
+            preamble=preamble,
+            gap=gap,
+            fgap=fgap,
+            active_low=active_low,
+            idle_on=idle_on,
+            intensity=intensity,
+            quiet=quiet,
+            dma_mode=dma_mode,
+        )
+        from PySide6.QtWidgets import QMessageBox
+        if applied:
+            QMessageBox.information(self, "TX Settings", "Hardware settings were sent to the transmitter.")
+        else:
+            QMessageBox.warning(
+                self,
+                "TX Settings Not Applied",
+                "The transmitter is not connected or a serial write failed. "
+                "Check the TX connection and reapply the settings.",
             )
-            from PySide6.QtWidgets import QMessageBox
-            if applied:
-                QMessageBox.information(self, "TX Settings", "Hardware settings were sent to the transmitter.")
-            else:
-                QMessageBox.warning(
-                    self,
-                    "TX Settings Not Applied",
-                    "The transmitter is not connected or a serial write failed. "
-                    "Check the TX connection and reapply the settings.",
-                )
+
 
     def _update_link_param(self, command_key: str, value: Any) -> None:
         if not self._state:

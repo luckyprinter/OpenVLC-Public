@@ -502,7 +502,7 @@ def test_tx_start_requires_selected_file_and_connected_hardware(qapp):
     assert widget.start_btn.isEnabled()
     widget.close()
 
-def test_rx_export_updates_existing_history_after_method2_comparison(qapp, monkeypatch, tmp_path):
+def test_rx_export_updates_existing_history_after_method2_comparison(qapp: QApplication, monkeypatch, tmp_path):
     from types import SimpleNamespace
     from gui_dev_v3.models import TransferStatus as RXTransferStatus
 

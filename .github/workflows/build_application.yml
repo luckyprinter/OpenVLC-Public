@@ -2,7 +2,7 @@ name: Build Application
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'refactor/**', 'redesign/**']
     paths:
       - 'application-source/**'
       - '.github/workflows/build_application.yml'

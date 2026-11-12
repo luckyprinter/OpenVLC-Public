@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from PySide6.QtCore import Qt, QSettings, Signal
+from PySide6.QtCore import Qt, QSettings, Signal, QSize
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -462,6 +462,8 @@ class SettingsContainer(QWidget):
         self._nav_list.setAccessibleDescription("Choose a settings category.")
         self._nav_list.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._nav_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self._nav_list.setWordWrap(True)
+        self._nav_list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self._nav_list.setSpacing(1)
         self._nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._nav_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -487,6 +489,8 @@ class SettingsContainer(QWidget):
             item.setToolTip(label)
             item.setData(Qt.ItemDataRole.AccessibleTextRole, label)
             item.setData(Qt.ItemDataRole.AccessibleDescriptionRole, f"Open {label} settings.")
+            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            item.setSizeHint(QSize(0, 42))
             self._nav_list.addItem(item)
             # Wrap page in a padded container so all sub-pages have consistent
             # breathing room at the top and sides — fixes the "bald top" issue.

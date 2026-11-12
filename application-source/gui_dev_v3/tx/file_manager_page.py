@@ -82,9 +82,14 @@ class FileManagerPage(QWidget):
         self.file_table = DragDropTable(0, 5)
         self.file_table.setHorizontalHeaderLabels(["Filename", "Type", "Size", "CRC-16", "Est. Time"])
         header = self.file_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        # Keep the first label readable on the narrow side-by-side layout.
-        header.setMinimumSectionSize(84)
+        # Give the long first label a stable width; let the final column absorb
+        # spare space so the heading never gets clipped on a compact laptop.
+        header.setMinimumSectionSize(56)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(0, 120)
+        for column in range(1, 4):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         for column in range(self.file_table.columnCount()):
             item = self.file_table.horizontalHeaderItem(column)
             if item is not None:

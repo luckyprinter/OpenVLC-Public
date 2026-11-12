@@ -14,7 +14,7 @@ Legacy aliases: "dark" → midnight_navy, "light" → arctic_light
 from __future__ import annotations
 
 import sys
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtGui import QFontDatabase, QGuiApplication
 
 from typing import Literal
 
@@ -572,29 +572,39 @@ def build_qss() -> str:
     # Resolve a single installed family instead of passing a CSS-style family
     # list to Qt. QSS fallback parsing differs across platforms and can turn
     # the whole UI monospaced when the first bundled family is unavailable.
-    available_fonts = {family.lower(): family for family in QFontDatabase.families()}
-    declared_fonts = [
-        part.strip().strip('"').strip("'")
-        for part in t.get("fontUi", '"Inter", "Segoe UI", Arial, sans-serif').split(",")
-    ]
-    platform_fonts = (
-        ("Segoe UI", "Arial", "Tahoma")
-        if sys.platform == "win32"
-        else ("DejaVu Sans", "Noto Sans", "Liberation Sans", "Sans Serif")
+    declared_font_list = t.get(
+        "fontUi", '"Inter", "Segoe UI", Arial, sans-serif'
     )
-    selected_font = next(
-        (
-            available_fonts[name.lower()]
-            for name in (*declared_fonts, *platform_fonts)
-            if name.lower() in available_fonts
-        ),
-        None,
-    )
-    if selected_font is None:
-        selected_font = QFontDatabase.systemFont(
-            QFontDatabase.SystemFont.GeneralFont
-        ).family()
-    ui_font = f'"{selected_font}"'
+    if QGuiApplication.instance() is None:
+        # APP_QSS is also built at module import time, before QApplication
+        # exists. Defer system-font discovery until the app is initialized.
+        ui_font = declared_font_list
+    else:
+        available_fonts = {
+            family.lower(): family for family in QFontDatabase.families()
+        }
+        declared_fonts = [
+            part.strip().strip('"').strip("'")
+            for part in declared_font_list.split(",")
+        ]
+        platform_fonts = (
+            ("Segoe UI", "Arial", "Tahoma")
+            if sys.platform == "win32"
+            else ("DejaVu Sans", "Noto Sans", "Liberation Sans", "Sans Serif")
+        )
+        selected_font = next(
+            (
+                available_fonts[name.lower()]
+                for name in (*declared_fonts, *platform_fonts)
+                if name.lower() in available_fonts
+            ),
+            None,
+        )
+        if selected_font is None:
+            selected_font = QFontDatabase.systemFont(
+                QFontDatabase.SystemFont.GeneralFont
+            ).family()
+        ui_font = f'"{selected_font}"'
 
     # Derive glow border color safely
     border_glow = t.get("border_glow", t["border"])

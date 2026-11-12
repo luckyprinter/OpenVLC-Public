@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication, QBoxLayout, QScrollArea, QWidget
 
 from gui_dev_v3.app import VLCMainWindow
 from gui_dev_v3.app_state import RXAppState
@@ -466,6 +466,7 @@ def test_table_builder_exports_blank_template_without_fabricated_measurements(qa
 
 def test_tx_dashboard_hides_secondary_panels_on_compact_display(qapp):
     page = TXDashboardPage(TXAppState())
+    assert not page.findChildren(QScrollArea), "Dashboard panels must not introduce nested scrolling"
     page.resize(800, 600)
     page.show()
     qapp.processEvents()

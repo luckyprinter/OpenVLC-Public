@@ -959,7 +959,7 @@ class RXPhysicalBackend:
                 self._last_lq_data = lq_data
                 return self._build_from_lq(lq_data)
 
-        # Fallback: vlc_beta bridge files
+        # Use recent application-owned cached telemetry, if available
         rx_status = read_status("rx")
         sig_status = read_status("signal")
 

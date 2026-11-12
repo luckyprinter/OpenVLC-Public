@@ -464,10 +464,6 @@ class InspectPage(QWidget):
         self.chunk_table.setMinimumHeight(150 if compact else 180)
         self.byte_table.setMinimumHeight(150 if compact else 180)
 
-        # Wire table selections
-        self.chunk_table.itemSelectionChanged.connect(self._on_table_selection)
-        self.chunk_table.cellDoubleClicked.connect(self._on_table_double_click)
-
     def _on_inspect_load_ref(self) -> None:
         filepath, _ = QFileDialog.getOpenFileName(self, "Load Expected Reference File", "", "All Files (*)")
         if filepath:

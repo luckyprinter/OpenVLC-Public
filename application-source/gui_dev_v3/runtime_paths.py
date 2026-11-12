@@ -41,3 +41,24 @@ def configure_runtime_data_dir() -> Path:
     resolved = resolve_user_data_dir()
     os.environ["VLC_DATA_DIR"] = str(resolved)
     return resolved
+
+
+def resolve_user_config_dir(
+    *,
+    platform: str | None = None,
+    environ: Mapping[str, str] | None = None,
+    home: Path | None = None,
+) -> Path:
+    """Return the conventional per-user configuration directory."""
+    platform = platform or sys.platform
+    environ = environ if environ is not None else os.environ
+    home = home or Path.home()
+
+    if platform == "win32":
+        root = environ.get("APPDATA") or environ.get("LOCALAPPDATA")
+        return (Path(root) if root else home / "AppData" / "Roaming") / "OpenVLC"
+    if platform == "darwin":
+        return home / "Library" / "Application Support" / "OpenVLC" / "Config"
+
+    root = environ.get("XDG_CONFIG_HOME")
+    return (Path(root) if root else home / ".config") / "OpenVLC"

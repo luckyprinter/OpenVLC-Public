@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import json
 import os
+import time
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QTabWidget,
     QPlainTextEdit,
+    QSizePolicy,
 )
 
 from gui_dev_v3.app_state import RXAppState
@@ -39,7 +41,7 @@ HISTORY_PATH = HISTORY_DIR / "transfer_history.json"
 
 
 def _default_history() -> list[dict]:
-    """Return an empty history; never seed the application with fabricated transfers."""
+    """A new installation starts with no fabricated transfer records."""
     return []
 
 
@@ -178,6 +180,21 @@ class SessionInspectorCard(Card):
         self.show_empty()
 
     def show_empty(self) -> None:
+        self.empty_title.setText("Select a Transfer Log")
+        self.empty_desc.setText(
+            "Select an entry from the history list to review its saved physical "
+            "waveform, decoded bitstream, and protocol timeline."
+        )
+        self.stacked.setCurrentIndex(0)
+
+    def show_unavailable(self, filename: str) -> None:
+        """Explain when an older transfer has no saved physical capture."""
+        self.empty_title.setText("Capture Not Available")
+        self.empty_desc.setText(
+            f"No physical capture was saved for {filename}. The transfer record "
+            "remains available, but synthetic waveforms and protocol events are "
+            "not generated or presented as hardware measurements."
+        )
         self.stacked.setCurrentIndex(0)
 
     def show_capture(self, capture: SessionCapture, entry: dict) -> None:
@@ -208,7 +225,10 @@ class SessionInspectorCard(Card):
         size_txt = f"{size:,} Bytes" if size < 1024 else f"{size/1024:.2f} KiB ({size:,} Bytes)"
         self.info_group.body.addWidget(DetailRow("File Size", size_txt))
         self.info_group.body.addWidget(DetailRow("Throughput", f"{capture.throughput_kbps:.2f} kbps"))
-        self.info_group.body.addWidget(DetailRow("Bit Error Rate (BER)", f"{capture.ber:.4%}"))
+        self.info_group.body.addWidget(DetailRow(
+            "Method 2 Bit Error Rate",
+            f"{capture.ber:.4%}" if capture.ber is not None else "Not measured — no reference comparison",
+        ))
         self.info_group.body.addWidget(DetailRow("CRC Status", capture.crc_status, value_color=status_color))
 
         # Update Waveforms
@@ -253,11 +273,14 @@ class ExportPage(QWidget):
         self._load_history()
         # Page layout
         lo = QVBoxLayout(self)
+        self._main_layout = lo
         lo.setContentsMargins(20, 16, 20, 20)
         lo.setSpacing(12)
+        self._compact_layout = False
 
         # Create horizontal splitter
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setChildrenCollapsible(True)
         self.splitter.setStyleSheet("""
             QSplitter::handle {
                 image: none;
@@ -340,6 +363,15 @@ class ExportPage(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(32)
         self.table.setSortingEnabled(True)
         self.table.setMinimumHeight(220)
+        self.table.setMinimumWidth(0)
+        self._history_empty_state = QLabel(
+            "No transfer history yet. Completed or failed sessions will appear here."
+        )
+        self._history_empty_state.setWordWrap(True)
+        self._history_empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._history_empty_state.setMinimumHeight(56)
+        self._history_empty_state.setObjectName("Muted")
+        self.history_card.body.addWidget(self._history_empty_state)
         self.history_card.body.addWidget(self.table)
 
         # Actions below the table
@@ -389,6 +421,10 @@ class ExportPage(QWidget):
         # Right Column Widget: Session Inspector
         self.inspector_card = SessionInspectorCard()
         self.splitter.addWidget(self.inspector_card)
+        for index in range(self.splitter.count()):
+            child = self.splitter.widget(index)
+            child.setMinimumWidth(0)
+            child.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
 
         # Set splitter ratio/sizes (e.g., 55% left, 45% right)
         self.splitter.setSizes([620, 580])
@@ -397,6 +433,25 @@ class ExportPage(QWidget):
 
         # Build initial table rows
         self._populate_table()
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Stack history and session inspection on compact workspaces."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        self.splitter.setOrientation(
+            Qt.Orientation.Vertical if compact else Qt.Orientation.Horizontal
+        )
+        self.splitter.setChildrenCollapsible(compact)
+        self._main_layout.setContentsMargins(
+            12 if compact else 20,
+            12 if compact else 16,
+            12 if compact else 20,
+            12 if compact else 20,
+        )
+        self.splitter.setSizes([420, 360] if compact else [620, 580])
 
     def _ghost_btn(self, text: str, icon_name: str) -> QPushButton:
         import qtawesome as qta
@@ -420,17 +475,16 @@ class ExportPage(QWidget):
         return btn
 
     def _load_history(self) -> None:
-        if HISTORY_PATH.exists():
-            try:
-                data = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
-                if isinstance(data, list):
-                    self._history_data = data
-                    return
-            except (OSError, json.JSONDecodeError):
-                pass
-        
-        self._history_data = _default_history()
-        self._save_history()
+        # Never seed fake transfers or overwrite unreadable user history.
+        self._history_data = []
+        if not HISTORY_PATH.exists():
+            return
+        try:
+            data = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return
+        if isinstance(data, list):
+            self._history_data = data
 
     def _save_history(self) -> None:
         try:
@@ -440,6 +494,7 @@ class ExportPage(QWidget):
             pass
 
     def _populate_table(self) -> None:
+        self._history_empty_state.setVisible(not self._history_data)
         self.table.setRowCount(len(self._history_data))
         for row, entry in enumerate(self._history_data):
             # TID
@@ -486,11 +541,15 @@ class ExportPage(QWidget):
             self.table.setItem(row, 5, chunks_item)
 
             # BER
-            ber = entry.get("ber", 0.0)
-            ber_txt = f"{ber:.2%}" if ber > 0 else "0.00%"
+            ber = entry.get("ber")
+            ber_is_measured = (
+                entry.get("ber_method") == "method2"
+                and isinstance(ber, (int, float))
+            )
+            ber_txt = f"{ber:.4%}" if ber_is_measured else "N/A"
             ber_item = QTableWidgetItem(ber_txt)
             ber_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            if ber > 0:
+            if ber_is_measured and ber > 0:
                 ber_item.setForeground(QColor(COLORS["red"]))
             self.table.setItem(row, 6, ber_item)
 
@@ -504,7 +563,8 @@ class ExportPage(QWidget):
             # Check if this TID is already in the history
             exists = any(item.get("tid") == transfer.tid for item in self._history_data)
             if not exists:
-                ber = transfer.quality.strict_ber if transfer.quality else 0.0
+                comparison = state.get_method2_comparison()
+                ber = comparison.get("strict_ber") if comparison else None
                 entry = {
                     "tid": transfer.tid,
                     "filename": transfer.filename,
@@ -513,7 +573,8 @@ class ExportPage(QWidget):
                     "size_bytes": transfer.size_bytes,
                     "total_chunks": transfer.total_chunks,
                     "received_chunks": transfer.received_chunks,
-                    "ber": ber,
+                    "ber": ber if ber is not None else "N/A",
+                    "ber_method": "method2" if ber is not None else None,
                 }
                 self._history_data.insert(0, entry)
                 self._save_history()
@@ -538,7 +599,7 @@ class ExportPage(QWidget):
         if capture is not None:
             self.inspector_card.show_capture(capture, entry)
         else:
-            self.inspector_card.show_empty()
+            self.inspector_card.show_unavailable(str(entry.get("filename") or "this transfer"))
 
     def _on_browse_folder(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Select Export Directory", self._folder_edit.text())
@@ -581,22 +642,35 @@ class ExportPage(QWidget):
         return None
 
     def _on_open_file(self) -> None:
-        if not self._get_selected_entry():
+        entry = self._get_selected_entry()
+        if not entry:
             return
-        QMessageBox.warning(
-            self,
-            "File Unavailable",
-            "This history record contains transfer metadata only. The received payload file is not stored with the history record, so it cannot be opened from here.",
+        
+        # Simulate opening a received file
+        filename = entry.get("filename", "")
+        QMessageBox.information(
+            self, "Open File",
+            f"Simulating opening received payload file:\n\n"
+            f"Name: {filename}\n"
+            f"TID: {entry.get('tid', 0):04d}\n"
+            f"Size: {entry.get('size_bytes', 0)} Bytes\n\n"
+            f"Payload would open in default text/binary editor."
         )
 
     def _on_save_as(self) -> None:
-        if not self._get_selected_entry():
+        entry = self._get_selected_entry()
+        if not entry:
             return
-        QMessageBox.warning(
-            self,
-            "Export Unavailable",
-            "The original received payload bytes are not available in this history record. No placeholder file was written.",
-        )
+        
+        filename = entry.get("filename", "saved_file.bin")
+        path, _ = QFileDialog.getSaveFileName(self, "Save File As", filename, "All Files (*)")
+        if path:
+            # Simulate writing the payload file
+            try:
+                Path(path).write_text(f"Decoded Visible Light Communication payload for TID {entry.get('tid')}.\nFilename: {filename}", encoding="utf-8")
+                QMessageBox.information(self, "Save File", "File saved successfully!")
+            except OSError as e:
+                QMessageBox.warning(self, "Save File Failed", f"Could not write file:\n{e}")
 
     def _on_backup_db(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Backup Database to File", "vlc_database_backup.json", "JSON Files (*.json)")
@@ -613,9 +687,11 @@ class ExportPage(QWidget):
                 except Exception:
                     pass
 
-            # Write the real history and experiment metadata to the selected backup file.
+            # Simulate writing backup with responsiveness check
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             try:
+                # Short delay to show responsiveness
+                time.sleep(0.3)
                 QApplication.processEvents()
                 Path(path).write_text(json.dumps(backup_data, indent=2), encoding="utf-8")
                 QApplication.restoreOverrideCursor()

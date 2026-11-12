@@ -75,6 +75,7 @@ def test_app_state_method2_uses_selected_reference_and_received_path(tmp_path):
     state = RXAppState.__new__(RXAppState)
     state._lock = threading.Lock()
     state._subscribers = []
+    state._subscribers = []
     state.expected_file_path = str(expected)
     state.session = SimpleNamespace(
         latest_transfer=SimpleNamespace(tid=42, received_path=str(received))

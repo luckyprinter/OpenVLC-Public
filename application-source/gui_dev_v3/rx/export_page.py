@@ -55,7 +55,7 @@ def _default_history() -> list[dict]:
 
 
 class SessionInspectorCard(Card):
-    """Inspector panel displaying detailed session capture info, waveforms, and logs."""
+    """Inspector for saved telemetry trends, OOK capture data, and protocol logs."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("Session Inspector", parent)
@@ -132,12 +132,12 @@ class SessionInspectorCard(Card):
 
         self.tabs.addTab(self.waveform_tab, "Telemetry Trend")
 
-        # ── Tab 3: Bitstream ──
-        self.bitstream_tab = QWidget()
-        self.bitstream_lo = QVBoxLayout(self.bitstream_tab)
+        # ── Tab 3: OOK Capture Data ──
+        self.ook_data_tab = QWidget()
+        self.ook_data_lo = QVBoxLayout(self.bitstream_tab)
         self.bitstream_lo.setContentsMargins(12, 12, 12, 12)
         
-        self.bitstream_text = QPlainTextEdit()
+        self.ook_data_text = QPlainTextEdit()
         self.bitstream_text.setReadOnly(True)
         self.bitstream_text.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
         self.bitstream_text.setStyleSheet("""

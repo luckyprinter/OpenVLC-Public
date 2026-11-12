@@ -50,14 +50,16 @@ class _DetailRow(QWidget):
         super().__init__(parent)
         self.setStyleSheet("background: transparent;")
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 2, 0, 2)
+        layout.setContentsMargins(0, 1, 0, 1)
         layout.setSpacing(8)
 
         self.lbl = QLabel(label)
         self.lbl.setObjectName("Muted")
+        self.lbl.setStyleSheet("font-size: 12px; background: transparent;")
 
         self.val = QLabel(value)
         self.val.setObjectName("Value")
+        self.val.setStyleSheet("font-size: 12px; font-weight: 700; background: transparent;")
         if val_color:
             self.val.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {val_color}; background: transparent;")
 
@@ -71,12 +73,9 @@ class _DetailRow(QWidget):
     def setValue(self, text: str, color: str | None = None) -> None:
         self.val.setText(text)
         if color:
-            self.val.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {color}; background: transparent;")
+            self.val.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {color}; background: transparent;")
         else:
-            self.val.setStyleSheet("")
-            self.val.setObjectName("Value")
-            self.val.style().unpolish(self.val)
-            self.val.style().polish(self.val)
+            self.val.setStyleSheet("font-size: 12px; font-weight: 700; background: transparent;")
 
 
 # ── Section 1: DEVICE STATUS ─────────────────────────────────────────
@@ -264,8 +263,8 @@ class TransmissionPipelineWidget(Card):
 class CurrentSessionWidget(Card):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("CURRENT SESSION", parent)
-        self.body.setContentsMargins(12, 10, 12, 10)
-        self.body.setSpacing(4)
+        self.body.setContentsMargins(10, 8, 10, 8)
+        self.body.setSpacing(3)
         
         self.row_sent = _DetailRow("Files Sent", "0")
         self.row_success = _DetailRow("Success Rate", "100 %", val_color=COLORS["green"])
@@ -344,10 +343,10 @@ class FileDetailsWidget(Card):
         
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
-        btn_row.setContentsMargins(0, 2, 0, 0)
+        btn_row.setContentsMargins(0, 1, 0, 0)
         
         self.select_btn = QPushButton("Select File...")
-        self.select_btn.setMinimumHeight(28)
+        self.select_btn.setMinimumHeight(26)
         self.select_btn.setStyleSheet(
             f"QPushButton {{ background-color: {COLORS['panel_alt']}; color: {COLORS['text']}; border: 1px solid {COLORS['border']}; border-radius: 6px; padding: 6px 12px; font-weight: 600; font-size: 11px; }}"
             f"QPushButton:hover {{ border-color: {COLORS['accent']}; background-color: {COLORS['sidebar_active']}; }}"
@@ -355,7 +354,7 @@ class FileDetailsWidget(Card):
         )
         
         self.start_btn = primary_button("Start")
-        self.start_btn.setMinimumHeight(28)
+        self.start_btn.setMinimumHeight(26)
         self.start_btn.setStyleSheet(
             f"QPushButton {{ background-color: {COLORS['accent']}; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-weight: 700; font-size: 11px; }}"
             f"QPushButton:hover {{ background-color: {COLORS['header']}; }}"

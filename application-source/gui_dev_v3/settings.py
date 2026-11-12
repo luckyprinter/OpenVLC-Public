@@ -456,7 +456,11 @@ class SettingsContainer(QWidget):
         nav_lo.addSpacing(8)
 
         self._nav_list = QListWidget()
-        self._nav_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._nav_list.setObjectName("SettingsNavigation")
+        self._nav_list.setAccessibleName("Settings sections")
+        self._nav_list.setAccessibleDescription("Choose a settings category.")
+        self._nav_list.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._nav_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         self._nav_list.setSpacing(1)
         self._nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._nav_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -479,6 +483,9 @@ class SettingsContainer(QWidget):
         # Build nav items and pages
         for idx, (label, page) in enumerate(sections):
             item = QListWidgetItem(label)
+            item.setToolTip(label)
+            item.setData(Qt.ItemDataRole.AccessibleTextRole, label)
+            item.setData(Qt.ItemDataRole.AccessibleDescriptionRole, f"Open {label} settings.")
             self._nav_list.addItem(item)
             # Wrap page in a padded container so all sub-pages have consistent
             # breathing room at the top and sides — fixes the "bald top" issue.
@@ -561,6 +568,9 @@ class _SwatchCard(QWidget):
         self._active = active
         self._preset = preset
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName(preset["label"])
+        self.setAccessibleDescription(f"Select the {preset['label']} theme.")
         self.setFixedHeight(40)
         self.setMinimumWidth(120)
         self._build()
@@ -609,6 +619,13 @@ class _SwatchCard(QWidget):
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         self.clicked.emit(self._key)
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.clicked.emit(self._key)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 class ThemePickerGrid(QWidget):

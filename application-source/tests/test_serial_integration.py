@@ -377,6 +377,36 @@ def test_rx_reader_marks_connection_lost_after_unplug(fake_serial, monkeypatch):
     backend._close_serial()
 
 
+def test_rx_port_scan_uses_only_operating_system_ports(fake_serial, monkeypatch):
+    from gui_dev_v3.rx.backends.physical import _list_usb_serial_ports
+
+    serial_module = sys.modules["serial"]
+    serial_module.__path__ = []  # Treat the fake serial module as a package.
+    tools_module = types.ModuleType("serial.tools")
+    tools_module.__path__ = []
+    list_ports_module = types.ModuleType("serial.tools.list_ports")
+    list_ports_module.comports = lambda: [
+        types.SimpleNamespace(
+            device="/dev/ttyUSB1", description="USB serial",
+            hwid="USB VID:PID=10C4:EA60", vid=0x10C4, pid=0xEA60,
+        ),
+        types.SimpleNamespace(
+            device="COM4", description="USB serial",
+            hwid="USB VID:PID=10C4:EA60", vid=0x10C4, pid=0xEA60,
+        ),
+        types.SimpleNamespace(
+            device="/dev/ttyS0", description="Built-in serial",
+            hwid="n/a", vid=None, pid=None,
+        ),
+    ]
+    tools_module.list_ports = list_ports_module
+    serial_module.tools = tools_module
+    monkeypatch.setitem(sys.modules, "serial.tools", tools_module)
+    monkeypatch.setitem(sys.modules, "serial.tools.list_ports", list_ports_module)
+
+    assert _list_usb_serial_ports() == ["/dev/ttyUSB1", "COM4"]
+
+
 def test_serial_scan_lock_serializes_separate_processes(tmp_path: Path):
     """TX/RX launched as separate processes must not probe ports concurrently."""
     ctx = multiprocessing.get_context("spawn")

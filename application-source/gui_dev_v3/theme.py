@@ -587,23 +587,31 @@ def build_qss() -> str:
             part.strip().strip('"').strip("'")
             for part in declared_font_list.split(",")
         ]
-        platform_fonts = (
-            ("Segoe UI", "Arial", "Tahoma")
-            if sys.platform == "win32"
-            else ("DejaVu Sans", "Noto Sans", "Liberation Sans", "Sans Serif")
-        )
-        selected_font = next(
-            (
-                available_fonts[name.lower()]
-                for name in (*declared_fonts, *platform_fonts)
-                if name.lower() in available_fonts
-            ),
-            None,
-        )
-        if selected_font is None:
-            selected_font = QFontDatabase.systemFont(
-                QFontDatabase.SystemFont.GeneralFont
-            ).family()
+        if sys.platform == "win32":
+            # Arial is present on supported Windows desktop versions and is a
+            # safe proportional fallback even when Qt's offscreen font
+            # database does not enumerate the installed Segoe UI families.
+            selected_font = (
+                available_fonts.get("inter")
+                or available_fonts.get("segoe ui")
+                or "Arial"
+            )
+        else:
+            platform_fonts = (
+                "DejaVu Sans", "Noto Sans", "Liberation Sans", "Sans Serif"
+            )
+            selected_font = next(
+                (
+                    available_fonts[name.lower()]
+                    for name in (*declared_fonts, *platform_fonts)
+                    if name.lower() in available_fonts
+                ),
+                None,
+            )
+            if selected_font is None:
+                selected_font = QFontDatabase.systemFont(
+                    QFontDatabase.SystemFont.GeneralFont
+                ).family()
         ui_font = f'"{selected_font}"'
 
     # Derive glow border color safely

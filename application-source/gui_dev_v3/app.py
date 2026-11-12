@@ -29,7 +29,7 @@ from gui_dev_v3.settings_store import AppSettings, RESOLUTION_PRESETS, load_sett
 from gui_dev_v3.theme import APP_QSS, apply_theme, build_qss, THEME_PRESETS, COLORS
 from gui_dev_v3.tx.shell import TXShell
 from gui_dev_v3.tx_app_state import build_default_tx_state
-from gui_dev_v3.widgets import ModeSelectCard  # noqa: F401 — kept for legacy compat
+from gui_dev_v3.widgets import
 
 
 # ── Core Infrastructure ───────────────────────────────────────────────────

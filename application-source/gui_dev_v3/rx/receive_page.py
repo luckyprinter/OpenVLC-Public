@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QBoxLayout, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget, QSizePolicy
 
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.models import TransferStatus
@@ -23,8 +23,10 @@ class ReceivePage(QWidget):
 
         # Page layout
         lo = QVBoxLayout(self)
+        self._main_layout = lo
         lo.setContentsMargins(20, 16, 20, 20)
         lo.setSpacing(12)
+        self._compact_layout = False
         lo.addWidget(PageIntro(
             "RECEIVER  /  LIVE SESSION",
             "Receive monitor",
@@ -36,7 +38,8 @@ class ReceivePage(QWidget):
         self.status_card = Card("Reception Status")
         
         # Row 1: Status badge and info
-        status_row = QHBoxLayout()
+        status_row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._status_layout = status_row
         self.status_badge = QLabel("○ IDLE")
         self.status_badge.setStyleSheet(
             f"color: {COLORS['muted']}; font-weight: 700; font-size: 12px; "
@@ -46,9 +49,12 @@ class ReceivePage(QWidget):
         status_row.addStretch(1)
         
         self.filename_lbl = value_label("No file transfer")
-        status_row.addWidget(self.filename_lbl)
+        self.filename_lbl.setWordWrap(True)
+        self.filename_lbl.setMinimumWidth(0)
+        status_row.addWidget(self.filename_lbl, 1)
         
         self.chunks_lbl = muted_label("0 / 0 chunks")
+        self.chunks_lbl.setMinimumWidth(0)
         status_row.addWidget(self.chunks_lbl)
         self.status_card.body.addLayout(status_row)
 
@@ -64,6 +70,8 @@ class ReceivePage(QWidget):
         
         self.terminal = QPlainTextEdit()
         self.terminal.setReadOnly(True)
+        self.terminal.setMinimumHeight(180)
+        self.terminal.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.terminal.setStyleSheet(
             f"QPlainTextEdit {{"
             f"    background: {COLORS['panel_alt']};"
@@ -86,7 +94,8 @@ class ReceivePage(QWidget):
 
         # ── 3. Control Actions Card ──
         control_card = Card("Control Actions")
-        btn_lo = QHBoxLayout()
+        btn_lo = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._control_layout = btn_lo
         btn_lo.setSpacing(10)
 
         # Lock/Auto Vref (Primary action, togglable)
@@ -124,6 +133,27 @@ class ReceivePage(QWidget):
         
         control_card.body.addLayout(btn_lo)
         lo.addWidget(control_card)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Stack receiver actions and reduce gutters on compact screens."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        direction = (
+            QBoxLayout.Direction.TopToBottom
+            if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self._control_layout.setDirection(direction)
+        self._status_layout.setDirection(direction)
+        self._status_layout.setStretch(1, 0 if compact else 1)
+        self._main_layout.setContentsMargins(
+            12 if compact else 20,
+            12 if compact else 16,
+            12 if compact else 20,
+            12 if compact else 20,
+        )
 
     def refresh(self, state: RXAppState) -> None:
         """Refresh receive status and payload terminal from current state."""

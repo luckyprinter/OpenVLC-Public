@@ -12,10 +12,13 @@ from PySide6.QtWidgets import QApplication, QBoxLayout, QWidget
 from gui_dev_v3.app import VLCMainWindow
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.rx.dashboard import RXDashboardPage
+from gui_dev_v3.rx.receive_page import ReceivePage
+from gui_dev_v3.rx.ber_analyzer_page import BERAnalyzerPage
 from gui_dev_v3.rx.inspect_page import InspectPage
 from gui_dev_v3.rx.signal_page import SignalMonitorPage
 from gui_dev_v3.settings import SettingsContainer, ThemePickerGrid
 from gui_dev_v3.tx.placeholders import TransmitPage
+from gui_dev_v3.tx.file_manager_page import FileManagerPage
 
 
 @pytest.fixture(scope="module")
@@ -227,4 +230,63 @@ def test_rx_signal_page_reflows_metrics_and_diagnostics_on_compact_display(qapp)
     assert page._middle_splitter.orientation() == Qt.Orientation.Horizontal
     assert page._bottom_splitter.orientation() == Qt.Orientation.Horizontal
     page.shutdown()
+    page.close()
+
+
+def test_tx_file_manager_stacks_details_on_compact_display(qapp):
+    page = FileManagerPage()
+    page.resize(680, 500)
+    page.show()
+    qapp.processEvents()
+
+    assert page._compact_layout
+    assert page._main_layout.direction() == QBoxLayout.Direction.TopToBottom
+    assert page.file_table.horizontalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAsNeeded
+
+    page.resize(1100, 700)
+    qapp.processEvents()
+    assert not page._compact_layout
+    assert page._main_layout.direction() == QBoxLayout.Direction.LeftToRight
+    page.close()
+
+
+def test_rx_receive_actions_stack_on_compact_display(qapp):
+    page = ReceivePage()
+    page.resize(680, 500)
+    page.show()
+    qapp.processEvents()
+
+    assert page._compact_layout
+    assert page._control_layout.direction() == QBoxLayout.Direction.TopToBottom
+    assert page._status_layout.direction() == QBoxLayout.Direction.TopToBottom
+    assert page.terminal.minimumHeight() >= 180
+
+    page.resize(1100, 700)
+    qapp.processEvents()
+    assert not page._compact_layout
+    assert page._control_layout.direction() == QBoxLayout.Direction.LeftToRight
+    page.close()
+
+
+def test_rx_ber_metrics_reflow_on_compact_display(qapp):
+    page = BERAnalyzerPage()
+    page.resize(680, 500)
+    page.show()
+    qapp.processEvents()
+
+    assert page._compact_layout
+    compact_positions = [
+        page._stats_grid.getItemPosition(index)
+        for index in range(page._stats_grid.count())
+    ]
+    assert max(column for _row, column, _row_span, _column_span in compact_positions) < 4
+
+    page.resize(1100, 700)
+    qapp.processEvents()
+    assert not page._compact_layout
+    wide_positions = [
+        page._stats_grid.getItemPosition(index)
+        for index in range(page._stats_grid.count())
+    ]
+    assert max(column for _row, column, _row_span, _column_span in wide_positions) < 6
     page.close()

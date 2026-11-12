@@ -190,7 +190,7 @@ def test_tx_transmission_queue_hides_secondary_panels_on_compact_display(qapp):
     assert not page._config_card.isVisible()
     assert not page._history_card.isVisible()
 
-    page.resize(1100, 700)
+    page.resize(1200, 800)
     qapp.processEvents()
     assert not page._compact_layout
     assert page._config_card.isVisible()

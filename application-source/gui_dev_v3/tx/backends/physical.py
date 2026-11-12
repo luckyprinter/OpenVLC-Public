@@ -480,7 +480,7 @@ class TXPhysicalBackend:
             encoding="4B5B",
             modulation="NRZ / OOK",
             symbol_rate="15,000 sym/s",
-            led_pin=25,
+            led_pin=5,
             tx_power="100 %",
             pre_emphasis="Disabled",
             status_text=f"Transmitting: {stage} - {detail}" if stage in ("Preparing", "Preloading", "Sending", "Streaming DMA", "Preparing DMA") else f"{stage}: {detail}",
@@ -599,7 +599,7 @@ def _parse_tx_record(record: dict[str, Any]) -> dict[str, Any]:
     status = str(record.get("status", "pending")).lower()
     mode = str(settings.get("mode", "4B5B"))
     symbol_rate = f"{int(settings.get('symbol_hz', 15000)):,} sym/s"
-    led_pin = int(settings.get("led_pin", 25))
+    led_pin = int(settings.get("led_pin", 5))
     tx_power = 100
 
     if status == "complete":

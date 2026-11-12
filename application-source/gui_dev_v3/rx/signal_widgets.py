@@ -1252,20 +1252,12 @@ def _encode_4b5b(data: bytes | None, max_bits: int = 600) -> list[int]:
 
 
 class OOKWaveformWidget(QWidget):
-    """Logic-analyzer-style digital square wave for OOK (On-Off Keying) data.
+    """Legacy display for a genuine captured OOK bit stream.
 
-    Displays the decoded bit stream as a crisp HIGH/LOW square wave:
-      - HIGH (1) = LED ON  (light flash)
-      - LOW  (0) = LED OFF (no light)
-
-    Label: "RX DATA · OOK"
-    Color: cyan (#00E5FF) with subtle glow shadow.
-    Symbol width: 3 px per bit, scrolling left.
-    Buffer: ring buffer of MAX_SYMBOLS bits.
-
-    Data source:
-      - Physical receiver comparator decisions (PVo > Vref → 1, else 0),
-        or recorded bits loaded from a completed hardware capture.
+    This widget is intentionally not used by the live receiver UI. It may only
+    be connected to actual comparator samples or decoded bit events supplied
+    by firmware/capture data. Do not derive a bit stream from low-rate PVo/Vref
+    status telemetry: those voltage snapshots are not symbol-rate samples.
     """
 
     MAX_SYMBOLS = 600

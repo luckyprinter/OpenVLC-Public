@@ -60,3 +60,28 @@ def test_load_legacy_capture_defaults_missing_ber_method(tmp_path, monkeypatch):
     assert capture is not None
     assert capture.ber == 0.0
     assert capture.ber_method == "unavailable"
+
+def test_transfer_history_does_not_infer_ber_from_crc_or_chunks():
+    record = records._parse_transfer_record({
+        "tid": 21,
+        "status": "complete",
+        "created_at": "2026-11-13 12:00:00",
+        "payload": {
+            "name": "received.bin",
+            "size_bytes": 16,
+            "crc16_ccitt": "PASS",
+        },
+        "chunks": {
+            "total": 2,
+            "received": 2,
+            "received_indexes": [0, 1],
+            "missing_indexes": [],
+        },
+        "signal": {"quality_status": "Good"},
+    })
+
+    assert record is not None
+    assert record.quality.crc_status == "PASS"
+    assert record.quality.strict_ber is None
+    assert record.quality.bit_accuracy is None
+    assert record.quality.bit_errors is None

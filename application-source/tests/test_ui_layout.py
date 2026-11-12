@@ -8,9 +8,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication, QBoxLayout, QWidget
 
-from gui_dev_v3.app import VLCMainWindow
+from gui_dev_v3.app import VLCMainWindow, load_bundled_fonts
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.rx.dashboard import RXDashboardPage
 from gui_dev_v3.rx.receive_page import ReceivePage
@@ -449,3 +450,11 @@ def test_numeric_settings_keep_suffix_visible(qapp):
     setting = SpinSetting(3, 1, 60, "seconds")
     assert setting.width() >= setting.sizeHint().width()
     assert setting.width() >= 128
+
+
+
+def test_bundled_inter_font_is_available_and_preferred(qapp):
+    load_bundled_fonts()
+    families = {family.lower() for family in QFontDatabase.families()}
+    assert any(family.startswith("inter") for family in families)
+    assert qapp.font().family().lower().startswith("inter")

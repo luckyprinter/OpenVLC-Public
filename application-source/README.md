@@ -61,7 +61,7 @@ application-source/
 ## Installation & Running from Source
 
 ### Prerequisites
-- Python 3.10+
+- Python 3.12+ (required by the pinned NumPy 2.5.1 dependency)
 - pip
 
 ### Install Dependencies

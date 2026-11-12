@@ -12,7 +12,7 @@ The PyInstaller specification collects license and notice files found in the ins
 | pyserial | BSD license. Preserve the copyright, conditions, and disclaimer in redistributed copies. |
 | pyqtgraph | MIT license. Preserve the copyright and permission notice. |
 | qtawesome | MIT license for the Python package. Its bundled icon fonts have separate licenses; see the font inventory below. |
-| NumPy | BSD 3-Clause for the main project. PyPI wheels may bundle additional libraries, including OpenBLAS and the GNU Fortran runtime, with their own license terms. See the [NumPy license notes](https://numpy.org/doc/stable/license.html). |
+| NumPy | BSD 3-Clause for the main project. The pinned 2.5.1 release requires Python 3.12 or newer. PyPI wheels may bundle additional libraries, including OpenBLAS and the GNU Fortran runtime, with their own license terms. See the [NumPy license notes](https://numpy.org/doc/stable/license.html). |
 | QtPy | MIT license; installed as a QtAwesome compatibility dependency when required. |
 
 ## QtAwesome bundled icon fonts

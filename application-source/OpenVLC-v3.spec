@@ -52,7 +52,8 @@ def collect_runtime_license_files():
             if key in seen:
                 continue
             seen.add(key)
-            collected.append((str(source), f'third_party_licenses/{name}'))
+            destination = Path('third_party_licenses') / name / relative.parent
+            collected.append((str(source), str(destination)))
     return collected
 
 

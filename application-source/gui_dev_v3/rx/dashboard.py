@@ -256,10 +256,11 @@ class _BitDecodePanel(Card):
         
         if is_active:
             self.sync_state_row.setStatus("LOCKED", COLORS["green"])
+            comparison = state.get_method2_comparison()
+            strict_ber = comparison.get("strict_ber") if comparison else None
             self.symbol_error_row.setValue(
-                f"{transfer.quality.strict_ber * 100:.4f} %"
-                if transfer.quality and transfer.quality.strict_ber is not None
-                else "Awaiting reference"
+                f"{strict_ber * 100:.4f} %"
+                if strict_ber is not None else "Awaiting reference"
             )
             self.manchester_row.setStatus("4B5B OOK", COLORS["value"])
         else:

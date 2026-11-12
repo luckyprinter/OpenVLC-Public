@@ -230,3 +230,41 @@ def test_bad_batch_part_crc_discards_pending_group_and_active_state(
     assert backend._active_started_monotonic is None
     assert not list(tmp_path.iterdir())
     assert backend._last_completed_transfer is None
+
+
+def test_refresh_expires_incomplete_batches_without_new_fragments(monkeypatch):
+    import time
+    import gui_dev_v3.rx.backends.physical as physical_module
+    import gui_dev_v3.settings as settings_module
+    from gui_dev_v3.logic.batch_assembler import BatchAssembler
+
+    class OfflineSettings:
+        def __init__(self, _role):
+            pass
+
+        def get(self, key, default=None):
+            return False if key == "connection/auto_connect" else default
+
+    monkeypatch.setattr(settings_module, "SettingsManager", OfflineSettings)
+    monkeypatch.setattr(physical_module, "read_status", lambda _role: None)
+    monkeypatch.setattr(physical_module, "_is_fresh", lambda _status: False)
+    backend = RXPhysicalBackend()
+    backend.scan_ports = lambda: []
+    backend._batch_assembler = BatchAssembler(ttl_seconds=1)
+    backend._batch_assembler.add_part(
+        group_id="expired",
+        part_index=1,
+        part_count=2,
+        full_crc=0x1234,
+        filename="large.bin",
+        part_data=b"part",
+        part_crc_ok=True,
+        part_chunks=1,
+        tid=50,
+        now=time.monotonic() - 2,
+    )
+
+    snapshot = backend.refresh()
+
+    assert backend._batch_assembler.pending_count == 0
+    assert any(item["event"] == "Batch Expired" for item in snapshot.activity_log)

@@ -433,6 +433,7 @@ def test_stream_start_captures_completion_counter_before_write(
 
     monkeypatch.setattr("gui_dev_v3.settings.SettingsManager", FakeSettings)
     controller = TXSerialController()
+    controller.is_connected = True
     statuses: list[dict[str, Any]] = []
     controller.on_status = statuses.append
 

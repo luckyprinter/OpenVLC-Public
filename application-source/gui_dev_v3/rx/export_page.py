@@ -40,52 +40,6 @@ HISTORY_DIR = Path.home() / ".vlc_rx"
 HISTORY_PATH = HISTORY_DIR / "transfer_history.json"
 
 
-def _default_history() -> list[dict]:
-    """Default seeds matching typical VLC transfers."""
-    return [
-        {
-            "tid": 1,
-            "filename": "lorem_ipsum.txt",
-            "status": "Complete",
-            "time_label": "2026-06-20 14:22:15",
-            "size_bytes": 1024,
-            "total_chunks": 64,
-            "received_chunks": 64,
-            "ber": 0.0,
-        },
-        {
-            "tid": 2,
-            "filename": "openvlc_schematic.pdf",
-            "status": "Complete",
-            "time_label": "2026-06-20 15:05:42",
-            "size_bytes": 45120,
-            "total_chunks": 360,
-            "received_chunks": 360,
-            "ber": 0.0,
-        },
-        {
-            "tid": 3,
-            "filename": "firmware_v12.bin",
-            "status": "CRC Failed",
-            "time_label": "2026-06-21 09:30:11",
-            "size_bytes": 16384,
-            "total_chunks": 128,
-            "received_chunks": 124,
-            "ber": 0.031,
-        },
-        {
-            "tid": 4,
-            "filename": "sensor_stream.csv",
-            "status": "Incomplete",
-            "time_label": "2026-06-21 10:14:50",
-            "size_bytes": 2048,
-            "total_chunks": 16,
-            "received_chunks": 9,
-            "ber": 0.12,
-        },
-    ]
-
-
 class SessionInspectorCard(Card):
     """Inspector panel displaying detailed session capture info, waveforms, and logs."""
 
@@ -500,17 +454,18 @@ class ExportPage(QWidget):
         return btn
 
     def _load_history(self) -> None:
-        if HISTORY_PATH.exists():
-            try:
-                data = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
-                if isinstance(data, list):
-                    self._history_data = data
-                    return
-            except (OSError, json.JSONDecodeError):
-                pass
-        
-        self._history_data = _default_history()
-        self._save_history()
+        """Load only real locally recorded sessions; never seed fabricated history."""
+        if not HISTORY_PATH.exists():
+            self._history_data = []
+            return
+        try:
+            data = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            # Preserve an unreadable history file for recovery rather than
+            # silently replacing it with demo records.
+            self._history_data = []
+            return
+        self._history_data = data if isinstance(data, list) else []
 
     def _save_history(self) -> None:
         try:

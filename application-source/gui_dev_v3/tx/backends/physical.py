@@ -1,7 +1,7 @@
 """TX Physical Backend — real ESP32 hardware via serial.
 
 Communicates with actual VLC_TX firmware via serial.
-No mock data. No simulated values.
+Uses only values read from the physical transmitter.
 """
 
 from __future__ import annotations

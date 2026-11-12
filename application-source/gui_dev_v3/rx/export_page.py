@@ -250,7 +250,10 @@ class SessionInspectorCard(Card):
         size_txt = f"{size:,} Bytes" if size < 1024 else f"{size/1024:.2f} KiB ({size:,} Bytes)"
         self.info_group.body.addWidget(DetailRow("File Size", size_txt))
         self.info_group.body.addWidget(DetailRow("Throughput", f"{capture.throughput_kbps:.2f} kbps"))
-        self.info_group.body.addWidget(DetailRow("Bit Error Rate (BER)", f"{capture.ber:.4%}"))
+        self.info_group.body.addWidget(DetailRow(
+            "Method 2 Bit Error Rate",
+            f"{capture.ber:.4%}" if capture.ber is not None else "Not measured — no reference comparison",
+        ))
         self.info_group.body.addWidget(DetailRow("CRC Status", capture.crc_status, value_color=status_color))
 
         if is_mock:
@@ -552,7 +555,7 @@ class ExportPage(QWidget):
             # Check if this TID is already in the history
             exists = any(item.get("tid") == transfer.tid for item in self._history_data)
             if not exists:
-                ber = transfer.quality.strict_ber if transfer.quality else 0.0
+                ber = transfer.quality.strict_ber if transfer.quality else None
                 entry = {
                     "tid": transfer.tid,
                     "filename": transfer.filename,
@@ -561,7 +564,7 @@ class ExportPage(QWidget):
                     "size_bytes": transfer.size_bytes,
                     "total_chunks": transfer.total_chunks,
                     "received_chunks": transfer.received_chunks,
-                    "ber": ber,
+                    "ber": ber if ber is not None else "N/A",
                 }
                 self._history_data.insert(0, entry)
                 self._save_history()

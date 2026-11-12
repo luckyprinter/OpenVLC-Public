@@ -16,7 +16,6 @@ class PulsingDot(QWidget):
     _COLOR_MAP = {
         "connected":    "status_dot_on",
         "disconnected": "status_dot_off",
-        "simulated":    "status_dot_sim",
     }
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -35,12 +34,8 @@ class PulsingDot(QWidget):
         if state == self._state:
             return
         self._state = state
-        if self._animations_enabled and state == "simulated":
-            if not self._anim_timer.isActive():
-                self._anim_timer.start(40)
-        else:
-            self._anim_timer.stop()
-            self._alpha = 255
+        self._anim_timer.stop()
+        self._alpha = 255
         self.update()
 
     def _tick(self) -> None:

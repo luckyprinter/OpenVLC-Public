@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize, Signal, QTimer
-from PySide6.QtGui import QAction, QFontDatabase
+from PySide6.QtGui import QAction, QFont, QFontDatabase
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -36,11 +36,27 @@ from gui_dev_v3.widgets import ModeSelectCard  # noqa: F401 — kept for legacy 
 
 
 def load_bundled_fonts() -> None:
-    """Load all TTF files in the assets/fonts directory into QFontDatabase."""
+    """Load bundled fonts and prefer the proportional UI family consistently."""
     font_dir = Path(__file__).parent / "assets" / "fonts"
+    loaded_families: set[str] = set()
     if font_dir.exists():
-        for font_file in font_dir.glob("*.ttf"):
-            QFontDatabase.addApplicationFont(str(font_file))
+        for font_file in sorted(font_dir.glob("*.ttf")):
+            font_id = QFontDatabase.addApplicationFont(str(font_file))
+            if font_id >= 0:
+                loaded_families.update(QFontDatabase.applicationFontFamilies(font_id))
+
+    # QSS family fallback differs between Windows and Linux. Explicitly set
+    # Inter as the application default when the bundled font is available so
+    # Windows does not silently fall back to a monospaced system font.
+    app = QApplication.instance()
+    ui_family = next(
+        (family for family in loaded_families if family.lower().startswith("inter")),
+        None,
+    )
+    if app is not None and ui_family:
+        app_font = app.font()
+        app_font.setFamily(ui_family)
+        app.setFont(app_font)
 
 
 # ── Design Loader ──────────────────────────────────────────────────────

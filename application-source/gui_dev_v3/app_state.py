@@ -156,7 +156,7 @@ class RXAppState:
             if (
                 capture is not None
                 and capture.tid == self.transfer.tid
-                and capture.ber_method == "method2_reference_file"
+                and capture.ber_method in {"method2", "method2_reference_file"}
             ):
                 return {
                     "tid": capture.tid,

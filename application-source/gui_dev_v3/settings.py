@@ -386,8 +386,12 @@ class DirectorySetting(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        self.edit = QLineEdit(path)
+        self._path = str(path)
+        self.edit = QLineEdit(self._path)
         self.edit.setReadOnly(True)
+        self.edit.setCursorPosition(0)
+        self.edit.setToolTip(self._path)
+        self.setToolTip(self._path)
         self.edit.setStyleSheet(
             f"QLineEdit {{ background: {COLORS['panel_alt']}; border: 1px solid {COLORS['border']}; "
             f"border-radius: 6px; padding: 6px 10px; color: {COLORS['text']}; }}"
@@ -401,17 +405,23 @@ class DirectorySetting(QWidget):
         layout.addWidget(self.btn)
 
     def _on_browse(self) -> None:
-        current_dir = self.edit.text()
-        path = QFileDialog.getExistingDirectory(self, "Select Directory", current_dir)
+        # Keep the real path separate from the visible line-edit viewport.
+        # A read-only QLineEdit otherwise opens at the end of a long path,
+        # hiding its beginning on compact/high-DPI displays.
+        path = QFileDialog.getExistingDirectory(self, "Select Directory", self.text())
         if path:
-            self.edit.setText(path)
+            self.setText(path)
             self.valueChanged.emit(path)
 
     def text(self) -> str:
-        return self.edit.text()
+        return self._path
 
     def setText(self, text: str) -> None:
-        self.edit.setText(text)
+        self._path = str(text)
+        self.edit.setText(self._path)
+        self.edit.setCursorPosition(0)
+        self.edit.setToolTip(self._path)
+        self.setToolTip(self._path)
 
 
 def bind_directory_setting(widget: DirectorySetting, mgr: SettingsManager, key: str, default: str = "") -> None:

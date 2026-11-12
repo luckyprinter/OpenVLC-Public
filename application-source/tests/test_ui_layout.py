@@ -9,6 +9,9 @@ import pytest
 from PySide6.QtWidgets import QApplication
 
 from gui_dev_v3.app import VLCMainWindow
+from gui_dev_v3.app_state import RXAppState
+from gui_dev_v3.rx.dashboard import RXDashboardPage
+from gui_dev_v3.settings import ThemePickerGrid
 
 
 @pytest.fixture(scope="module")
@@ -88,3 +91,42 @@ def test_theme_picker_shows_curated_presets_and_keeps_saved_legacy_theme(qapp):
     legacy_keys = {card._key for card in legacy_picker._cards}
     assert "dracula" in legacy_keys
     assert len(legacy_keys) == 6
+
+
+def test_rx_dashboard_simplifies_secondary_panels_on_compact_work_area(qapp):
+    dashboard = RXDashboardPage(RXAppState())
+    dashboard.resize(680, 500)
+    dashboard.show()
+    qapp.processEvents()
+
+    assert dashboard._compact_layout
+    assert dashboard._reception.isVisible()
+    assert dashboard._file_info.isVisible()
+    assert not dashboard._perf.isVisible()
+    assert not dashboard._signal_mon.isVisible()
+    assert not dashboard._bit_decode.isVisible()
+    assert not dashboard._activity_log.isVisible()
+
+    dashboard.resize(1100, 700)
+    qapp.processEvents()
+    assert not dashboard._compact_layout
+    assert dashboard._perf.isVisible()
+    assert dashboard._signal_mon.isVisible()
+    assert dashboard._bit_decode.isVisible()
+    assert dashboard._activity_log.isVisible()
+    dashboard.close()
+
+
+def test_theme_picker_reflows_to_two_columns_on_narrow_width(qapp):
+    picker = ThemePickerGrid()
+    picker.resize(420, 180)
+    picker.show()
+    qapp.processEvents()
+
+    assert picker._column_count == 2
+    positions = [
+        picker._grid.getItemPosition(index)
+        for index in range(picker._grid.count())
+    ]
+    assert max(column for _row, column, _row_span, _column_span in positions) < 2
+    picker.close()

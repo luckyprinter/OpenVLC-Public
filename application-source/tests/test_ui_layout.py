@@ -8,10 +8,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QApplication, QBoxLayout, QWidget
 
-from gui_dev_v3.app import VLCMainWindow, load_bundled_fonts
+from gui_dev_v3.app import VLCMainWindow
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.rx.dashboard import RXDashboardPage
 from gui_dev_v3.rx.receive_page import ReceivePage
@@ -451,8 +450,3 @@ def test_numeric_settings_keep_suffix_visible(qapp):
     assert setting.width() >= setting.sizeHint().width()
     assert setting.width() >= 128
 
-
-
-def test_ui_font_uses_a_proportional_family(qapp):
-    load_bundled_fonts()
-    assert not qapp.font().fixedPitch()

@@ -160,6 +160,15 @@ class TXSerialController(SerialSession):
             self.status("File missing", str(path), state="error")
             return False
 
+        encoded_filename = path.name.encode("utf-8", errors="replace")
+        if len(encoded_filename) > MAX_NAME_BYTES:
+            self.status(
+                "Filename too long",
+                f"Filename exceeds the firmware limit of {MAX_NAME_BYTES} UTF-8 bytes.",
+                state="error",
+            )
+            return False
+
         file_size = path.stat().st_size
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("tx")
@@ -179,6 +188,18 @@ class TXSerialController(SerialSession):
                 self.status("File too large", f"At this chunk size, the receiver supports at most {MAX_BATCH_PARTS} parts.", state="error")
                 return False
             if part_count > 1:
+                metadata_prefix = (
+                    f"VLCB1~{65535:04X}~{part_count:03d}~{part_count:03d}~{65535:04X}~"
+                ).encode("ascii")
+                if len(metadata_prefix) + len(encoded_filename) > MAX_NAME_BYTES:
+                    available = MAX_NAME_BYTES - len(metadata_prefix)
+                    self.status(
+                        "Filename too long for batch",
+                        f"Large-file batch metadata leaves {available} UTF-8 bytes for the original filename.",
+                        state="error",
+                    )
+                    return False
+
                 full_crc = 0xFFFF
                 with path.open("rb") as source:
                     while True:
@@ -200,8 +221,8 @@ class TXSerialController(SerialSession):
                         part_tid = random.randint(1, 65535)
                         part_crc = crc16_ccitt(part)
                         prefix = f"VLCB1~{group_id:04X}~{part_index:03d}~{part_count:03d}~{full_crc:04X}~"
-                        encoded_name = (prefix + path.name).encode("utf-8", errors="replace")
-                        part_name_bytes = encoded_name[:MAX_NAME_BYTES].decode("utf-8", errors="ignore").encode("utf-8")
+                        encoded_name = prefix.encode("ascii") + encoded_filename
+                        part_name_bytes = encoded_name
                         self.status("Sending batch part", f"Part {part_index}/{part_count} · {len(part):,} B", state="active")
                         if not self._send_stream(path, part, part_name_bytes, chunk_size, part_tid, part_crc, round_count):
                             return False

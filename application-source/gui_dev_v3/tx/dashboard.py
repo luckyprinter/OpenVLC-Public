@@ -344,7 +344,7 @@ class FileDetailsWidget(Card):
         btn_row.setContentsMargins(0, 1, 0, 0)
         
         self.select_btn = QPushButton("Select File...")
-        self.select_btn.setMinimumHeight(26)
+        self.select_btn.setMinimumHeight(36)
         self.select_btn.setStyleSheet(
             f"QPushButton {{ background-color: {COLORS['panel_alt']}; color: {COLORS['text']}; border: 1px solid {COLORS['border']}; border-radius: 6px; padding: 6px 12px; font-weight: 600; font-size: 11px; }}"
             f"QPushButton:hover {{ border-color: {COLORS['accent']}; background-color: {COLORS['sidebar_active']}; }}"
@@ -352,7 +352,7 @@ class FileDetailsWidget(Card):
         )
         
         self.start_btn = primary_button("Start")
-        self.start_btn.setMinimumHeight(26)
+        self.start_btn.setMinimumHeight(36)
         self.start_btn.setStyleSheet(
             f"QPushButton {{ background-color: {COLORS['accent']}; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-weight: 700; font-size: 11px; }}"
             f"QPushButton:hover {{ background-color: {COLORS['header']}; }}"

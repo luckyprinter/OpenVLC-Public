@@ -141,38 +141,6 @@ class TransferStatsDialog(QDialog):
         lo.addWidget(btn, alignment=Qt.AlignmentFlag.AlignRight)
 
 
-def _quality_from_signal(sig: SignalState) -> dict[str, int]:
-    """Derive percentage quality metrics from signal state."""
-    margin = sig.margin
-    vref = sig.vref if sig.vref > 0 else 1.0
-    target = sig.target_margin if sig.target_margin > 0 else 0.365
-
-    # SNR-like: ratio of vref to margin noise estimate
-    noise_est = max(abs(margin - target) * 0.1, 0.001)
-    snr = min(100, int((vref / max(noise_est, 0.001)) * 5))
-
-    # Signal stability: how close margin is to target
-    deviation = abs(margin - target)
-    stability = max(0, min(100, int(100 - (deviation / target) * 100)))
-
-    # Amplitude stability: based on pvo relative to vref
-    amp_stability = min(100, int((sig.pvo / max(vref, 0.001)) * 80)) if sig.pvo > 0 else 0
-
-    # Jitter: inverse of stability
-    jitter = max(0, min(100, 100 - stability))
-
-    # Interference: derived from noise
-    interference = max(0, min(100, int(noise_est * 200)))
-
-    return {
-        "snr": snr,
-        "stability": stability,
-        "amplitude": amp_stability,
-        "jitter": jitter,
-        "interference": interference,
-    }
-
-
 def _is_empty(sig: SignalState) -> bool:
     """Check if signal is in empty/offline state."""
     return sig.pvo == 0.0 and sig.vref == 0.0

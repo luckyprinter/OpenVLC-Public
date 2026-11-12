@@ -68,6 +68,20 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
 
     if mode == "tx" and page_name == "dashboard":
         page = shell._page_widgets.get("dashboard")
+        profile = getattr(page, "_link_profile", None)
+        status = getattr(profile, "_status", None) if profile is not None else None
+        if status is None or status.height() < 12:
+            raise RuntimeError(f"TX link-profile status is clipped at {width}x{height}")
+        if status.fontMetrics().horizontalAdvance(status.text()) > status.width() + 2:
+            raise RuntimeError(f"TX link-profile status text overflows at {width}x{height}")
+        for row_name in ("row_encoding", "row_modulation", "row_rate", "row_gpio", "row_output"):
+            row = getattr(profile, row_name, None)
+            if row is None:
+                raise RuntimeError(f"TX link-profile row {row_name} is missing at {width}x{height}")
+            for label in (row.lbl, row.val):
+                if label.fontMetrics().horizontalAdvance(label.text()) > label.width() + 2:
+                    raise RuntimeError(f"TX link-profile text overflows at {width}x{height}: {label.text()}")
+
         pipeline = getattr(page, "_pipeline", None)
         if pipeline is None or pipeline.height() < 112:
             raise RuntimeError(f"TX pipeline panel is too short at {width}x{height}")

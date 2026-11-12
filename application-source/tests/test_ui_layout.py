@@ -668,3 +668,17 @@ def test_rx_export_does_not_overwrite_corrupt_legacy_history(qapp, monkeypatch, 
     assert not current_path.exists()
     assert legacy_path.read_text(encoding="utf-8") == original
     page.close()
+
+
+
+def test_window_minimum_height_respects_scaled_logical_work_area():
+    from gui_dev_v3.app import _minimum_window_dimensions
+
+    # A 1024x700 physical display at 150% scaling is roughly 683x466 logical
+    # pixels before taskbars/window decorations.
+    min_width, min_height = _minimum_window_dimensions(683, 466)
+
+    assert min_width == 651
+    assert min_height == 418
+    assert min_width <= 683 - 32
+    assert min_height <= 466 - 48

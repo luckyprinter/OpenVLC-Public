@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.widgets import Card, muted_label, value_label, panel_header
 from gui_dev_v3.theme import COLORS
-from gui_dev_v3.logic.ber_bridge import parse_ber_test_name, generate_ber_test_payload, compare_payload_bits
+from gui_dev_v3.logic.ber_bridge import compare_files
 
 class BERAnalyzerPage(QWidget):
     """Dedicated tab for comparing received files against reference files and analyzing BER."""
@@ -27,6 +27,7 @@ class BERAnalyzerPage(QWidget):
         self._last_tid = -1
         self._last_chunk_count = -1
         self._last_expected_path = ""
+        self._last_received_path = ""
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 20)
@@ -38,7 +39,7 @@ class BERAnalyzerPage(QWidget):
         ref_layout.setContentsMargins(4, 4, 4, 4)
         ref_layout.setSpacing(12)
 
-        self.ref_label = QLabel("No reference file loaded (Load under Inspect tab or use BERTEST file)")
+        self.ref_label = QLabel("Load the original reference file under Inspect to calculate Method 2 BER.")
         self.ref_label.setStyleSheet("font-weight: 600; font-size: 12px; color: #8c99aa;")
         ref_layout.addWidget(self.ref_label, 1)
 
@@ -95,86 +96,96 @@ class BERAnalyzerPage(QWidget):
         return None
 
     def refresh(self, state: RXAppState) -> None:
-        # Dynamic check
+        """Compare the saved original reference file with the reconstructed RX file."""
         transfer = state.transfer
         expected_path = state.expected_file_path or ""
-        
-        # Build received bytes
-        received_bytes = bytearray()
-        for chunk in transfer.chunks:
-            if chunk.received:
-                received_bytes.extend(chunk.received)
-            else:
-                received_bytes.extend(b"\x00" * chunk.expected_size)
-        received_bytes = bytes(received_bytes)
+        received_path = transfer.received_path or ""
 
-        # Get expected bytes
-        expected_bytes = b""
-        filename = transfer.filename or ""
-        ber_params = parse_ber_test_name(filename)
-        
-        if ber_params:
-            size, seed = ber_params
-            expected_bytes = generate_ber_test_payload(size, seed)
-            self.ref_label.setText(f"BERTEST Auto Mode: Generated seed {seed:08X} ({size} B)")
-            self.ref_label.setStyleSheet("font-weight: 600; font-size: 12px; color: #22c55e;")
-        elif state.expected_file_data is not None:
-            expected_bytes = state.expected_file_data
-            self.ref_label.setText(f"Reference Loaded: {os.path.basename(expected_path)} ({len(expected_bytes)} B)")
-            self.ref_label.setStyleSheet("font-weight: 600; font-size: 12px; color: #22c55e;")
+        if (
+            transfer.tid == self._last_tid
+            and len(transfer.chunks) == self._last_chunk_count
+            and expected_path == self._last_expected_path
+            and received_path == self._last_received_path
+        ):
+            return
+
+        self._last_tid = transfer.tid
+        self._last_chunk_count = len(transfer.chunks)
+        self._last_expected_path = expected_path
+        self._last_received_path = received_path
+
+        if not expected_path:
+            self._show_unavailable("Load the original file under Inspect to calculate Method 2 BER.")
+            return
+        if not received_path:
+            self._show_unavailable("No reconstructed receive file is available for this transfer yet.")
+            return
+
+        expected_file = os.path.abspath(expected_path)
+        received_file = os.path.abspath(received_path)
+        if not os.path.isfile(expected_file):
+            self._show_unavailable("The selected original reference file is no longer available.")
+            return
+        if not os.path.isfile(received_file):
+            self._show_unavailable("The reconstructed receive file could not be found.")
+            return
+
+        self.ref_label.setText(
+            f"Method 2: {os.path.basename(expected_file)}  ↔  {os.path.basename(received_file)}"
+        )
+        self.ref_label.setStyleSheet("font-weight: 600; font-size: 12px; color: #22c55e;")
+
+        try:
+            result = compare_files(expected_file, received_file, mismatch_limit=50)
+        except (OSError, ValueError) as exc:
+            self._show_unavailable(f"Method 2 comparison failed: {exc}")
+            return
+
+        self.lbl_compared.setText(
+            f"{result['overlap_bytes']:,} / {result['expected_bytes']:,} B"
+        )
+        self.lbl_bit_errors.setText(f"{result['strict_bit_errors']:,}")
+        self.lbl_ber.setText(f"{result['overlap_ber'] * 100:.6f} %")
+        self.lbl_strict_ber.setText(f"{result['strict_ber'] * 100:.6f} %")
+        self.lbl_accuracy.setText(f"{result['bit_accuracy'] * 100:.4f} %")
+
+        delta = result["length_delta"]
+        if delta > 0:
+            self.lbl_delta.setText(f"+{delta:,} bytes (Extra)")
+            self.lbl_delta.setStyleSheet(f"color: {COLORS['red']}; font-weight: 700;")
+        elif delta < 0:
+            self.lbl_delta.setText(f"{delta:,} bytes (Missing)")
+            self.lbl_delta.setStyleSheet(f"color: {COLORS['red']}; font-weight: 700;")
         else:
-            self.ref_label.setText("No reference file loaded (Load under Inspect tab or use BERTEST file)")
-            self.ref_label.setStyleSheet("font-weight: 600; font-size: 12px; color: #8c99aa;")
+            self.lbl_delta.setText("0 bytes (Exact length match)")
+            self.lbl_delta.setStyleSheet(f"color: {COLORS['green']}; font-weight: 700;")
 
-        # Perform bit comparison if expected_bytes exists
-        if expected_bytes:
-            res = compare_payload_bits(expected_bytes, received_bytes, mismatch_limit=50)
-            
-            # Update labels
-            self.lbl_compared.setText(f"{res['overlap_bytes']} / {res['expected_bytes']} B")
-            self.lbl_bit_errors.setText(str(res["strict_bit_errors"]))
-            self.lbl_ber.setText(f"{res['overlap_ber'] * 100:.6f} %")
-            self.lbl_strict_ber.setText(f"{res['strict_ber'] * 100:.6f} %")
-            self.lbl_accuracy.setText(f"{res['bit_accuracy'] * 100:.4f} %")
-            
-            delta = res["length_delta"]
-            if delta > 0:
-                self.lbl_delta.setText(f"+{delta} bytes (Extra)")
-                self.lbl_delta.setStyleSheet(f"color: {COLORS['red']}; font-weight: 700;")
-            elif delta < 0:
-                self.lbl_delta.setText(f"{delta} bytes (Missing)")
-                self.lbl_delta.setStyleSheet(f"color: {COLORS['red']}; font-weight: 700;")
-            else:
-                self.lbl_delta.setText("0 bytes (Exact length match)")
-                self.lbl_delta.setStyleSheet(f"color: {COLORS['green']}; font-weight: 700;")
+        self.mismatch_table.setRowCount(len(result["preview"]))
+        for row, mismatch in enumerate(result["preview"]):
+            offset_item = QTableWidgetItem(
+                f"+0x{mismatch['offset']:04X} ({mismatch['offset']:,})"
+            )
+            offset_item.setForeground(QColor(COLORS["muted"]))
+            expected = mismatch["expected"]
+            received = mismatch["received"]
+            expected_text = f"0x{expected:02X}" if isinstance(expected, int) else str(expected)
+            received_text = f"0x{received:02X}" if isinstance(received, int) else str(received)
+            expected_item = QTableWidgetItem(expected_text)
+            received_item = QTableWidgetItem(received_text)
+            errors_item = QTableWidgetItem(f"{mismatch['bit_errors']:,} bits")
+            errors_item.setForeground(QColor(COLORS["red"]))
+            self.mismatch_table.setItem(row, 0, offset_item)
+            self.mismatch_table.setItem(row, 1, expected_item)
+            self.mismatch_table.setItem(row, 2, received_item)
+            self.mismatch_table.setItem(row, 3, errors_item)
 
-            # Populate Mismatch Table
-            self.mismatch_table.setRowCount(len(res["preview"]))
-            for i, p in enumerate(res["preview"]):
-                offset_item = QTableWidgetItem(f"+0x{p['offset']:04X} ({p['offset']})")
-                offset_item.setForeground(QColor(COLORS["muted"]))
-                
-                exp_val = p["expected"]
-                exp_str = f"0x{exp_val:02X}" if isinstance(exp_val, int) else str(exp_val)
-                rec_val = p["received"]
-                rec_str = f"0x{rec_val:02X}" if isinstance(rec_val, int) else str(rec_val)
-                
-                exp_item = QTableWidgetItem(exp_str)
-                rec_item = QTableWidgetItem(rec_str)
-                err_item = QTableWidgetItem(f"{p['bit_errors']} bits")
-                err_item.setForeground(QColor(COLORS["red"]))
-
-                self.mismatch_table.setItem(i, 0, offset_item)
-                self.mismatch_table.setItem(i, 1, exp_item)
-                self.mismatch_table.setItem(i, 2, rec_item)
-                self.mismatch_table.setItem(i, 3, err_item)
-        else:
-            # Reset labels to empty
-            self.lbl_compared.setText("—")
-            self.lbl_bit_errors.setText("—")
-            self.lbl_ber.setText("—")
-            self.lbl_strict_ber.setText("—")
-            self.lbl_accuracy.setText("—")
-            self.lbl_delta.setText("—")
-            self.lbl_delta.setStyleSheet(f"color: {COLORS['text']};")
-            self.mismatch_table.setRowCount(0)
+    def _show_unavailable(self, message: str) -> None:
+        self.ref_label.setText(message)
+        self.ref_label.setStyleSheet("font-weight: 600; font-size: 12px; color: #8c99aa;")
+        for label in (
+            self.lbl_compared, self.lbl_bit_errors, self.lbl_ber,
+            self.lbl_strict_ber, self.lbl_accuracy, self.lbl_delta,
+        ):
+            label.setText("—")
+        self.lbl_delta.setStyleSheet(f"color: {COLORS['text']};")
+        self.mismatch_table.setRowCount(0)

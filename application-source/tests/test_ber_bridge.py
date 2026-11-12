@@ -75,7 +75,6 @@ def test_app_state_method2_uses_selected_reference_and_received_path(tmp_path):
     state = RXAppState.__new__(RXAppState)
     state._lock = threading.Lock()
     state._subscribers = []
-    state._subscribers = []
     state.expected_file_path = str(expected)
     state.session = SimpleNamespace(
         latest_transfer=SimpleNamespace(tid=42, received_path=str(received))
@@ -106,6 +105,7 @@ def test_late_reference_selection_updates_and_persists_completed_capture(tmp_pat
 
     state = RXAppState.__new__(RXAppState)
     state._lock = threading.Lock()
+    state._subscribers = []
     state.expected_file_path = None
     state.expected_file_data = None
     state._method2_cache_key = None

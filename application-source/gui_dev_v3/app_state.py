@@ -116,9 +116,8 @@ class RXAppState:
     def send_firmware_command(self, cmd: str) -> bool:
         """Send command to physical firmware if active."""
         with self._lock:
-            mode = self.mode
             physical = self._physical
-        if mode == "physical" and physical:
+        if physical:
             return physical.send_command(cmd)
         return False
 
@@ -153,13 +152,11 @@ class RXAppState:
         self.session = _EMPTY_SESSION
         self.signal = _EMPTY_SIGNAL
         self.transfer = _EMPTY_TRANSFER
-        self.using_mock_data = False
         self.serial_connected = False
 
     def force_connect_serial(self, port: str) -> bool:
         """Force connect physical backend to a port, bypassing detection."""
         with self._lock:
-            mode = self.mode
             if self._physical is None:
                 self._physical = RXPhysicalBackend()
             res = self._physical.connect(port, force=True)
@@ -175,10 +172,9 @@ class RXAppState:
         if current_tid != self._last_tid:
             self._last_tid = current_tid
             self.current_capture = None
-            if self.mode == "physical":
-                self._phys_capture_active = False
+            self._phys_capture_active = False
 
-        if self.mode == "physical" and current_tid > 0:
+        if current_tid > 0:
             is_rec = self.is_receiving
             if is_rec and not self._phys_capture_active:
                 import time

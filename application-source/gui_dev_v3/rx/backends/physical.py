@@ -373,7 +373,7 @@ class RXPhysicalBackend:
             except Exception:
                 pass
         self._record_diag("serial_disconnected", role="rx", reason_code="serial_error")
-        self.log("Serial Disconnected", f"RX serial reader stopped ({type(exc).__name__})")
+        self.log("Serial Disconnected", f"RX serial reader stopped ({type(exc).__name__}: {exc})")
 
     def _dispatch_line(self, line: str) -> None:
         """Dispatch a firmware line to the appropriate handler.

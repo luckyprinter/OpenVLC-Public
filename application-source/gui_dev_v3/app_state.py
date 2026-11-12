@@ -1,9 +1,4 @@
-"""Application state — delegates to Physical or Simulation backend.
-
-Modes:
-  - "physical": reads real data from ESP32 hardware via serial.
-  - "simulated": generates all data from virtual channel model (no hardware).
-"""
+"""Receiver application state backed exclusively by physical ESP32 hardware."""
 
 from __future__ import annotations
 

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QHBoxLayout,
+    QBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
@@ -100,6 +101,7 @@ class TableBuilderPage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._compact_layout = False
         self._stack = QVBoxLayout(self)
         self._stack.setContentsMargins(0, 0, 0, 0)
         self._stack.setSpacing(0)
@@ -122,6 +124,7 @@ class TableBuilderPage(QWidget):
     def _build_builder_view(self) -> QWidget:
         outer = QWidget()
         layout = QVBoxLayout(outer)
+        self._builder_layout = layout
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(20)
 
@@ -131,7 +134,8 @@ class TableBuilderPage(QWidget):
         layout.addWidget(title)
 
         # Top row: Table Name + Rows + Template
-        top_row = QHBoxLayout()
+        top_row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._builder_top_row = top_row
         top_row.setSpacing(20)
         layout.addLayout(top_row)
 
@@ -139,7 +143,7 @@ class TableBuilderPage(QWidget):
         name_label.setObjectName("Muted")
         top_row.addWidget(name_label)
         self._name_input = QLineEdit("Distance Test Results")
-        self._name_input.setMinimumWidth(240)
+        self._name_input.setMinimumWidth(0)
         top_row.addWidget(self._name_input)
 
         rows_label = QLabel("Rows")
@@ -155,7 +159,7 @@ class TableBuilderPage(QWidget):
         template_label.setObjectName("Muted")
         top_row.addWidget(template_label)
         self._template_combo = QComboBox()
-        self._template_combo.setMinimumWidth(200)
+        self._template_combo.setMinimumWidth(0)
         self._template_combo.addItem("Custom (No Template)")
         for tname in VLC_PAPER_TEMPLATES.keys():
             self._template_combo.addItem(tname)
@@ -165,12 +169,14 @@ class TableBuilderPage(QWidget):
         top_row.addStretch(1)
 
         # Three-column body
-        three_col = QHBoxLayout()
+        three_col = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._three_col_layout = three_col
         three_col.setSpacing(16)
         layout.addLayout(three_col, 1)
 
         # ── Left: Available Columns (category tree) ──
         left_card = Card("Available Columns")
+        left_card.setMinimumWidth(0)
         three_col.addWidget(left_card, 1)
 
         # Search for available columns
@@ -180,13 +186,15 @@ class TableBuilderPage(QWidget):
         left_card.body.addWidget(self._avail_search)
 
         self._avail_list = QListWidget()
+        self._avail_list.setMinimumWidth(0)
         self._avail_list.setAlternatingRowColors(False)
         self._avail_list.setSpacing(1)
         self._avail_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         left_card.body.addWidget(self._avail_list, 1)
 
         # ── Arrow buttons ──
-        arrow_col = QVBoxLayout()
+        arrow_col = QBoxLayout(QBoxLayout.Direction.TopToBottom)
+        self._arrow_layout = arrow_col
         arrow_col.setAlignment(Qt.AlignmentFlag.AlignCenter)
         arrow_col.setSpacing(8)
         three_col.addLayout(arrow_col)
@@ -203,9 +211,11 @@ class TableBuilderPage(QWidget):
 
         # ── Center: Selected Columns ──
         center_card = Card("Selected Columns (Drag to Reorder)")
+        center_card.setMinimumWidth(0)
         three_col.addWidget(center_card, 1)
 
         self._selected_list = QListWidget()
+        self._selected_list.setMinimumWidth(0)
         self._selected_list.setAlternatingRowColors(False)
         self._selected_list.setSpacing(2)
         self._selected_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
@@ -220,9 +230,11 @@ class TableBuilderPage(QWidget):
 
         # ── Right: Manual Input Columns (draggable reorder) ──
         right_card = Card("Manual Input Columns (Drag to Reorder)")
+        right_card.setMinimumWidth(0)
         three_col.addWidget(right_card, 1)
 
         self._manual_list = QListWidget()
+        self._manual_list.setMinimumWidth(0)
         self._manual_list.setAlternatingRowColors(False)
         self._manual_list.setSpacing(2)
         self._manual_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
@@ -280,6 +292,38 @@ class TableBuilderPage(QWidget):
         self._manual_list.model().rowsMoved.connect(self._on_manual_list_changed)
 
         return outer
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Stack table-builder columns and form controls on compact screens."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        self._builder_layout.setContentsMargins(
+            12 if compact else 32,
+            12 if compact else 28,
+            12 if compact else 32,
+            12 if compact else 28,
+        )
+        self._builder_layout.setSpacing(12 if compact else 20)
+        self._builder_top_row.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self._builder_top_row.setSpacing(8 if compact else 20)
+        self._three_col_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self._three_col_layout.setSpacing(12 if compact else 16)
+        self._arrow_layout.setDirection(
+            QBoxLayout.Direction.LeftToRight
+            if compact else QBoxLayout.Direction.TopToBottom
+        )
+        self._arrow_layout.setAlignment(
+            Qt.AlignmentFlag.AlignCenter
+        )
 
     def _build_available_list(self) -> None:
         self._avail_list.clear()

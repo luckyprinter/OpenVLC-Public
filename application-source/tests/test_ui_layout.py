@@ -15,6 +15,10 @@ from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.rx.dashboard import RXDashboardPage
 from gui_dev_v3.rx.receive_page import ReceivePage
 from gui_dev_v3.rx.ber_analyzer_page import BERAnalyzerPage
+from gui_dev_v3.rx.experiments_page import ExperimentsPage
+from gui_dev_v3.rx.table_builder_page import TableBuilderPage
+from gui_dev_v3.rx.export_page import ExportPage
+from gui_dev_v3.rx import export_page as export_page_module
 from gui_dev_v3.rx.inspect_page import InspectPage
 from gui_dev_v3.rx.signal_page import SignalMonitorPage
 from gui_dev_v3.settings import SettingsContainer, ThemePickerGrid
@@ -320,4 +324,57 @@ def test_rx_receive_clear_is_display_only_and_does_not_immediately_repopulate(qa
     chunk.received = b"received payload plus new data"
     page.refresh(state)
     assert page.terminal.toPlainText() == "received payload plus new data"
+    page.close()
+
+
+def test_rx_experiments_stack_form_and_saved_records_on_compact_display(qapp):
+    page = ExperimentsPage()
+    page.resize(680, 500)
+    page.show()
+    qapp.processEvents()
+
+    assert page._compact_layout
+    assert page._body_layout.direction() == QBoxLayout.Direction.TopToBottom
+
+    page.resize(1100, 700)
+    qapp.processEvents()
+    assert not page._compact_layout
+    assert page._body_layout.direction() == QBoxLayout.Direction.LeftToRight
+    page.close()
+
+
+def test_rx_table_builder_stacks_column_lists_on_compact_display(qapp):
+    page = TableBuilderPage()
+    page.resize(680, 500)
+    page.show()
+    qapp.processEvents()
+
+    assert page._compact_layout
+    assert page._builder_top_row.direction() == QBoxLayout.Direction.TopToBottom
+    assert page._three_col_layout.direction() == QBoxLayout.Direction.TopToBottom
+    assert page._arrow_layout.direction() == QBoxLayout.Direction.LeftToRight
+
+    page.resize(1100, 700)
+    qapp.processEvents()
+    assert not page._compact_layout
+    assert page._three_col_layout.direction() == QBoxLayout.Direction.LeftToRight
+    assert page._arrow_layout.direction() == QBoxLayout.Direction.TopToBottom
+    page.close()
+
+
+def test_rx_export_stacks_history_and_inspector_on_compact_display(qapp, monkeypatch, tmp_path):
+    monkeypatch.setattr(export_page_module, "HISTORY_DIR", tmp_path)
+    monkeypatch.setattr(export_page_module, "HISTORY_PATH", tmp_path / "history.json")
+    page = ExportPage()
+    page.resize(680, 500)
+    page.show()
+    qapp.processEvents()
+
+    assert page._compact_layout
+    assert page.splitter.orientation() == Qt.Orientation.Vertical
+
+    page.resize(1100, 700)
+    qapp.processEvents()
+    assert not page._compact_layout
+    assert page.splitter.orientation() == Qt.Orientation.Horizontal
     page.close()

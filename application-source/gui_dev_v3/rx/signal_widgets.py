@@ -202,6 +202,7 @@ class CircularGauge(QWidget):
         self._label_text = label
         self._percent = value
         self._inverted = inverted
+        self._available = True
 
         self.setMinimumHeight(70)
         self.setMinimumWidth(100)
@@ -212,7 +213,14 @@ class CircularGauge(QWidget):
         self._percent = max(0.0, min(100.0, value))
         self.update()
 
+    def set_available(self, available: bool) -> None:
+        """Show an unavailable state instead of a fabricated zero reading."""
+        self._available = available
+        self.update()
+
     def _color(self) -> QColor:
+        if not self._available:
+            return QColor(_CLR_MUTED)
         pct = self._percent
         if self._inverted:
             # For noise level: low noise is good (green), high noise is bad (red)
@@ -230,6 +238,8 @@ class CircularGauge(QWidget):
             return QColor(_CLR_RED)
 
     def _subtext(self) -> str:
+        if not self._available:
+            return "Offline"
         pct = self._percent
         if self._inverted:
             if pct < 30:
@@ -284,14 +294,14 @@ class CircularGauge(QWidget):
         val_pen = QPen(val_color, pen_w)
         val_pen.setCapStyle(Qt.RoundCap)
         p.setPen(val_pen)
-        span_angle = -270 * (self._percent / 100.0)
+        span_angle = -270 * (self._percent / 100.0) if self._available else 0
         p.drawArc(*arc_rect, 225 * 16, int(span_angle * 16))
 
         # Center value text (e.g. 92%)
         val_font = _font(11, QFont.Bold)
         p.setFont(val_font)
         p.setPen(QColor(_CLR_WHITE))
-        pct_str = f"{self._percent:.0f}%"
+        pct_str = f"{self._percent:.0f}%" if self._available else "—"
         p.drawText(int(arc_x), int(arc_y), int(arc_d), int(arc_d),
                    Qt.AlignCenter, pct_str)
 

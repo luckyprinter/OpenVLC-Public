@@ -66,7 +66,7 @@ def test_crc_pass_does_not_create_a_ber_comparison(tmp_path, monkeypatch):
     payload = b"VLC"
     filename_hex = "received.bin".encode("utf-8").hex()
     line = (
-        f"RX_FILE_HEX:13:DATA:1:1:{crc16_ccitt(payload):04X}:"
+        f"RX_FILE_HEX:13:DATA:3:1:{crc16_ccitt(payload):04X}:"
         f"{filename_hex}:{payload.hex()}"
     )
     backend._handle_file_hex(line)

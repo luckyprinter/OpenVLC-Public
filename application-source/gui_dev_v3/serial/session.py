@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .detection import BAUDRATE, BAUDRATE_RX, BAUDRATE_TX, baud_for_role
+from .line_buffer import SerialLineBuffer
 
 # ── Protocol constants (match firmware exactly) ────────────────────────────────
 MAX_STREAM_FILE_BYTES = 81920   # 80 KB — matches firmware MAX_STREAM_FILE_BYTES
@@ -229,14 +230,21 @@ class SerialSession:
             import serial
         except ImportError:
             return
+
+        # PySerial readline() may return a partial fragment when its timeout
+        # expires. Do not dispatch that fragment as a complete protocol line:
+        # large RX_FILE_HEX messages can span many reads.
+        line_buffer = SerialLineBuffer()
         while self._running and self.serial_obj and self.serial_obj.is_open:
             try:
                 raw = self.serial_obj.readline()
                 if raw:
-                    line = raw.decode("utf-8", errors="replace").strip()
-                    if line:
+                    previous_overflows = line_buffer.overflow_count
+                    for line in line_buffer.feed(raw):
                         self._append_line(line)
                         self.handle_line(line)
+                    if line_buffer.overflow_count > previous_overflows:
+                        self.log("Discarded an overlong or malformed serial line")
             except serial.SerialException as exc:
                 if self._running:
                     self._mark_reader_failed(exc)
@@ -245,6 +253,7 @@ class SerialSession:
                 if self._running:
                     self._mark_reader_failed(exc)
                 break
+        line_buffer.clear()
 
     def _mark_reader_failed(self, exc: Exception) -> None:
         """Invalidate and release a TX serial handle after an unexpected read failure."""

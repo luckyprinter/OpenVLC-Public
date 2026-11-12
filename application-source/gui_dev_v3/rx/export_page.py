@@ -547,7 +547,10 @@ class ExportPage(QWidget):
 
             # BER
             ber = entry.get("ber")
-            ber_is_measured = isinstance(ber, (int, float))
+            ber_is_measured = (
+                entry.get("ber_method") == "method2"
+                and isinstance(ber, (int, float))
+            )
             ber_txt = f"{ber:.4%}" if ber_is_measured else "N/A"
             ber_item = QTableWidgetItem(ber_txt)
             ber_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -565,7 +568,8 @@ class ExportPage(QWidget):
             # Check if this TID is already in the history
             exists = any(item.get("tid") == transfer.tid for item in self._history_data)
             if not exists:
-                ber = transfer.quality.strict_ber if transfer.quality else None
+                comparison = state.get_method2_comparison()
+                ber = comparison.get("strict_ber") if comparison else None
                 entry = {
                     "tid": transfer.tid,
                     "filename": transfer.filename,
@@ -575,6 +579,7 @@ class ExportPage(QWidget):
                     "total_chunks": transfer.total_chunks,
                     "received_chunks": transfer.received_chunks,
                     "ber": ber if ber is not None else "N/A",
+                    "ber_method": "method2" if ber is not None else None,
                 }
                 self._history_data.insert(0, entry)
                 self._save_history()

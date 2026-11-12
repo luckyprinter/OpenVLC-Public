@@ -14,10 +14,14 @@ from gui_dev_v3.tx.placeholders import (
     TransmitPage,
 )
 from gui_dev_v3.tx.settings import build_tx_settings
-from gui_dev_v3.settings import SettingsManager
 from gui_dev_v3.tx_app_state import POLL_INTERVAL_MS, TXAppState, build_default_tx_state
 from gui_dev_v3.widgets import scrollable
 from gui_dev_v3.theme import COLORS
+from gui_dev_v3.ui_foundation import (
+    SidebarNavigationList,
+    WorkspaceHeader,
+    add_navigation_item,
+)
 
 from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QStackedWidget, QVBoxLayout, QWidget
@@ -29,8 +33,6 @@ class TXShell(QWidget):
     def __init__(self, state: TXAppState | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.state = state or build_default_tx_state()
-        self._settings_mgr = SettingsManager("tx")
-
         # Outer vertical layout: header | content | footer
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -68,10 +70,7 @@ class TXShell(QWidget):
         sidebar_layout.addWidget(subtitle)
 
         # Navigation list
-        self.nav = QListWidget()
-        self.nav.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.nav.setSpacing(2)
-        self.nav.setIconSize(QSize(18, 18))
+        self.nav = SidebarNavigationList("Transmitter", self.sidebar)
         self._nav_items: list[tuple[QListWidgetItem, str]] = []
         sidebar_layout.addWidget(self.nav, 1)
 
@@ -122,23 +121,9 @@ class TXShell(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        header = QWidget()
-        header.setObjectName("HeaderBar")
-        header.setFixedHeight(52)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(20, 0, 20, 0)
-        header_layout.setSpacing(10)
-
-        self._page_heading = QLabel("Dashboard")
-        self._page_heading.setStyleSheet("font-size: 15px; font-weight: 700; background: transparent;")
-        header_layout.addWidget(self._page_heading)
-        header_layout.addStretch(1)
-
-        workspace_label = QLabel("TRANSMITTER WORKSPACE")
-        workspace_label.setObjectName("Muted")
-        workspace_label.setStyleSheet("font-size: 10px; font-weight: 700; letter-spacing: 1px; background: transparent;")
-        header_layout.addWidget(workspace_label)
-        main_layout.addWidget(header)
+        self._workspace_header = WorkspaceHeader("TRANSMITTER WORKSPACE")
+        self._page_heading = self._workspace_header.page_heading
+        main_layout.addWidget(self._workspace_header)
 
         self.pages = QStackedWidget()
         main_layout.addWidget(self.pages, 1)
@@ -214,7 +199,7 @@ class TXShell(QWidget):
         layout.setSpacing(24)
 
         # Mode indicator (left)
-        self._footer_mode = QLabel("Mode: HARDWARE")
+        self._footer_mode = QLabel("Hardware: Disconnected")
         self._footer_mode.setStyleSheet(
             "font-size: 11px; font-weight: 600; background: transparent;"
         )
@@ -244,33 +229,26 @@ class TXShell(QWidget):
         self._footer_time.setText(now.strftime("%H:%M:%S"))
 
     def _update_status_indicators(self) -> None:
-        """Update transmitter connection indicators from the physical ESP32 state."""
+        """Update indicators using physical transmitter connection state only."""
         connected = self.state.serial_connected
         if connected:
             dot_state = "connected"
-            port_str = self.state.port or "COM?"
-            status_text = f"● Connected ({port_str})"
+            port_str = self.state.port or "Port unknown"
             status_color = COLORS.get("status_dot_on", COLORS["green"])
             physical = getattr(self.state, "_physical", None)
             fw_info = getattr(physical, "_firmware_info", None) if physical else None
-            if fw_info:
-                device_label = fw_info.get("device", "VLC_TX")
-                fw_label = fw_info.get("firmware", "tx_unknown")
-                if "non_dma" in fw_label or "nondma" in fw_label:
-                    fw_label = "Non-DMA"
-                elif "dma" in fw_label:
-                    fw_label = "DMA"
-                else:
-                    fw_label = "TX"
-                self._conn_device.setText(f"Device: {device_label} ({port_str})")
-                self._conn_firmware.setText(f"Mode: {fw_label}")
+            fw_label = (fw_info or {}).get("firmware", "TX")
+            if "non_dma" in fw_label or "nondma" in fw_label:
+                fw_label = "Non-DMA"
+            elif "dma" in fw_label:
+                fw_label = "DMA"
             else:
-                self._conn_device.setText(f"Device: VLC_TX ({port_str})")
-                self._conn_firmware.setText("Mode: TX")
+                fw_label = "TX"
+            self._conn_device.setText(f"Device: VLC_TX ({port_str})")
+            self._conn_firmware.setText(f"Firmware: {fw_label}")
             conn_status_text = "Connected"
         else:
             dot_state = "disconnected"
-            status_text = "● Disconnected"
             status_color = COLORS.get("status_dot_off", COLORS["red"])
             self._conn_device.setText("Device: —")
             self._conn_firmware.setText("Firmware: —")
@@ -278,8 +256,10 @@ class TXShell(QWidget):
 
         self._pulse_dot.set_state(dot_state)
         self._conn_status.setText(conn_status_text)
-        self._conn_status.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {status_color}; background: transparent;")
-        self._footer_mode.setText("Mode: HARDWARE")
+        self._conn_status.setStyleSheet(
+            f"font-size: 11px; font-weight: 600; color: {status_color}; background: transparent;"
+        )
+        self._footer_mode.setText("Hardware: Connected" if connected else "Hardware: Disconnected")
 
     def _refresh_current_page(self) -> None:
         """Call refresh() on the current page if it supports it."""
@@ -323,17 +303,16 @@ class TXShell(QWidget):
         for label, page_key, icon_name in TX_SIDEBAR_TABS:
             # Add icon + text to nav
             try:
-                icon = qta.icon(icon_name)
+                icon = qta.icon(icon_name, color=COLORS["text"])
             except Exception:
-                icon = qta.icon("fa5s.circle")  # Fallback
-            item = QListWidgetItem(icon, label)
-            item.setToolTip(label)
-            self.nav.addItem(item)
+                icon = qta.icon("fa5s.circle", color=COLORS["text"])  # Fallback
+            item = add_navigation_item(self.nav, icon, label)
             self._nav_items.append((item, label))
             page = page_map.get(page_key)
             if page:
-                self._page_widgets[page_key] = page
-                self.pages.addWidget(page)
+                page_container = scrollable(page) if page_key == "file_manager" else page
+                self._page_widgets[page_key] = page_container
+                self.pages.addWidget(page_container)
 
         self.nav.blockSignals(False)
 

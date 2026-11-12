@@ -250,7 +250,7 @@ class SessionInspectorCard(Card):
         if capture.ook_bits:
             legacy_text = (
                 "Legacy threshold-state samples from low-rate PVo/Vref telemetry. "
-                "These are NOT decoded symbol-rate OOK bits.\\n\\n"
+                "These are NOT decoded symbol-rate OOK bits.\n\n"
             )
             bit_values = "".join(str(bit) for bit in capture.ook_bits)
             grouped = " ".join(

@@ -192,8 +192,9 @@ class SessionInspectorCard(Card):
     def show_empty(self) -> None:
         self.empty_title.setText("Select a Transfer Log")
         self.empty_desc.setText(
-            "Select an entry from the history list to review its saved physical "
-            "waveform, decoded bitstream, and protocol timeline."
+            "Select an entry from the history list to review saved PVo/Vref/margin "
+            "telemetry and protocol events. Raw OOK samples are shown only when "
+            "the firmware has actually captured them."
         )
         self.stacked.setCurrentIndex(0)
 
@@ -321,6 +322,8 @@ class ExportPage(QWidget):
 
         self._folder_edit = QLineEdit(str(HISTORY_DIR / "exports"))
         self._folder_edit.setReadOnly(True)
+        self._folder_edit.setCursorPosition(0)
+        self._folder_edit.setToolTip(self._folder_edit.text())
         self._folder_edit.setStyleSheet(
             f"QLineEdit {{ background: {COLORS['panel_alt']}; border: 1px solid {COLORS['border']}; "
             f"border-radius: 6px; padding: 6px 10px; color: {COLORS['text']}; }}"
@@ -664,6 +667,8 @@ class ExportPage(QWidget):
         path = QFileDialog.getExistingDirectory(self, "Select Export Directory", self._folder_edit.text())
         if path:
             self._folder_edit.setText(path)
+            self._folder_edit.setCursorPosition(0)
+            self._folder_edit.setToolTip(path)
 
     def _on_open_folder(self) -> None:
         folder = self._folder_edit.text()

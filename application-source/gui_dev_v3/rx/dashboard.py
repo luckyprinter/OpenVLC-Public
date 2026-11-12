@@ -189,15 +189,11 @@ class _SignalMonitorPanel(Card):
         self.vref_row = MetricRow("Vref")
         self.adc_vref_row = MetricRow("ADC Vref")
         self.vref_mode_row = MetricRow("Vref Mode")
-        self.lux_row = MetricRow("Light estimate")
-        self.lux_row.setToolTip("Uncalibrated relative estimate derived from PVo; this is not a lux-meter measurement.")
-        self.lux_row.val.setToolTip("Uncalibrated relative estimate derived from PVo; this is not a lux-meter measurement.")
 
         self.body.addWidget(self.pvo_row)
         self.body.addWidget(self.vref_row)
         self.body.addWidget(self.adc_vref_row)
         self.body.addWidget(self.vref_mode_row)
-        self.body.addWidget(self.lux_row)
         self._state = state
 
     def refresh(self, state: RXAppState) -> None:
@@ -217,10 +213,6 @@ class _SignalMonitorPanel(Card):
         mgr = SettingsManager("rx")
         vref_auto = mgr.get("link/vref_auto", False)
         self.vref_mode_row.setValue("Auto" if vref_auto else "Manual")
-        self.lux_row.setValue(
-            f"{sig.lux} (uncal.)"
-            if state.serial_connected and sig.lux is not None else "—"
-        )
 
 
 class _SignalWaveformPanel(Card):

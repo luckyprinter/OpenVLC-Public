@@ -313,11 +313,14 @@ class SignalMonitorPage(QWidget):
         # Row 1 — 6 status cards (4 MetricCards + 2 QualityBars)
         outer.addLayout(self._build_top_metrics())
 
-        # Row 2 — Waveform / Diagnostics / Margin Analysis (7:3:2)
-        outer.addWidget(self._build_middle_row(), 1)
+        # Keep the dense analysis panels in splitters so compact workspaces
+        # can stack them vertically without squeezing their contents.
+        self._middle_splitter = self._build_middle_row()
+        outer.addWidget(self._middle_splitter, 1)
 
         # Row 3 — Transfer Statistics / Quality Metrics (1:1)
-        outer.addWidget(self._build_bottom_row(), 1)
+        self._bottom_splitter = self._build_bottom_row()
+        outer.addWidget(self._bottom_splitter, 1)
 
     # --- Row 1: Metric Cards + QualityBars ---
 

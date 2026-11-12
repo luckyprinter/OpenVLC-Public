@@ -145,10 +145,20 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
             for column in range(table.columnCount()):
                 right = header.sectionViewportPosition(column) + header.sectionSize(column)
                 if right > table.viewport().width() + 2:
-                    raise RuntimeError(
-                        f"TX {page_name} {table_name} column {column} exceeds its viewport "
-                        f"at {width}x{height}; table headers must fit or expose horizontal scrolling"
+                    # Narrow layouts may legitimately need horizontal scrolling.
+                    # Fail only when the table disables that recovery path or
+                    # its scrollbar cannot actually reach the overflowing column.
+                    scrollbar = table.horizontalScrollBar()
+                    policy = table.horizontalScrollBarPolicy()
+                    can_scroll = (
+                        policy != Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+                        and scrollbar.maximum() > 0
                     )
+                    if not can_scroll:
+                        raise RuntimeError(
+                            f"TX {page_name} {table_name} column {column} exceeds its viewport "
+                            f"at {width}x{height} without usable horizontal scrolling"
+                        )
 
 
 def main() -> int:

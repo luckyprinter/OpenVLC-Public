@@ -120,7 +120,7 @@ sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 \
 
 ### Backends
 - **Physical Backend** — Communicates with real ESP32 hardware via serial
-- **Simulation Backend** — Generates synthetic signals for testing without hardware
+- **Hardware-only operation** — Connects to real ESP32 transmitter and receiver boards through USB serial
 
 ### UI Shells
 - **RXShell** (`rx/shell.py`) — Receiver console with signal analysis, BER calculation, and Vref control

@@ -72,9 +72,9 @@ def _save_all(items: list[dict[str, Any]]) -> None:
         raise ExperimentStoreError(
             f"Experiment store is unreadable; existing data was left untouched: {STORE_PATH}"
         )
-    STORE_DIR.mkdir(parents=True, exist_ok=True)
     temporary = STORE_PATH.with_suffix(".tmp")
     try:
+        STORE_DIR.mkdir(parents=True, exist_ok=True)
         temporary.write_text(json.dumps(items, indent=2), encoding="utf-8")
         temporary.replace(STORE_PATH)
     except OSError as exc:

@@ -359,6 +359,7 @@ class FileDetailsWidget(Card):
         self.start_btn.setStyleSheet(
             f"QPushButton {{ background-color: {COLORS['accent']}; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-weight: 700; font-size: 11px; }}"
             f"QPushButton:hover {{ background-color: {COLORS['header']}; }}"
+            f"QPushButton:disabled {{ background-color: {COLORS['panel_alt']}; color: {COLORS['muted']}; border: 1px solid {COLORS['border']}; }}"
         )
         
         btn_row.addWidget(self.select_btn)

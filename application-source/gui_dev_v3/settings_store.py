@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
@@ -67,15 +68,22 @@ def _read_bool(value: object, default: bool = False) -> bool:
     return default
 
 
-def load_settings() -> AppSettings:
+def _read_settings_object() -> tuple[dict[str, object] | None, bool]:
+    """Read the settings object and report whether an existing file is malformed."""
     if not SETTINGS_PATH.exists():
-        return AppSettings()
+        return None, False
     try:
         data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return AppSettings()
-    # A valid JSON document is not necessarily a settings object.
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None, True
     if not isinstance(data, dict):
+        return None, True
+    return data, False
+
+
+def load_settings() -> AppSettings:
+    data, malformed = _read_settings_object()
+    if malformed or data is None:
         return AppSettings()
 
     raw_theme = data.get("theme", "graphite_lab")
@@ -107,8 +115,31 @@ def load_settings() -> AppSettings:
     )
 
 
-def save_settings(settings: AppSettings) -> None:
-    """Atomically replace the JSON file so an interrupted write cannot truncate it."""
+def save_settings(
+    settings: AppSettings, *, allow_corrupt_recovery: bool = False
+) -> bool:
+    """Atomically save settings without silently replacing malformed user data.
+
+    Normal autosaves refuse to overwrite an unreadable/non-object settings file.
+    An explicit reset may opt into recovery; the original bytes are first copied
+    to a timestamped backup and verified before the replacement is attempted.
+    """
+    _existing, malformed = _read_settings_object()
+    if malformed:
+        if not allow_corrupt_recovery:
+            return False
+        try:
+            original_bytes = SETTINGS_PATH.read_bytes()
+            backup_path = SETTINGS_PATH.with_name(
+                f"{SETTINGS_PATH.name}.corrupt-{time.time_ns()}.bak"
+            )
+            backup_path.write_bytes(original_bytes)
+            if backup_path.read_bytes() != original_bytes:
+                backup_path.unlink(missing_ok=True)
+                return False
+        except OSError:
+            return False
+
     SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
     temp_path: Path | None = None
     try:
@@ -126,6 +157,9 @@ def save_settings(settings: AppSettings) -> None:
             temp_file.flush()
             os.fsync(temp_file.fileno())
         os.replace(temp_path, SETTINGS_PATH)
+        return True
+    except OSError:
+        return False
     finally:
         if temp_path is not None and temp_path.exists():
             try:

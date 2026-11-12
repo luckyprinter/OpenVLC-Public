@@ -362,6 +362,9 @@ def test_rx_table_builder_stacks_column_lists_on_compact_display(qapp):
     assert page._three_col_layout.direction() == QBoxLayout.Direction.TopToBottom
     assert page._arrow_layout.direction() == QBoxLayout.Direction.LeftToRight
 
+    # Clear the prior narrow-content minimum before simulating a wider,
+    # short viewport; the real QScrollArea does this as its viewport widens.
+    page.setMinimumHeight(0)
     # Wide but short windows keep the picker in three columns while using
     # compact spacing; the 1024x700 workspace is narrow enough to stack it.
     page.resize(1022, 574)

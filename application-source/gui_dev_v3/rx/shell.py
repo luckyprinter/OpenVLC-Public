@@ -349,8 +349,12 @@ class RXShell(QWidget):
             self._nav_items.append((item, label))
             page = page_map.get(page_key)
             if page:
-                self._page_widgets[page_key] = page
-                self.pages.addWidget(page)
+                # Dense analysis pages can exceed a laptop's logical height at
+                # 125–150% scaling. Give them one predictable vertical scroll
+                # surface; their own responsive layouts handle horizontal flow.
+                page_container = scrollable(page) if page_key in {"inspect", "signal"} else page
+                self._page_widgets[page_key] = page_container
+                self.pages.addWidget(page_container)
 
         self.nav.blockSignals(False)
 

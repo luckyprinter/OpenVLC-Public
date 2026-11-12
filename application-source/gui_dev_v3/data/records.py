@@ -90,10 +90,11 @@ def _parse_transfer_record(data: dict[str, Any]) -> TransferRecord | None:
 
         quality = TransferQuality(
             label=str(signal_data.get("quality_status") or "Unknown"),
-            strict_ber=0.0,
-            bit_accuracy=100.0,
-            bit_errors=0,
-            total_bits=size_bytes * 8,
+            # CRC/chunk metadata does not constitute a Method 2 BER comparison.
+            strict_ber=None,
+            bit_accuracy=None,
+            bit_errors=None,
+            total_bits=0,
             compared_bytes=0,
             missing_chunks=len(missing),
             missing_bytes=0,
@@ -220,21 +221,38 @@ def empty_transfer() -> TransferRecord:
     )
 
 
+def _resolve_capture_dir() -> Path:
+    """Resolve session captures to the application-owned state directory."""
+    import os
+    env = os.getenv("VLC_DATA_DIR")
+    if env:
+        return Path(env).expanduser() / "state" / "captures"
+    return Path(__file__).resolve().parents[2] / "state" / "captures"
+
+
+CAPTURE_DIR = _resolve_capture_dir()
+
+
 def save_session_capture(capture: SessionCapture) -> None:
     from dataclasses import asdict
     import json
-    capture_dir = Path.home() / ".vlc_rx" / "captures"
-    capture_dir.mkdir(parents=True, exist_ok=True)
-    path = capture_dir / f"session_{capture.tid}.json"
+
+    CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+    path = CAPTURE_DIR / f"session_{capture.tid}.json"
+    temporary = path.with_suffix(".tmp")
     try:
-        path.write_text(json.dumps(asdict(capture), indent=2), encoding="utf-8")
-    except Exception as exc:
+        temporary.write_text(json.dumps(asdict(capture), indent=2), encoding="utf-8")
+        temporary.replace(path)
+    except OSError as exc:
         print(f"Failed to save session capture {capture.tid}: {exc}")
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def load_session_capture(tid: int) -> SessionCapture | None:
-    capture_dir = Path.home() / ".vlc_rx" / "captures"
-    path = capture_dir / f"session_{tid}.json"
+    path = CAPTURE_DIR / f"session_{tid}.json"
     if not path.exists():
         return None
     try:

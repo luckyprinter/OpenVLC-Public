@@ -33,9 +33,7 @@ class RXAppState:
     signal: SignalState = field(default=_EMPTY_SIGNAL)
     transfer: TransferRecord = field(default=_EMPTY_TRANSFER)
     activity_log: list[dict[str, str]] = field(default_factory=list)
-    using_mock_data: bool = False
     serial_connected: bool = False
-    mode: str = "physical"
     expected_file_path: str | None = None
     expected_file_data: bytes | None = None
     current_capture: SessionCapture | None = None
@@ -94,14 +92,6 @@ class RXAppState:
             self.settings = settings
         self.notify()
 
-    def set_mode(self, mode: str) -> None:
-        """Compatibility guard: this application supports physical hardware only."""
-        if mode != "physical":
-            raise ValueError("Only physical ESP32 hardware mode is supported.")
-        self.mode = "physical"
-        self._refresh()
-        self.notify()
-
     def load_expected_file(self, filepath: str) -> None:
         """Load expected/original reference file bytes for BER comparison."""
         try:
@@ -156,7 +146,6 @@ class RXAppState:
                 self.activity_log.insert(0, log_item)
         self.activity_log = self.activity_log[:500]
         self.serial_connected = s.serial_connected
-        self.using_mock_data = False
 
     def _load_empty(self) -> None:
         import time

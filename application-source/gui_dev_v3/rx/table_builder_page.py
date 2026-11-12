@@ -186,6 +186,7 @@ class TableBuilderPage(QWidget):
 
         # ── Left: Available Columns (category tree) ──
         left_card = Card("Available Columns")
+        self._available_card = left_card
         left_card.setMinimumWidth(0)
         three_col.addWidget(left_card, 1)
 
@@ -221,6 +222,7 @@ class TableBuilderPage(QWidget):
 
         # ── Center: Selected Columns ──
         center_card = Card("Selected Columns (Drag to Reorder)")
+        self._selected_card = center_card
         center_card.setMinimumWidth(0)
         three_col.addWidget(center_card, 1)
 
@@ -240,6 +242,7 @@ class TableBuilderPage(QWidget):
 
         # ── Right: Manual Input Columns (draggable reorder) ──
         right_card = Card("Manual Input Columns (Drag to Reorder)")
+        self._manual_card = right_card
         right_card.setMinimumWidth(0)
         three_col.addWidget(right_card, 1)
 
@@ -312,6 +315,13 @@ class TableBuilderPage(QWidget):
             return
         self._compact_layout = compact
         self._narrow_layout = narrow
+
+        # Give stacked cards enough vertical room for their list controls.
+        # Without this, the outer scroll area can squeeze the three cards down
+        # to header-height slivers, leaving their contents effectively hidden.
+        card_min_height = 220 if narrow else 0
+        for card in (self._available_card, self._selected_card, self._manual_card):
+            card.setMinimumHeight(card_min_height)
 
         # A short but wide laptop window still has room for the three-column
         # picker. Reduce spacing there instead of stacking every card and

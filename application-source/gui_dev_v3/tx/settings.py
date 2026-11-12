@@ -428,9 +428,8 @@ class TXSettingsPage(QWidget):
     def _update_link_param(self, command_key: str, value: Any) -> None:
         if not self._state:
             return
-        if self._state.mode == "physical":
-            if command_key != "PREAMBLE_BITS":
-                self._state.send_firmware_command(f"{command_key}={value}\n")
+        if command_key != "PREAMBLE_BITS":
+            self._state.send_firmware_command(f"{command_key}={value}\\n")
 
     def refresh(self, state: TXAppState) -> None:
         if state is None:

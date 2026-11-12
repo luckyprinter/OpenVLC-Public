@@ -1,23 +1,17 @@
-"""TX Dashboard — Professional laboratory control console.
+"""TX Dashboard — action-first transmitter control overview.
 
 Layout:
-┌─────────────────────────────────────────────────────────────┐
-│ DEVICE STATUS (Full Width)                                  │
-└─────────────────────────────────────────────────────────────┘
-┌─────────────────────────────┬─────────────────────────────┐
-│ TRANSMISSION PIPELINE       │ CURRENT SESSION             │
-├─────────────────────────────┼─────────────────────────────┤
-│ FILE DETAILS                │ ENCODED BIT STREAM          │
-└─────────────────────────────┴─────────────────────────────┘
-┌─────────────────────────────────────────────────────────────┐
-│ TRANSMISSION LOGS (Full Width)                              │
-└─────────────────────────────────────────────────────────────┘
+- Device connection and firmware status across the workspace.
+- File selection and current-session context as the primary work area.
+- Transmission pipeline on taller windows.
+- Recent activity on taller windows; full history remains in its own page.
+
+Short displays prioritize file actions and hide secondary dashboard summaries.
+The dedicated Transmission History page remains available at every size.
 """
 from __future__ import annotations
 
-import os
 import time
-from typing import Any
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QColor

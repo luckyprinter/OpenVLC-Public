@@ -556,15 +556,15 @@ def test_rx_settings_wait_for_firmware_acknowledgements(monkeypatch: pytest.Monk
     backend._pwm_autocal_target_mv = 0
     backend._pwm_autocal_converged = False
     responses = {
-        "FREQ=15000\\n": "RX 4B5B FREQ = 15000 | symbol_us=66",
-        "PHASE=50\\n": "RX 4B5B PHASE = 50%",
-        "MAJ=1\\n": "RX 4B5B MAJ = 1",
-        "REPORT=1\\n": "RX REPORT = 1",
-        "VREF_MARGIN=365\\n": "VREF_MARGIN_OK:target_margin_mv=365",
-        "VREF_PWM_FS=2625\\n": "VREF_PWM_FS_OK:vref_mode=MANUAL",
-        "VREF_SETTLE_MS=120\\n": "VREF_SETTLE_OK:settle_ms=120",
-        "VREF_MODE=MANUAL\\n": "VREF_MODE_OK:vref_mode=MANUAL",
-        "VREF_SET=1700\\n": "VREF_SET_OK:vref_mode=MANUAL:target_mv=1700",
+        "FREQ=15000\n": "RX 4B5B FREQ = 15000 | symbol_us=66",
+        "PHASE=50\n": "RX 4B5B PHASE = 50%",
+        "MAJ=1\n": "RX 4B5B MAJ = 1",
+        "REPORT=1\n": "RX REPORT = 1",
+        "VREF_MARGIN=365\n": "VREF_MARGIN_OK:target_margin_mv=365",
+        "VREF_PWM_FS=2625\n": "VREF_PWM_FS_OK:vref_mode=MANUAL",
+        "VREF_SETTLE_MS=120\n": "VREF_SETTLE_OK:settle_ms=120",
+        "VREF_MODE=MANUAL\n": "VREF_MODE_OK:vref_mode=MANUAL",
+        "VREF_SET=1700\n": "VREF_SET_OK:vref_mode=MANUAL:target_mv=1700",
     }
 
     def respond(command: str) -> bool:
@@ -590,7 +590,7 @@ def test_rx_settings_reject_firmware_skip_response():
     logged: list[tuple[str, str]] = []
     backend.log = lambda stage, detail="": logged.append((stage, detail))  # type: ignore[method-assign]
 
-    assert backend._send_command_and_confirm("VREF_SET=1700\\n", "VREF_SET_OK:", timeout=0.05) is False
+    assert backend._send_command_and_confirm("VREF_SET=1700\n", "VREF_SET_OK:", timeout=0.05) is False
     assert logged and "VREF_SET_SKIP" in logged[0][1]
 
 

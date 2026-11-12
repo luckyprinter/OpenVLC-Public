@@ -127,7 +127,12 @@ class ReceivePage(QWidget):
             f"    background: rgba(239, 68, 68, 0.12);"
             f"}}"
         )
-        self.reset_btn.clicked.connect(self._on_reset_transfer)
+        # Do not advertise a reset action until the RX backend exposes a
+        # safe transfer-reset operation. Clearing the terminal is display-only.
+        self.reset_btn.setEnabled(False)
+        self.reset_btn.setToolTip(
+            "Unavailable: the receiver backend does not currently expose a safe transfer reset."
+        )
         btn_lo.addWidget(self.reset_btn)
         
         control_card.body.addLayout(btn_lo)
@@ -231,12 +236,7 @@ class ReceivePage(QWidget):
                 self._app_state.send_firmware_command("VREF_MODE=AUTO\n")
 
     def _on_clear_terminal(self) -> None:
-        """Clear received text buffer."""
-        self._last_text = ""
+        """Clear the current terminal view without mutating received transfer data."""
+        # Keep the last rendered payload as the comparison baseline. Otherwise
+        # the next periodic refresh would immediately repopulate the cleared view.
         self.terminal.clear()
-
-    def _on_reset_transfer(self) -> None:
-        """Reset transfer state."""
-        self._last_text = ""
-        self.terminal.clear()
-        # In a real setup, we might call a state.reset_transfer() if available

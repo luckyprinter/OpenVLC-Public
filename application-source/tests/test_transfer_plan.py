@@ -104,3 +104,53 @@ def test_tx_rejects_long_filenames_instead_of_truncating(tmp_path, monkeypatch):
     controller._send_stream = lambda *_args: pytest.fail("truncated filename must not be sent")
 
     assert controller.send_file(source) is False
+
+
+def test_tx_rejects_batch_exceeding_firmware_part_count(tmp_path, monkeypatch):
+    import gui_dev_v3.settings as settings_module
+    import gui_dev_v3.serial.controllers as controllers_module
+    from gui_dev_v3.serial.controllers import TXSerialController
+
+    class NoDmaSettings:
+        def __init__(self, _role):
+            pass
+
+        def get(self, key, default=None):
+            return False if key == "link/dma_mode" else default
+
+    monkeypatch.setattr(settings_module, "SettingsManager", NoDmaSettings)
+    monkeypatch.setattr(controllers_module, "MAX_STREAM_FILE_BYTES", 1)
+    source = tmp_path / "small-name.bin"
+    source.write_bytes(b"x" * 1025)
+
+    controller = TXSerialController()
+    controller._dma_capable = False
+    controller.serial_obj = object()
+    controller.is_connected = True
+    controller._send_stream = lambda *_args: pytest.fail("oversized batch must be rejected")
+
+    assert controller.send_file(source, chunk_bytes=16) is False
+
+
+def test_tx_rejects_batch_filename_that_would_be_truncated(tmp_path, monkeypatch):
+    import gui_dev_v3.settings as settings_module
+    from gui_dev_v3.serial.controllers import TXSerialController
+
+    class NoDmaSettings:
+        def __init__(self, _role):
+            pass
+
+        def get(self, key, default=None):
+            return False if key == "link/dma_mode" else default
+
+    monkeypatch.setattr(settings_module, "SettingsManager", NoDmaSettings)
+    source = tmp_path / (("x" * 55) + ".bin")
+    source.write_bytes(b"x" * 82_000)
+
+    controller = TXSerialController()
+    controller._dma_capable = False
+    controller.serial_obj = object()
+    controller.is_connected = True
+    controller._send_stream = lambda *_args: pytest.fail("truncated batch filename must not be sent")
+
+    assert controller.send_file(source, chunk_bytes=256) is False

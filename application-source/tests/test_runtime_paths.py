@@ -96,3 +96,12 @@ def test_serial_status_writer_uses_application_status_store(monkeypatch):
         "state": "active",
         "extra": {"port": "/dev/ttyUSB0"},
     }
+
+
+def test_logger_uses_writable_application_data_directory(monkeypatch, tmp_path):
+    from pathlib import Path
+    from gui_dev_v3.logger import get_base_dir
+
+    monkeypatch.setenv("VLC_DATA_DIR", str(tmp_path))
+
+    assert Path(get_base_dir()) == tmp_path

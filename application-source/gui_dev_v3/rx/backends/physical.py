@@ -286,7 +286,12 @@ class RXPhysicalBackend:
 
     def _open_serial(self) -> bool:
         """Open persistent serial connection at RX baud rate and start reader thread."""
-        self._close_serial()
+        if not self._close_serial():
+            self.log(
+                "Reader Stop Timeout",
+                "The previous RX serial reader is still active; refusing to open another port.",
+            )
+            return False
         if not self._port:
             return False
         try:
@@ -741,19 +746,33 @@ class RXPhysicalBackend:
         except Exception as e:
             self._log_queue.append({"time": now, "event": "RX CRC Fail Error", "details": str(e)[:120]})
 
-    def _close_serial(self) -> None:
-        # Signal and join the reader thread first
+    def _close_serial(self) -> bool:
+        """Stop the RX reader and release its handle before allowing a reconnect.
+
+        Closing the serial handle interrupts a blocking read on supported
+        pySerial drivers. Join only after releasing the handle so a slow or
+        unplugged adapter cannot leave an untracked reader behind.
+        """
         self._reader_stop.set()
-        if self._reader_thread is not None and self._reader_thread.is_alive():
-            self._reader_thread.join(timeout=1.0)
-        self._reader_thread = None
         with self._write_lock:
-            if self._ser is not None:
+            ser = self._ser
+            self._ser = None
+            if ser is not None:
                 try:
-                    self._ser.close()
+                    ser.close()
                 except Exception:
                     pass
-                self._ser = None
+
+        reader = self._reader_thread
+        if reader is not None and reader.is_alive() and reader is not threading.current_thread():
+            reader.join(timeout=1.5)
+        if reader is not None and reader.is_alive():
+            # Keep the reference so a later disconnect/reconnect can observe
+            # that shutdown is incomplete. Never start a second reader yet.
+            return False
+
+        self._reader_thread = None
+        return True
 
     def send_command(self, cmd: str) -> bool:
         """Write a complete command without interleaving concurrent writers."""

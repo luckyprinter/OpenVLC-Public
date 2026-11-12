@@ -662,7 +662,7 @@ class ExportPage(QWidget):
             ])
         elif status == "CRC Failed":
             protocol_events.extend([
-                {"time": 8.0, "event": "ERROR", "details": f"CRC validation failed. BER: {ber:.2%}"},
+                {"time": 8.0, "event": "ERROR", "details": f"CRC validation failed. Method 2 BER: {ber_label}"},
                 {"time": 8.2, "event": "CRC_FAIL", "details": "CRC mismatch detected in block 14"},
             ])
         elif status == "Incomplete":

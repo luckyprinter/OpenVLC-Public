@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QBoxLayout, QWidget, QPushButton, QSizePolicy
 
 from gui_dev_v3.settings import (
     BrowseButton,
@@ -29,7 +29,7 @@ from gui_dev_v3.settings import (
 )
 from gui_dev_v3.settings_store import RESOLUTION_PRESETS
 from gui_dev_v3.tx_app_state import TXAppState
-from gui_dev_v3.widgets import Card, muted_label, primary_button
+from gui_dev_v3.widgets import Card, muted_label, ModeSelectCard, primary_button
 
 # ── General & Display ──────────────────────────────────────────────────
 
@@ -160,8 +160,14 @@ class HardwareConnectionPage(QWidget):
         bind_radio_group(mode_group, mgr, "connection/mode", "Auto Detect (Recommended)")
         self.opts_card.body.addWidget(mode_group)
 
-        port_layout = QHBoxLayout()
+        self._port_row_compact = True
+        port_layout = QBoxLayout(QBoxLayout.Direction.TopToBottom)
+        self._port_layout = port_layout
+        port_layout.setSpacing(8)
         self.port_combo = ComboSetting([], "")
+        self.port_combo.setMinimumWidth(0)
+        self.port_combo.setMinimumHeight(38)
+        self.port_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         from gui_dev_v3.tx.backends.physical import _list_usb_serial_ports
         
         def _refresh_ports():
@@ -185,10 +191,12 @@ class HardwareConnectionPage(QWidget):
         bind_combo(self.port_combo, mgr, "connection/port", "")
         
         refresh_btn = QPushButton("Refresh")
+        refresh_btn.setMinimumHeight(36)
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.clicked.connect(_refresh_ports)
         
         force_btn = QPushButton("Force Connect")
+        force_btn.setMinimumHeight(36)
         force_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         force_btn.setToolTip("Bypass verification and force open this COM port.")
         force_btn.setStyleSheet("""
@@ -265,6 +273,19 @@ class HardwareConnectionPage(QWidget):
         lo.addStretch(1)
 
 
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Keep the port selector and connection actions reachable at narrow widths."""
+        super().resizeEvent(event)
+        compact = self.width() < 700
+        if compact == self._port_row_compact:
+            return
+        self._port_row_compact = compact
+        self._port_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self._port_layout.setSpacing(8 if compact else 6)
 
     def refresh(self, state: TXAppState) -> None:
         if state is None:
@@ -401,8 +422,9 @@ class TXSettingsPage(QWidget):
         quiet = self.quiet_set.isChecked()
         dma_mode = self.dma_set.isChecked()
 
-        # Apply settings through the hardware controller. DMA-specific commands
-        # are gated by the controller so non-DMA firmware is not disrupted.
+        # Use the gated helper so DMA_MODE/PREAMBLE/CARRIER are only sent
+        # to DMA-capable firmware. Sending them to tx_non_dma.ino causes
+        # 'TX_ERROR: unknown command' which disrupts the non-DMA blinking.
         applied = self._state.apply_link_settings_from_ui(
             freq=freq,
             preamble=preamble,
@@ -424,6 +446,7 @@ class TXSettingsPage(QWidget):
                 "The transmitter is not connected or a serial write failed. "
                 "Check the TX connection and reapply the settings.",
             )
+
 
     def _update_link_param(self, command_key: str, value: Any) -> None:
         if not self._state:

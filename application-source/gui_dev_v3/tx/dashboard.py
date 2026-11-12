@@ -20,7 +20,6 @@ import time
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont, QColor, QPainter, QPen, QPainterPath
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -29,7 +28,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QFrame,
-    QSizePolicy,
 )
 
 from gui_dev_v3.theme import COLORS
@@ -284,12 +282,15 @@ class CurrentSessionWidget(Card):
             if item["outcome"] == "SUCCESS":
                 success += 1
                 
-        rate_pct = 100
-        if sent > 0:
-            rate_pct = int((success / sent) * 100)
-            
         self.row_sent.setValue(str(sent))
-        self.row_success.setValue(f"{rate_pct} %", COLORS["green"] if rate_pct >= 90 else COLORS["amber"])
+        if sent:
+            rate_pct = int((success / sent) * 100)
+            self.row_success.setValue(
+                f"{rate_pct} %",
+                COLORS["green"] if rate_pct >= 90 else COLORS["amber"],
+            )
+        else:
+            self.row_success.setValue("—", COLORS["muted"])
 
         # Compute average throughput from completed transmissions
         rates_bps: list[float] = []
@@ -392,6 +393,8 @@ class FileDetailsWidget(Card):
             self.row_crc.setValue("SUCCESS (CRC OK)", COLORS["green"])
         elif "failed" in status_lower or "send failed" in status_lower:
             self.row_crc.setValue("FAILED (CRC Error)", COLORS["red"])
+        elif not state.serial_connected:
+            self.row_crc.setValue("Hardware offline", COLORS["muted"])
         elif status_lower.startswith("selected") or "idle" in status_lower or not status_lower:
             self.row_crc.setValue("Idle", COLORS["muted"])
         else:
@@ -400,149 +403,46 @@ class FileDetailsWidget(Card):
         self.start_btn.setEnabled(not is_transmitting and state.serial_connected)
 
 
-# ── Section 5: ENCODED BIT STREAM ────────────────────────────────────
+# ── Section 5: TX LINK PROFILE ───────────────────────────────────────
 
-class DigitalBitstreamWidget(Card):
-    """Logic Analyzer digital wave representing the outgoing 4B5B bit stream."""
-    
+class TXConfigurationWidget(Card):
+    """Show the application TX profile without fabricating a live bitstream."""
+
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__("ENCODED BIT STREAM (LOGIC ANALYZER)", parent)
-        self._bits: list[int] = []
-        self._offset_px = 0.0
-        self._is_animating = False
-        
-        # Dedicated graphics paint viewport
-        self.canvas = QWidget()
-        self.canvas.setMinimumHeight(110)
-        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.canvas.paintEvent = self._paint_canvas
-        self.body.addWidget(self.canvas)
-        
+        super().__init__("TX LINK PROFILE", parent)
+        self.body.setSpacing(7)
+        self._status = muted_label("Application configuration · not yet confirmed by hardware")
+        self.body.addWidget(self._status)
+
+        self.row_encoding = _DetailRow("Encoding", "4B5B")
+        self.row_modulation = _DetailRow("Modulation", "NRZ / OOK")
+        self.row_rate = _DetailRow("Symbol Rate", "15,000 sym/s")
+        self.row_gpio = _DetailRow("LED Output", "GPIO 5")
+        self.row_drive = _DetailRow("LED Drive", "100 %")
+        self.row_preemphasis = _DetailRow("Pre-emphasis", "Disabled")
+        for row in (
+            self.row_encoding,
+            self.row_modulation,
+            self.row_rate,
+            self.row_gpio,
+            self.row_drive,
+            self.row_preemphasis,
+        ):
+            self.body.addWidget(row)
+        self.body.addStretch(1)
+
     def refresh(self, state: TXAppState) -> None:
-        status_lower = (state.status_text or "").lower()
-        is_transmitting = "transmitting" in status_lower and "complete" not in status_lower and "failed" not in status_lower
-        
-        if is_transmitting and not self._is_animating:
-            # Start new animation
-            self._is_animating = True
-            self._offset_px = 0.0
-            bits = []
-            for i in range(24): bits.append(i % 2) # Preamble representation
-            
-            # Generate deterministic bit array based on file size
-            file_size = state.file_size_bytes or 0
-            num_bits = min(500, max(100, file_size))
-            for i in range(num_bits):
-                bits.append(((file_size * 17 + i * 3) >> (i % 5)) & 1)
-            
-            for i in range(20): bits.append(0) # Padding
-            self._bits = bits
-            
-        if self._is_animating:
-            # Advance animation by a constant speed
-            self._offset_px += 15.0
-            
-            total_width = len(self._bits) * 12.0 # 12px per bit
-            if self._offset_px > total_width + self.canvas.width():
-                self._is_animating = False
-                self._bits = []
-                
-        self.canvas.update()
-        
-    def _paint_canvas(self, event: Any) -> None:
-        painter = QPainter(self.canvas)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        w = self.canvas.width()
-        h = self.canvas.height()
-        
-        # Colors
-        bg_color = QColor(COLORS["panel_alt"])
-        wave_color = QColor("#00E5FF") # logic analyzer cyan
-        grid_color = QColor(COLORS["border"])
-        text_color = QColor(COLORS["text"])
-        muted_color = QColor(COLORS["muted"])
-        
-        painter.fillRect(0, 0, w, h, bg_color)
-        
-        left_margin = 15
-        right_margin = 15
-        top_margin = 20
-        bottom_margin = 25
-        
-        plot_w = w - left_margin - right_margin
-        plot_h = h - top_margin - bottom_margin
-        
-        # Logic level coordinates
-        y_high = top_margin + int(plot_h * 0.15)
-        y_low = top_margin + int(plot_h * 0.75)
-        
-        # Draw grids
-        painter.setPen(QPen(grid_color, 1, Qt.PenStyle.DashLine))
-        painter.drawLine(left_margin, y_high, left_margin + plot_w, y_high)
-        painter.drawLine(left_margin, y_low, left_margin + plot_w, y_low)
-        
-        # Labels
-        painter.setPen(muted_color)
-        painter.setFont(QFont("Monospace", 8))
-        painter.drawText(2, y_high + 4, "1")
-        painter.drawText(2, y_low + 4, "0")
-        
-        if not self._is_animating or not self._bits:
-            painter.setPen(QPen(muted_color, 2))
-            painter.drawLine(left_margin, y_low, left_margin + plot_w, y_low)
-            painter.setFont(QFont("Inter", 10, QFont.Weight.Bold))
-            painter.setPen(text_color)
-            painter.drawText(0, 0, w, h, Qt.AlignmentFlag.AlignCenter, "Logic Analyzer: IDLE")
-            painter.end()
-            return
-            
-        bit_w = 12.0
-        
-        # Clip to drawing area
-        painter.setClipRect(left_margin, 0, plot_w, h)
-        
-        path = QPainterPath()
-        
-        last_x = left_margin - self._offset_px
-        last_y = y_high if self._bits[0] == 1 else y_low
-        path.moveTo(last_x, last_y)
-        
-        for i in range(len(self._bits)):
-            x_start = left_margin + i * bit_w - self._offset_px
-            x_end = x_start + bit_w
-            bit_val = self._bits[i]
-            target_y = y_high if bit_val == 1 else y_low
-            
-            if target_y != last_y:
-                path.lineTo(x_start, target_y)
-            
-            path.lineTo(x_end, target_y)
-            last_y = target_y
-            
-        painter.setPen(QPen(wave_color, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
-        painter.drawPath(path)
-        painter.setClipping(False)
-        
-        # Draw framing boundary
-        painter.setPen(QPen(QColor(COLORS["amber"]), 1, Qt.PenStyle.DashLine))
-        boundary_x1 = left_margin + 24 * bit_w - self._offset_px
-        if left_margin <= boundary_x1 <= left_margin + plot_w:
-            painter.drawLine(int(boundary_x1), top_margin - 8, int(boundary_x1), top_margin + plot_h)
-            painter.setPen(QColor(COLORS["amber"]))
-            painter.setFont(QFont("Inter", 8, QFont.Weight.Bold))
-            painter.drawText(int(boundary_x1) + 4, top_margin - 6, "PREAMBLE")
-            
-        # Draw scrolling text values
-        painter.setPen(text_color)
-        painter.setFont(QFont("Monospace", 9, QFont.Weight.Bold))
-        
-        for i, b in enumerate(self._bits):
-            x = left_margin + i * bit_w + (bit_w / 2) - 3 - self._offset_px
-            if left_margin <= x <= left_margin + plot_w - 6:
-                painter.drawText(int(x), h - 2, str(b))
-                
-        painter.end()
+        self._status.setText(
+            "Application profile · TX connected"
+            if state.serial_connected
+            else "Saved/default profile · TX hardware disconnected"
+        )
+        self.row_encoding.setValue(state.encoding or "—")
+        self.row_modulation.setValue(state.modulation or "—")
+        self.row_rate.setValue(state.symbol_rate or "—")
+        self.row_gpio.setValue(f"GPIO {state.led_pin}" if state.led_pin else "—")
+        self.row_drive.setValue(state.tx_power or "—")
+        self.row_preemphasis.setValue(state.pre_emphasis or "—")
 
 
 # ── Section 6: TRANSMISSION LOGS ─────────────────────────────────────
@@ -692,10 +592,10 @@ class TXDashboardPage(QWidget):
         self._file_details.select_btn.clicked.connect(self._on_select_file_clicked)
         self._file_details.start_btn.clicked.connect(self._on_start_clicked)
         self._session = CurrentSessionWidget()
-        self._bit_stream = DigitalBitstreamWidget()
+        self._link_profile = TXConfigurationWidget()
         work_row.addWidget(self._file_details, 5)
         work_row.addWidget(self._session, 4)
-        work_row.addWidget(self._bit_stream, 4)
+        work_row.addWidget(self._link_profile, 4)
         outer.addLayout(work_row, 7)
 
         # Keep the progress strip compact so file controls retain usable height
@@ -767,5 +667,5 @@ class TXDashboardPage(QWidget):
         self._pipeline.refresh(self._state)
         self._session.refresh(self._state)
         self._file_details.refresh(self._state)
-        self._bit_stream.refresh(self._state)
+        self._link_profile.refresh(self._state)
         self._logs.refresh(self._state)

@@ -454,3 +454,13 @@ def test_rx_port_scan_does_not_invent_ports_when_no_usb_devices(monkeypatch: pyt
     monkeypatch.setitem(sys.modules, "serial.tools.list_ports", list_ports_module)
 
     assert _list_usb_serial_ports() == []
+
+
+
+def test_preferred_serial_port_is_tried_first_without_excluding_fallbacks():
+    from gui_dev_v3.serial.detection import prioritize_preferred_port
+
+    assert prioritize_preferred_port(["COM4", "COM7"], "COM7") == ["COM7", "COM4"]
+    assert prioritize_preferred_port(["COM4", "COM7"], "COM9") == ["COM4", "COM7"]
+    assert prioritize_preferred_port(["COM4", "COM4", "COM7"], "COM4") == ["COM4", "COM7"]
+    assert prioritize_preferred_port([], "COM4") == []

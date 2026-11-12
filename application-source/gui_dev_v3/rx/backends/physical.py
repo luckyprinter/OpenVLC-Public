@@ -189,6 +189,13 @@ class RXPhysicalBackend:
     def _auto_connect_locked(self) -> bool:
         """Perform discovery and persistent connection while holding the shared lock."""
         ports = self.scan_ports()
+        from gui_dev_v3.settings import SettingsManager
+        settings = SettingsManager("rx")
+        preferred_port = str(settings.get("connection/port", "") or "").strip()
+        if preferred_port and preferred_port not in ports:
+            self.log("Preferred Port", f"Saved port {preferred_port} is not currently detected; scanning available devices")
+        from gui_dev_v3.serial.detection import prioritize_preferred_port
+        ports = prioritize_preferred_port(ports, preferred_port)
         if ports:
             self.log("Scan", f"Found {len(ports)} ports: {', '.join(ports)}")
         for port in ports:
@@ -206,6 +213,7 @@ class RXPhysicalBackend:
                 self._record_diag("serial_connected", role="rx", baud_rate=RX_BAUD,
                                   firmware_family="rx")
                 self.log("Connected", f"Auto-connected to {port} (VLC_RX)")
+                settings.set("connection/port", port)
                 self.apply_link_settings()
                 return True
         if ports:

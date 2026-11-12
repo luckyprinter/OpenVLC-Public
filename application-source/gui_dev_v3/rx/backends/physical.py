@@ -26,7 +26,8 @@ from typing import Any
 from gui_dev_v3.data.records import load_real_transfer_history
 from gui_dev_v3.data.session import build_empty_session, build_session_from_status
 from gui_dev_v3.data.status import read_status
-from gui_dev_v3.models import SessionState, SignalState, TransferRecord, TransferStatus\nfrom gui_dev_v3.logic.batch_assembler import BatchAssembler
+from gui_dev_v3.models import SessionState, SignalState, TransferRecord, TransferStatus
+from gui_dev_v3.logic.batch_assembler import BatchAssembler
 
 # Resolve beta state dir with VLC_DATA_DIR env var fallback
 def _resolve_beta_state_dir() -> Path:
@@ -531,6 +532,7 @@ class RXPhysicalBackend:
                 if len(metadata) != 6:
                     raise ValueError("Malformed VLCB1 batch metadata")
                 _, group_id, index_text, count_text, full_crc_text, original_name = metadata
+                self._prune_expired_batches()
                 assembled = self._batch_assembler.add_part(
                     group_id=group_id,
                     part_index=int(index_text),
@@ -543,7 +545,6 @@ class RXPhysicalBackend:
                     tid=tid,
                     started_monotonic=self._active_started_monotonic,
                 )
-                self._prune_expired_batches()
                 self._log_queue.append({
                     "time": now,
                     "event": "Batch Part",

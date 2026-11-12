@@ -37,6 +37,10 @@ class BatchAssembler:
     def clear(self) -> None:
         self._pending.clear()
 
+    def discard(self, group_id: str) -> None:
+        """Discard one incomplete group after a protocol-level failure."""
+        self._pending.pop(str(group_id), None)
+
     def prune_expired(self, now: float | None = None) -> list[str]:
         current = time.monotonic() if now is None else float(now)
         expired = [key for key, batch in self._pending.items()

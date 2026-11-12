@@ -598,9 +598,9 @@ class RXPhysicalBackend:
             ]
             quality = TransferQuality(
                 label="CRC OK" if crc_ok else "CRC Failed",
-                strict_ber=0.0,
-                bit_accuracy=100.0 if crc_ok else 0.0,
-                bit_errors=0,
+                strict_ber=None,
+                bit_accuracy=None,
+                bit_errors=None,
                 total_bits=len(file_bytes) * 8,
                 compared_bytes=len(file_bytes),
                 missing_chunks=0,
@@ -619,6 +619,7 @@ class RXPhysicalBackend:
                 received_chunks=n_chunks,
                 quality=quality,
                 chunks=chunks,
+                received_path=str(out_path),
             )
             duration_ms = int((time.monotonic() - self._active_started_monotonic) * 1000) if self._active_started_monotonic is not None else 0
             if crc_ok:

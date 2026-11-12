@@ -21,6 +21,7 @@ def _build_result(expected_size: int, received_size: int, overlap_bit_errors: in
         "expected_bytes": expected_size, "received_bytes": received_size,
         "overlap_bytes": overlap_bytes, "overlap_ber": overlap_ber,
         "strict_ber": strict_ber, "bit_accuracy": 1.0 - strict_ber,
+        "overlap_bit_errors": overlap_bit_errors,
         "strict_bit_errors": strict_bit_errors, "strict_bits": strict_bits,
         "byte_mismatches": overlap_byte_mismatches + abs(length_delta),
         "length_delta": length_delta,

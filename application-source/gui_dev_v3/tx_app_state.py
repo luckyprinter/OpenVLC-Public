@@ -148,7 +148,6 @@ class TXAppState:
         self.data_rate = "0 bps"
         self.port = "—"
         self.serial_connected = False
-        self.using_mock_data = False
         self.record_count = 0
 
     def start_transmission(self, filepath: str) -> None:
@@ -162,9 +161,8 @@ class TXAppState:
     def send_firmware_command(self, cmd: str) -> bool:
         """Send a raw command to physical firmware if active."""
         with self._lock:
-            mode = self.mode
             physical = self._physical
-        if mode == "physical" and physical:
+        if physical:
             return physical.send_command(cmd)
         return False
 
@@ -193,16 +191,12 @@ class TXAppState:
     def force_connect_serial(self, port: str) -> bool:
         """Force connect physical backend to a port, bypassing detection."""
         with self._lock:
-            mode = self.mode
-            if mode == "physical":
-                if self._physical is None:
-                    self._physical = TXPhysicalBackend()
-                res = self._physical.connect(port, force=True)
-        if mode == "physical":
-            self._refresh()
-            self.notify()
-            return res
-        return False
+            if self._physical is None:
+                self._physical = TXPhysicalBackend()
+            res = self._physical.connect(port, force=True)
+        self._refresh()
+        self.notify()
+        return res
 
     def refresh(self) -> None:
         self._refresh()

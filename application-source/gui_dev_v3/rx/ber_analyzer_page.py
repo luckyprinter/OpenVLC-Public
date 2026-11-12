@@ -26,6 +26,8 @@ class BERAnalyzerPage(QWidget):
         self._last_tid = -1
         self._last_chunk_count = -1
         self._last_expected_path = ""
+        self._comparison_key: tuple | None = None
+        self._comparison_result: dict | None = None
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 20)
@@ -37,7 +39,7 @@ class BERAnalyzerPage(QWidget):
         ref_layout.setContentsMargins(4, 4, 4, 4)
         ref_layout.setSpacing(12)
 
-        self.ref_label = QLabel("No reference file loaded (Load under Inspect tab or use BERTEST file)")
+        self.ref_label = QLabel("No reference file loaded (select the original file under Inspect)")
         self.ref_label.setStyleSheet("font-weight: 600; font-size: 12px; color: #8c99aa;")
         ref_layout.addWidget(self.ref_label, 1)
 
@@ -124,12 +126,27 @@ class BERAnalyzerPage(QWidget):
             expected_path = None
 
         if not expected_path or not received_path or not received_path.is_file():
+            self._comparison_key = None
+            self._comparison_result = None
             self._clear_results()
             return
 
         try:
-            result = compare_files(expected_path, received_path, mismatch_limit=50)
+            expected_stat = expected_path.stat()
+            received_stat = received_path.stat()
+            comparison_key = (
+                str(expected_path.resolve()), expected_stat.st_size, expected_stat.st_mtime_ns,
+                str(received_path.resolve()), received_stat.st_size, received_stat.st_mtime_ns,
+            )
+            if comparison_key == self._comparison_key and self._comparison_result is not None:
+                result = self._comparison_result
+            else:
+                result = compare_files(expected_path, received_path, mismatch_limit=50)
+                self._comparison_key = comparison_key
+                self._comparison_result = result
         except (OSError, ValueError) as exc:
+            self._comparison_key = None
+            self._comparison_result = None
             self._clear_results()
             self.lbl_ber.setText("Unavailable")
             self.ref_label.setText(f"Comparison unavailable: {str(exc)[:100]}")

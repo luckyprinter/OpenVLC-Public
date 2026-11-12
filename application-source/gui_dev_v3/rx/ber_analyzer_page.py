@@ -141,9 +141,15 @@ class BERAnalyzerPage(QWidget):
             f"{result['overlap_bytes']:,} / {result['expected_bytes']:,} B"
         )
         self.lbl_bit_errors.setText(f"{result['strict_bit_errors']:,}")
-        self.lbl_ber.setText(f"{result['overlap_ber'] * 100:.6f} %")
-        self.lbl_strict_ber.setText(f"{result['strict_ber'] * 100:.6f} %")
-        self.lbl_accuracy.setText(f"{result['bit_accuracy'] * 100:.4f} %")
+        self.lbl_ber.setText(
+            f"{result['overlap_ber'] * 100:.6f} %" if result["overlap_ber"] is not None else "Not measurable"
+        )
+        self.lbl_strict_ber.setText(
+            f"{result['strict_ber'] * 100:.6f} %" if result["strict_ber"] is not None else "Not measurable"
+        )
+        self.lbl_accuracy.setText(
+            f"{result['bit_accuracy'] * 100:.4f} %" if result["bit_accuracy"] is not None else "Not measurable"
+        )
 
         delta = result["length_delta"]
         if delta > 0:

@@ -669,3 +669,31 @@ def test_tx_auto_connect_falls_back_when_preferred_port_is_busy(monkeypatch):
     assert backend.port == "TX_FALLBACK"
     assert saved == [("tx", "connection/port", "TX_FALLBACK")]
     backend._connected = False
+
+
+def test_rx_manual_mode_without_selected_port_never_starts_auto_discovery(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    values = {
+        "connection/mode": "Manual",
+        "connection/auto_connect": True,
+        "connection/scan_interval": 1,
+        "connection/port": "",
+    }
+    monkeypatch.setattr(
+        SettingsManager, "get", lambda self, key, default=None: values.get(key, default)
+    )
+    monkeypatch.setattr(
+        "gui_dev_v3.rx.backends.physical.read_status", lambda _role: {}
+    )
+    backend = RXPhysicalBackend()
+    backend.scan_ports = lambda: pytest.fail("empty manual mode must not scan ports")
+    backend.auto_connect = lambda: pytest.fail("empty manual mode must not auto-connect")
+    backend.connect = lambda _port: pytest.fail("empty manual mode has no port to connect")
+
+    backend.refresh()
+
+    assert backend._connecting is False
+    assert backend._connect_thread is None
+    assert any(entry["event"] == "Manual Port Required" for entry in backend._log_queue)

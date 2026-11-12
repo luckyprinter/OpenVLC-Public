@@ -35,7 +35,6 @@ class RXAppState:
     activity_log: list[dict[str, str]] = field(default_factory=list)
     serial_connected: bool = False
     expected_file_path: str | None = None
-    expected_file_data: bytes | None = None
     current_capture: SessionCapture | None = None
     _subscribers: list[StateSubscriber] = field(default_factory=list, init=False, repr=False)
     _lock: __import__("threading").Lock = field(default_factory=__import__("threading").Lock, init=False, repr=False)
@@ -93,25 +92,41 @@ class RXAppState:
         self.notify()
 
     def load_expected_file(self, filepath: str) -> None:
-        """Load expected/original reference file bytes for BER comparison."""
+        """Select the original reference file without loading it into memory."""
+        from pathlib import Path
         try:
-            with open(filepath, "rb") as f:
-                data = f.read()
+            path = Path(filepath).expanduser().resolve(strict=True)
+            if not path.is_file():
+                return
             with self._lock:
-                self.expected_file_data = data
-                self.expected_file_path = filepath
-            self._refresh()
+                self.expected_file_path = str(path)
             self.notify()
-        except Exception:
-            pass
+        except (OSError, ValueError):
+            return
 
     def clear_expected_file(self) -> None:
         """Clear the loaded expected/original reference file."""
         with self._lock:
             self.expected_file_path = None
-            self.expected_file_data = None
         self._refresh()
         self.notify()
+
+    def apply_method2_result(self, tid: int, strict_ber: float | None) -> None:
+        """Persist a reference-file BER result on the matching completed capture."""
+        from dataclasses import replace
+
+        with self._lock:
+            capture = self.current_capture
+            if capture is None or capture.tid != int(tid):
+                return
+            method = "method2_reference_file"
+            if capture.ber == strict_ber and capture.ber_method == method:
+                return
+            updated = replace(capture, ber=strict_ber, ber_method=method)
+            self.current_capture = updated
+
+        from gui_dev_v3.data import save_session_capture
+        save_session_capture(updated)
 
     def send_firmware_command(self, cmd: str) -> bool:
         """Send command to physical firmware if active."""
@@ -215,7 +230,7 @@ class RXAppState:
                         tid=current_tid,
                         timestamp=timestamp,
                         filename=self.session.latest_transfer.filename if self.session.latest_transfer else "unknown.bin",
-                        ber=self.signal.ber,
+                        ber=None,
                         crc_status=self.signal.crc_status,
                         throughput_kbps=round(throughput, 3),
                         analog_time=self._phys_time,
@@ -224,6 +239,7 @@ class RXAppState:
                         margin_samples=self._phys_margin,
                         ook_bits=self._phys_bits,
                         protocol_events=self._phys_events,
+                        ber_method="unavailable",
                     )
                     save_session_capture(cap)
                     self.current_capture = cap

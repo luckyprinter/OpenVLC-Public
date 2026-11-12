@@ -50,9 +50,9 @@ class ChunkRecord:
 @dataclass(frozen=True)
 class TransferQuality:
     label: str
-    strict_ber: float
-    bit_accuracy: float
-    bit_errors: int
+    strict_ber: float | None
+    bit_accuracy: float | None
+    bit_errors: int | None
     total_bits: int
     compared_bytes: int
     missing_chunks: int
@@ -73,6 +73,7 @@ class TransferRecord:
     received_chunks: int
     quality: TransferQuality
     chunks: list[ChunkRecord] = field(default_factory=list)
+    received_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -115,7 +116,7 @@ class SessionCapture:
     tid: int
     timestamp: str
     filename: str
-    ber: float
+    ber: float | None
     crc_status: str
     throughput_kbps: float
     analog_time: list[float]
@@ -124,4 +125,5 @@ class SessionCapture:
     margin_samples: list[float]
     ook_bits: list[int]
     protocol_events: list[dict[str, Any]]
+    ber_method: str = "unavailable"
 

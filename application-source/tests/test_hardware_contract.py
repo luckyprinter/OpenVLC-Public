@@ -110,7 +110,7 @@ def test_method2_handles_two_empty_files() -> None:
     result = compare_payload_bits(b"", b"")
 
     assert result["strict_bit_errors"] == 0
-    assert result["strict_ber"] == 0.0
+    assert result["strict_ber"] is None
 
 
 def test_non_dma_large_file_batching_uses_configured_chunk_and_rounds(

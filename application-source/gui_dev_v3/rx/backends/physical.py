@@ -27,6 +27,7 @@ from gui_dev_v3.data.records import load_real_transfer_history
 from gui_dev_v3.data.session import build_empty_session, build_session_from_status
 from gui_dev_v3.data.status import read_status
 from gui_dev_v3.models import SessionState, SignalState, TransferRecord, TransferStatus
+from gui_dev_v3.logic.batch_assembler import BatchAssembler
 
 # Resolve beta state dir with VLC_DATA_DIR env var fallback
 def _resolve_beta_state_dir() -> Path:
@@ -129,7 +130,17 @@ class RXPhysicalBackend:
         self._pwm_autocal_iterations: int = 0
         self._active_started_monotonic: float | None = None
         # Batch reconstruction state for large files
-        self._batch_transfers: dict[str, dict] = {}
+        self._batch_assembler = BatchAssembler()
+
+    def _prune_expired_batches(self) -> None:
+        """Discard incomplete batches after their bounded retention period."""
+        expired = self._batch_assembler.prune_expired()
+        for group_id in expired:
+            self._log_queue.append({
+                "time": time.strftime("%H:%M:%S"),
+                "event": "Batch Expired",
+                "details": f"Incomplete batch {group_id} expired and was discarded",
+            })
 
     def log(self, event: str, details: str) -> None:
         if self._last_logged.get(event) == details:
@@ -500,6 +511,7 @@ class RXPhysicalBackend:
         Format: RX_FILE_HEX:<tid>:<frame_type>:<total_size>:<total_chunks>:<crc_hex>:<name_hex>:<data_hex>
         """
         now = time.strftime("%H:%M:%S")
+        batch_group_id: str | None = None
         try:
             parts = line.split(":")
             if len(parts) < 8:
@@ -508,6 +520,8 @@ class RXPhysicalBackend:
 
             tid = int(parts[1])
             total_size = int(parts[3])
+            part_total_chunks = int(parts[4])
+            part_crc_expected = int(parts[5], 16)
             crc_expected_hex = parts[5]
             name_hex = parts[6]
             data_hex = parts[7]
@@ -523,49 +537,51 @@ class RXPhysicalBackend:
             # Save to disk
             self._save_dir.mkdir(parents=True, exist_ok=True)
             
-            # --- BATCH INTERCEPTION ---
+            # --- Validated, bounded batch assembly ---
             if filename.startswith("VLCB1~"):
-                b_parts = filename.split("~", 5)
-                if len(b_parts) == 6:
-                    group_id = b_parts[1]
-                    part_index = int(b_parts[2])
-                    part_count = int(b_parts[3])
-                    full_crc = int(b_parts[4], 16)
-                    orig_name = b_parts[5]
-                    
-                    batch = self._batch_transfers.setdefault(group_id, {
-                        "parts": {},
-                        "created": time.time(),
-                        "started_monotonic": time.monotonic(),
-                        "name": orig_name,
-                        "full_crc": full_crc,
-                        "part_count": part_count
-                    })
-                    batch["parts"][part_index] = file_bytes
-                    self._log_queue.append({
-                        "time": now,
-                        "event": "Batch Part",
-                        "details": f"Part {part_index}/{part_count} of '{orig_name}' (CRC {'OK' if crc_ok else 'FAIL'})"
-                    })
-                    
-                    if len(batch["parts"]) == part_count:
-                        # Measure the complete batch, not only the final part.
-                        batch_started = batch.get("started_monotonic")
-                        if isinstance(batch_started, (int, float)):
-                            self._active_started_monotonic = batch_started
-                        # Reconstruct the full file
-                        file_bytes = b"".join(batch["parts"][i] for i in range(1, part_count + 1))
-                        filename = orig_name
-                        calc_crc = crc16_ccitt(file_bytes)
-                        expected_crc = full_crc
-                        crc_ok = (calc_crc == expected_crc)
-                        del self._batch_transfers[group_id]
-                        # Continue below with the stitched file...
-                    else:
-                        # Wait for remaining parts
-                        self._active_tid = None
-                        return
-            # --------------------------
+                metadata = filename.split("~", 5)
+                if len(metadata) != 6:
+                    raise ValueError("Malformed VLCB1 batch metadata")
+                _, group_id, index_text, count_text, full_crc_text, original_name = metadata
+                batch_group_id = group_id
+                self._prune_expired_batches()
+                assembled = self._batch_assembler.add_part(
+                    group_id=group_id,
+                    part_index=int(index_text),
+                    part_count=int(count_text),
+                    full_crc=int(full_crc_text, 16),
+                    filename=original_name,
+                    part_data=file_bytes,
+                    part_crc_ok=crc_ok,
+                    part_chunks=part_total_chunks,
+                    tid=tid,
+                    started_monotonic=self._active_started_monotonic,
+                )
+                self._log_queue.append({
+                    "time": now,
+                    "event": "Batch Part",
+                    "details": f"Part {index_text}/{count_text} of '{original_name}' validated",
+                })
+                if assembled is None:
+                    self._active_tid = None
+                    self._active_filename = ""
+                    self._active_started_monotonic = None
+                    return
+                file_bytes = assembled["data"]
+                filename = assembled["filename"]
+                full_crc_expected = assembled["full_crc"]
+                tid = assembled["last_tid"]
+                self._active_started_monotonic = assembled["started_monotonic"]
+                self._active_total_chunks = assembled["total_chunks"]
+                self._active_received_chunks = assembled["total_chunks"]
+                self._active_total_size = len(file_bytes)
+                calc_crc = crc16_ccitt(file_bytes)
+                crc_ok = calc_crc == full_crc_expected
+            else:
+                full_crc_expected = part_crc_expected
+            expected_crc_for_message = full_crc_expected
+            # ------------------------------------------
+
 
             # Sanitise filename
             safe_name = re.sub(r"[^\w.\-]", "_", filename) or f"rx_{tid}.bin"
@@ -580,7 +596,7 @@ class RXPhysicalBackend:
 
             out_path.write_bytes(file_bytes)
 
-            crc_label = "CRC OK" if crc_ok else f"CRC MISMATCH (got {calc_crc:08X} expected {expected_crc:08X})"
+            crc_label = "CRC OK" if crc_ok else f"CRC MISMATCH (got {calc_crc:04X} expected {expected_crc_for_message:04X})"
             self._log_queue.append({
                 "time": now,
                 "event": "File Received!",
@@ -606,9 +622,9 @@ class RXPhysicalBackend:
             ]
             quality = TransferQuality(
                 label="CRC OK" if crc_ok else "CRC Failed",
-                strict_ber=0.0,
-                bit_accuracy=100.0 if crc_ok else 0.0,
-                bit_errors=0,
+                strict_ber=None,
+                bit_accuracy=None,
+                bit_errors=None,
                 total_bits=len(file_bytes) * 8,
                 compared_bytes=len(file_bytes),
                 missing_chunks=0,
@@ -627,6 +643,7 @@ class RXPhysicalBackend:
                 received_chunks=n_chunks,
                 quality=quality,
                 chunks=chunks,
+                received_path=str(out_path),
             )
             duration_ms = int((time.monotonic() - self._active_started_monotonic) * 1000) if self._active_started_monotonic is not None else 0
             if crc_ok:
@@ -645,6 +662,16 @@ class RXPhysicalBackend:
             self._active_tid = None
             self._active_started_monotonic = None
         except Exception as e:
+            if batch_group_id is not None:
+                self._batch_assembler.discard(batch_group_id)
+            # A rejected or malformed completed-file record must not leave a
+            # phantom active transfer in the dashboard.
+            self._active_tid = None
+            self._active_filename = ""
+            self._active_total_size = 0
+            self._active_total_chunks = 0
+            self._active_received_chunks = 0
+            self._active_started_monotonic = None
             self._log_queue.append({"time": now, "event": "RX File Error", "details": str(e)[:120]})
 
     def _handle_file_crc_fail(self, line: str) -> None:
@@ -666,9 +693,9 @@ class RXPhysicalBackend:
                     import time as _time
                     quality = TransferQuality(
                         label="Firmware CRC Failed",
-                        strict_ber=0.0,
-                        bit_accuracy=0.0,
-                        bit_errors=0,
+                        strict_ber=None,
+                        bit_accuracy=None,
+                        bit_errors=None,
                         total_bits=0,
                         compared_bytes=0,
                         missing_chunks=0,

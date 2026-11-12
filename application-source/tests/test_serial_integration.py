@@ -410,7 +410,7 @@ def test_serial_reader_dispatches_only_complete_fragmented_lines(fake_serial):
         b"RX_FILE_HEX:17:DATA:",
         b"81920:320:ABCD:66696C652E62696E:",
         b"deadbeef" * 8,
-        b"\\n",
+        b"\n",
     ]
     session = SerialSession("tx")
     session.handle_line = lambda line: (received.append(line), completed.set())

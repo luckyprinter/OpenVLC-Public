@@ -69,6 +69,33 @@ def test_console_shell_reflows_without_overlapping_navigation(
     qapp.processEvents()
 
 
+def test_tx_dashboard_uses_real_profile_instead_of_synthetic_bitstream(qapp):
+    from types import SimpleNamespace
+
+    from gui_dev_v3.tx.dashboard import CurrentSessionWidget, TXConfigurationWidget
+
+    state = SimpleNamespace(
+        serial_connected=False,
+        encoding="4B5B",
+        modulation="NRZ / OOK",
+        symbol_rate="15,000 sym/s",
+        led_pin=5,
+        tx_power="100 %",
+        pre_emphasis="Disabled",
+        session_history=[],
+    )
+
+    profile = TXConfigurationWidget()
+    profile.refresh(state)
+    assert profile.row_gpio.val.text() == "GPIO 5"
+    assert "disconnected" in profile._status.text().lower()
+    assert not hasattr(profile, "canvas")
+
+    session = CurrentSessionWidget()
+    session.refresh(state)
+    assert session.row_success.val.text() == "—"
+
+
 def test_theme_picker_shows_curated_presets_and_keeps_saved_legacy_theme(qapp):
     from gui_dev_v3.settings import ThemePickerGrid
 

@@ -629,6 +629,7 @@ class RXPhysicalBackend:
             self._active_tid = None
             self._active_filename = None
             self._active_is_batch = False
+            self._active_started_monotonic = None
             self._active_total_chunks = 0
             self._active_received_chunks = 0
             self._active_total_size = 0
@@ -644,6 +645,12 @@ class RXPhysicalBackend:
                 "details": str(exc)[:160],
             })
             self._active_tid = None
+            self._active_filename = None
+            self._active_is_batch = False
+            self._active_started_monotonic = None
+            self._active_total_chunks = 0
+            self._active_received_chunks = 0
+            self._active_total_size = 0
 
     def _handle_file_crc_fail(self, line: str) -> None:
         """Handle RX_FILE_CRC_FAIL from firmware (firmware detected CRC mismatch)."""

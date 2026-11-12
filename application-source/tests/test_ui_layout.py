@@ -270,6 +270,14 @@ def test_tx_file_manager_stacks_details_on_compact_display(qapp):
     qapp.processEvents()
     assert not page._compact_layout
     assert page._main_layout.direction() == QBoxLayout.Direction.LeftToRight
+    page.resize(1024, 700)
+    qapp.processEvents()
+    header = page.file_table.horizontalHeader()
+    assert header.minimumSectionSize() >= 84
+    assert all(
+        page.file_table.horizontalHeaderItem(column).textAlignment() == Qt.AlignmentFlag.AlignCenter
+        for column in range(page.file_table.columnCount())
+    )
     page.close()
 
 

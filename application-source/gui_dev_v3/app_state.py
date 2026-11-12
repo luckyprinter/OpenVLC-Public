@@ -220,7 +220,8 @@ class RXAppState:
         self.session = _EMPTY_SESSION
         self.signal = _EMPTY_SIGNAL
         self.transfer = _EMPTY_TRANSFER
-        self.using_mock_data = True
+        # An offline physical backend is not simulated or mock data.
+        self.using_mock_data = False
         self.serial_connected = False
 
     def force_connect_serial(self, port: str) -> bool:

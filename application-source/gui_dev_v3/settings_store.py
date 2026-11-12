@@ -8,12 +8,28 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
+from gui_dev_v3.runtime_paths import resolve_user_config_dir
+
 ThemeMode = Literal["graphite_lab", "midnight_navy", "charcoal", "espresso", "synthwave", "arctic_light", "dark", "light"]
 DensityMode = Literal["comfortable", "compact"]
 AccentName = Literal["blue", "cyan", "green", "violet", "amber", "rose", "teal"]
 
-SETTINGS_DIR = Path.home() / ".vlc_rx_app"
+SETTINGS_DIR = resolve_user_config_dir()
 SETTINGS_PATH = SETTINGS_DIR / "settings.json"
+# Previous releases stored this JSON file in a private home-directory folder.
+# Keep it as a read-only migration source; successful saves write the new path
+# and never remove or modify the original file.
+LEGACY_SETTINGS_DIR = Path.home() / ".vlc_rx_app"
+LEGACY_SETTINGS_PATH = LEGACY_SETTINGS_DIR / "settings.json"
+
+
+def _settings_source_path() -> Path:
+    """Prefer the current config file, falling back to the previous location."""
+    if SETTINGS_PATH.exists():
+        return SETTINGS_PATH
+    if LEGACY_SETTINGS_PATH.exists():
+        return LEGACY_SETTINGS_PATH
+    return SETTINGS_PATH
 
 # All 15 resolution presets as (key, width, height) tuples, sorted by increasing width
 RESOLUTION_PRESETS: list[tuple[str, int, int]] = [
@@ -70,10 +86,11 @@ def _read_bool(value: object, default: bool = False) -> bool:
 
 def _read_settings_object() -> tuple[dict[str, object] | None, bool]:
     """Read the settings object and report whether an existing file is malformed."""
-    if not SETTINGS_PATH.exists():
+    source_path = _settings_source_path()
+    if not source_path.exists():
         return None, False
     try:
-        data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        data = json.loads(source_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None, True
     if not isinstance(data, dict):
@@ -129,9 +146,10 @@ def save_settings(
         if not allow_corrupt_recovery:
             return False
         try:
-            original_bytes = SETTINGS_PATH.read_bytes()
-            backup_path = SETTINGS_PATH.with_name(
-                f"{SETTINGS_PATH.name}.corrupt-{time.time_ns()}.bak"
+            source_path = _settings_source_path()
+            original_bytes = source_path.read_bytes()
+            backup_path = source_path.with_name(
+                f"{source_path.name}.corrupt-{time.time_ns()}.bak"
             )
             backup_path.write_bytes(original_bytes)
             if backup_path.read_bytes() != original_bytes:

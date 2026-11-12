@@ -23,7 +23,7 @@ from gui_dev_v3.rx import export_page as export_page_module
 from gui_dev_v3.rx.inspect_page import InspectPage
 from gui_dev_v3.rx.signal_page import SignalMonitorPage
 from gui_dev_v3.settings import SettingsContainer, ThemePickerGrid, SpinSetting
-from gui_dev_v3.tx.dashboard import FileDetailsWidget, TXDashboardPage
+from gui_dev_v3.tx.dashboard import CurrentSessionWidget, FileDetailsWidget, TXDashboardPage
 from gui_dev_v3.tx_app_state import TXAppState
 from gui_dev_v3.tx.placeholders import TransmitPage
 from gui_dev_v3.tx.file_manager_page import FileManagerPage
@@ -593,3 +593,17 @@ def test_rx_export_reads_legacy_history_without_deleting_it(qapp, monkeypatch, t
     assert not current_path.exists()
     assert legacy_path.read_text(encoding="utf-8") == raw
     page.close()
+
+def test_offline_dashboard_metrics_are_unavailable_not_zero_or_perfect(qapp):
+    tx_panel = CurrentSessionWidget()
+    tx_panel.refresh(SimpleNamespace(session_history=[]))
+    assert tx_panel.row_sent.val.text() == "0"
+    assert tx_panel.row_success.val.text() == "—"
+
+    rx_page = RXDashboardPage(RXAppState())
+    assert rx_page._signal_mon.pvo_row.val.text() == "—"
+    assert rx_page._signal_mon.vref_row.val.text() == "—"
+    assert rx_page._perf.margin_row.val.text() == "—"
+    assert rx_page._file_info.pct_row.val.text() == "—"
+    tx_panel.close()
+    rx_page.close()

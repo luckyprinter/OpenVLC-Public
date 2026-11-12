@@ -143,7 +143,7 @@ OpenVLC-Public/
 
 The `application-source/` directory contains the Python/PySide6 source code for the transmitter and receiver applications.
 
-The source includes transmitter and receiver control, USB serial communication, transmission/reception status monitoring, signal visualization, payload handling, reconstruction, experimental logging, and simulation-related components.
+The source includes transmitter and receiver control, USB serial communication, transmission/reception status monitoring, signal visualization, payload handling, reconstruction, experimental logging, and physical ESP32 hardware integration.
 
 ### Running from Source
 

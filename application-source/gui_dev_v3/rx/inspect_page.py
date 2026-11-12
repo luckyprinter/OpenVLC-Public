@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QFileDialog,
+    QMessageBox,
 )
 
 import os
@@ -436,7 +437,14 @@ class InspectPage(QWidget):
         if filepath:
             state = self._get_state()
             if state:
-                state.load_expected_file(filepath)
+                try:
+                    state.load_expected_file(filepath)
+                except OSError as exc:
+                    QMessageBox.warning(
+                        self,
+                        "Reference File Unavailable",
+                        f"The selected file could not be loaded for Method 2 comparison.\\n\\n{exc}",
+                    )
 
     def _on_inspect_clear_ref(self) -> None:
         state = self._get_state()

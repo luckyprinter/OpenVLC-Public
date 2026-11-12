@@ -48,7 +48,8 @@ def test_rx_default_link_configuration_command_order(monkeypatch):
     backend._pwm_autocal_target_mv = 0
     backend._pwm_autocal_converged = False
     commands = []
-    backend.send_command = commands.append
+    backend.send_command = lambda command: (commands.append(command) or True)
+    backend.log = lambda *_args, **_kwargs: None
 
     backend.apply_link_settings()
 

@@ -117,6 +117,42 @@ def test_tx_dashboard_uses_saved_profile_instead_of_synthetic_bitstream(qapp):
     assert not file_details.start_btn.isEnabled()
 
 
+def test_rx_dashboard_does_not_present_offline_defaults_as_measurements(qapp):
+    from types import SimpleNamespace
+
+    from gui_dev_v3.rx.dashboard import _PerformanceMetricsPanel, _SignalMonitorPanel
+
+    state = SimpleNamespace(
+        serial_connected=False,
+        signal=SimpleNamespace(
+            ber=0.0,
+            strict_ber=0.0,
+            crc_status="",
+            margin=0.0,
+            data_rate=0.0,
+            pvo=0.0,
+            vref=0.0,
+            adc_vref=0.0,
+            lux=0,
+        ),
+        transfer=SimpleNamespace(total_chunks=0, received_chunks=0),
+    )
+
+    performance = _PerformanceMetricsPanel()
+    performance.refresh(state)
+    assert performance.ber_row.val.text() == "—"
+    assert performance.strict_ber_row.val.text() == "—"
+    assert performance.margin_row.val.text() == "—"
+    assert performance.data_rate_row.val.text() == "—"
+
+    signal = _SignalMonitorPanel()
+    signal.refresh(state)
+    assert signal.pvo_row.val.text() == "—"
+    assert signal.vref_row.val.text() == "—"
+    assert signal.adc_vref_row.val.text() == "—"
+    assert signal.lux_row.val.text() == "—"
+
+
 def test_theme_picker_shows_curated_presets_and_keeps_saved_legacy_theme(qapp):
     from gui_dev_v3.settings import ThemePickerGrid
 

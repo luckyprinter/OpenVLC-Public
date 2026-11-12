@@ -342,9 +342,9 @@ class RXShell(QWidget):
         for label, page_key, icon_name in SIDEBAR_TABS:
             # Add icon + text to nav
             try:
-                icon = qta.icon(icon_name)
+                icon = qta.icon(icon_name, color=COLORS["text"])
             except Exception:
-                icon = qta.icon("fa5s.circle")  # Fallback
+                icon = qta.icon("fa5s.circle", color=COLORS["text"])  # Fallback
             item = add_navigation_item(self.nav, icon, label)
             self._nav_items.append((item, label))
             page = page_map.get(page_key)

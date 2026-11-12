@@ -574,7 +574,7 @@ class ExportPage(QWidget):
             # BER
             ber = entry.get("ber")
             ber_is_measured = (
-                entry.get("ber_method") in {"method2", "method2_reference_file"}
+                entry.get("ber_method") == "method2_reference_file"
                 and isinstance(ber, (int, float))
             )
             ber_txt = f"{ber:.4%}" if ber_is_measured else "N/A"

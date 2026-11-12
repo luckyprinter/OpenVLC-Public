@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from .transfer_plan import MAX_BATCH_PARTS, plan_stream_parts
+from gui_dev_v3.runtime_paths import configure_runtime_data_dir
 from .session import (
     MAX_STREAM_FILE_BYTES,
     MAX_NAME_BYTES,
@@ -564,9 +565,10 @@ class RXSerialController(SerialSession):
         save_dir: str | Path | None = None,
     ) -> None:
         super().__init__(role="rx", on_log=on_log, on_status=on_status)
-        # Directory where received files are saved (defaults to ~/vlc_rx_captures)
+        # Keep this compatibility controller aligned with the active RX
+        # backend's application-owned received-file directory.
         self._save_dir: Path = (
-            Path(save_dir) if save_dir else Path.home() / "vlc_rx_captures"
+            Path(save_dir) if save_dir else configure_runtime_data_dir() / "received"
         )
 
     # ── Firmware line parser ─────────────────────────────────────────────────

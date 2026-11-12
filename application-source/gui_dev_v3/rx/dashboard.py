@@ -36,6 +36,7 @@ from gui_dev_v3.widgets import (
     value_label,
 )
 from gui_dev_v3.rx.signal_widgets import OOKWaveformWidget, SignalWaveform
+from gui_dev_v3.ui_foundation import PageIntro
 
 
 import math
@@ -340,20 +341,13 @@ class RXDashboardPage(QWidget):
         outer.setContentsMargins(20, 16, 20, 16)
         outer.setSpacing(14)
 
-        # Receiver page identity and a concise description of its purpose.
-        intro = QVBoxLayout()
-        intro.setContentsMargins(2, 0, 2, 2)
-        intro.setSpacing(3)
-        eyebrow = QLabel("RECEIVER  /  MONITORING")
-        eyebrow.setObjectName("SectionTitle")
-        heading = QLabel("Reception overview")
-        heading.setStyleSheet("font-size: 21px; font-weight: 750; letter-spacing: -0.4px; background: transparent;")
-        description = QLabel("Track link quality, signal levels, file progress, and decoder state.")
-        description.setObjectName("Muted")
-        intro.addWidget(eyebrow)
-        intro.addWidget(heading)
-        intro.addWidget(description)
-        outer.addLayout(intro)
+        # Shared page identity keeps TX and RX hierarchy consistent.
+        outer.addWidget(PageIntro(
+            "RECEIVER  /  MONITORING",
+            "Reception overview",
+            "Track link quality, signal levels, file progress, and decoder state.",
+            self,
+        ))
 
         # At-a-glance link and signal indicators remain grouped together.
         self._reception = _ReceptionStatusPanel(state)

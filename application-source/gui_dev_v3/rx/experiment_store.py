@@ -3,13 +3,27 @@
 from __future__ import annotations
 
 import json
+import os
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-STORE_DIR = Path.home() / ".vlc_rx"
+def _resolve_store_dir() -> Path:
+    """Resolve experiment records to the application-owned state directory."""
+    env = os.getenv("VLC_DATA_DIR")
+    if env:
+        return Path(env).expanduser() / "state"
+    return Path(__file__).resolve().parents[2] / "state"
+
+
+STORE_DIR = _resolve_store_dir()
 STORE_PATH = STORE_DIR / "experiments.json"
+
+
+class ExperimentStoreError(RuntimeError):
+    """Raised when an unsafe store write would risk existing user data."""
+
 
 
 @dataclass
@@ -23,21 +37,37 @@ class Experiment:
     record_count: int = 0
 
 
-def _load_all() -> list[dict[str, Any]]:
-    """Load only user-created experiments; a fresh install starts empty."""
+def _read_all() -> tuple[list[dict[str, Any]], bool]:
+    """Return records and whether the existing store is unreadable or malformed."""
     if not STORE_PATH.exists():
-        return []
+        return [], False
     try:
         data = json.loads(STORE_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        # Leave damaged data untouched so it can be recovered manually.
-        return []
-    return data if isinstance(data, list) else []
+        return [], True
+    if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
+        return [], True
+    return data, False
+
+
+def _load_all() -> list[dict[str, Any]]:
+    """Load only user-created experiments; a fresh install starts empty."""
+    records, _corrupt = _read_all()
+    return records
 
 
 def _save_all(items: list[dict[str, Any]]) -> None:
+    # Recheck the on-disk file immediately before writing. If it is corrupt,
+    # never replace it with an empty list or a partial reconstruction.
+    _existing, corrupt = _read_all()
+    if corrupt:
+        raise ExperimentStoreError(
+            f"Experiment store is unreadable; existing data was left untouched: {STORE_PATH}"
+        )
     STORE_DIR.mkdir(parents=True, exist_ok=True)
-    STORE_PATH.write_text(json.dumps(items, indent=2), encoding="utf-8")
+    temporary = STORE_PATH.with_suffix(".tmp")
+    temporary.write_text(json.dumps(items, indent=2), encoding="utf-8")
+    temporary.replace(STORE_PATH)
 
 
 def list_experiments() -> list[Experiment]:

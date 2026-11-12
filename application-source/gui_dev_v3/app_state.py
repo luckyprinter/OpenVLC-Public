@@ -37,6 +37,8 @@ class RXAppState:
     serial_connected: bool = False
     expected_file_path: str | None = None
     expected_file_data: bytes | None = None
+    _method2_cache_key: tuple | None = field(default=None, init=False, repr=False)
+    _method2_cache: dict | None = field(default=None, init=False, repr=False)
     current_capture: SessionCapture | None = None
     _subscribers: list[StateSubscriber] = field(default_factory=list, init=False, repr=False)
     _lock: __import__("threading").Lock = field(default_factory=__import__("threading").Lock, init=False, repr=False)
@@ -93,26 +95,52 @@ class RXAppState:
             self.settings = settings
         self.notify()
 
-    def load_expected_file(self, filepath: str) -> None:
-        """Load expected/original reference file bytes for BER comparison."""
+    def get_method2_comparison(self) -> dict | None:
+        """Return a cached byte-for-byte comparison against the selected reference file."""
+        with self._lock:
+            expected_path = self.expected_file_path
+            transfer = self._session.latest_transfer if self._session else None
+        if not expected_path or transfer is None or not transfer.received_path:
+            return None
+        expected, received = Path(expected_path), Path(transfer.received_path)
         try:
-            with open(filepath, "rb") as f:
-                data = f.read()
-            with self._lock:
-                self.expected_file_data = data
-                self.expected_file_path = filepath
-            self._refresh()
-            self.notify()
-        except Exception:
-            pass
+            expected_stat, received_stat = expected.stat(), received.stat()
+        except OSError:
+            return None
+        key = (transfer.tid, str(expected), str(received), expected_stat.st_size,
+               expected_stat.st_mtime_ns, received_stat.st_size, received_stat.st_mtime_ns)
+        with self._lock:
+            if key == self._method2_cache_key:
+                return self._method2_cache
+        try:
+            from gui_dev_v3.logic.ber_bridge import compare_files
+            result = compare_files(expected, received)
+        except (OSError, ValueError):
+            return None
+        with self._lock:
+            self._method2_cache_key, self._method2_cache = key, result
+        return result
+
+    def load_expected_file(self, filepath: str) -> None:
+        """Set the original reference path without loading a large file into RAM."""
+        path = Path(filepath).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"Reference file not found: {path}")
+        with self._lock:
+            self.expected_file_path = str(path)
+            self.expected_file_data = None
+            self._method2_cache_key = None
+            self._method2_cache = None
+        self.notify()
 
     def clear_expected_file(self) -> None:
-        """Clear the loaded expected/original reference file."""
         with self._lock:
             self.expected_file_path = None
             self.expected_file_data = None
-        self._refresh()
+            self._method2_cache_key = None
+            self._method2_cache = None
         self.notify()
+
 
     def send_firmware_command(self, cmd: str) -> bool:
         """Send command to the connected physical firmware."""
@@ -217,7 +245,8 @@ class RXAppState:
                         tid=current_tid,
                         timestamp=timestamp,
                         filename=self.session.latest_transfer.filename if self.session.latest_transfer else "unknown.bin",
-                        ber=self.signal.ber,
+                        ber=(self.get_method2_comparison() or {}).get("strict_ber"),
+                        ber_method="method2" if self.get_method2_comparison() is not None else None,
                         crc_status=self.signal.crc_status,
                         throughput_kbps=round(throughput, 3),
                         analog_time=self._phys_time,

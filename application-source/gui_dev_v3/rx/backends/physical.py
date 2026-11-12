@@ -580,12 +580,12 @@ class RXPhysicalBackend:
             from gui_dev_v3.models import TransferQuality, TransferStatus, TransferRecord
             import time as _time
             quality = TransferQuality(
-                label="CRC OK" if crc_ok else "CRC Failed",
-                strict_ber=0.0 if crc_ok else 1.0,
-                bit_accuracy=100.0 if crc_ok else 0.0,
-                bit_errors=0 if crc_ok else len(file_bytes) * 8,
-                total_bits=len(file_bytes) * 8,
-                compared_bytes=len(file_bytes),
+                label="CRC OK — Method 2 reference comparison pending" if crc_ok else "CRC Failed — Method 2 reference comparison pending",
+                strict_ber=None,
+                bit_accuracy=None,
+                bit_errors=None,
+                total_bits=0,
+                compared_bytes=0,
                 missing_chunks=0,
                 missing_bytes=0,
                 first_issue=None if crc_ok else "CRC mismatch",
@@ -614,6 +614,7 @@ class RXPhysicalBackend:
                 received_chunks=len(chunks),
                 chunks=chunks,
                 quality=quality,
+                received_path=str(out_path),
             )
             self._active_tid = None
             self._active_filename = None

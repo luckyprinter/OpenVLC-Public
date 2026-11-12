@@ -86,9 +86,9 @@ def _parse_transfer_record(data: dict[str, Any]) -> TransferRecord | None:
 
         quality = TransferQuality(
             label=str(signal_data.get("quality_status") or "Unknown"),
-            strict_ber=0.0,
-            bit_accuracy=100.0,
-            bit_errors=0,
+            strict_ber=None,
+            bit_accuracy=None,
+            bit_errors=None,
             total_bits=size_bytes * 8,
             compared_bytes=0,
             missing_chunks=len(missing),
@@ -120,6 +120,7 @@ def _parse_transfer_record(data: dict[str, Any]) -> TransferRecord | None:
             received_chunks=received_chunks,
             quality=quality,
             chunks=chunk_list,
+            received_path=str(data.get("received_path")) if data.get("received_path") else None,
         )
     except (ValueError, TypeError, KeyError) as exc:
         print(f"Failed to parse transfer record: {exc}")
@@ -239,7 +240,8 @@ def load_session_capture(tid: int) -> SessionCapture | None:
             tid=int(data["tid"]),
             timestamp=str(data["timestamp"]),
             filename=str(data["filename"]),
-            ber=float(data["ber"]),
+            ber=float(data["ber"]) if data.get("ber_method") == "method2" and data.get("ber") is not None else None,
+            ber_method="method2" if data.get("ber_method") == "method2" else None,
             crc_status=str(data["crc_status"]),
             throughput_kbps=float(data["throughput_kbps"]),
             analog_time=list(data["analog_time"]),

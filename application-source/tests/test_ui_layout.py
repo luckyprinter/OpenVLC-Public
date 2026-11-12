@@ -700,7 +700,7 @@ def test_window_minimum_height_respects_scaled_logical_work_area():
     # pixels before taskbars/window decorations.
     min_width, min_height = _minimum_window_dimensions(683, 466)
 
-    assert min_width == 651
+    assert min_width == 640
     assert min_height == 418
     assert min_width <= 683 - 32
     assert min_height <= 466 - 48

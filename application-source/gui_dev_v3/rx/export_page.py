@@ -36,7 +36,15 @@ from gui_dev_v3.widgets import Card, muted_label, value_label, panel_header, Det
 from gui_dev_v3.data.records import load_session_capture
 
 
-HISTORY_DIR = Path.home() / ".vlc_rx"
+def _resolve_history_dir() -> Path:
+    """Resolve export history to the application-owned state directory."""
+    env = os.getenv("VLC_DATA_DIR")
+    if env:
+        return Path(env).expanduser() / "state"
+    return Path(__file__).resolve().parents[2] / "state"
+
+
+HISTORY_DIR = _resolve_history_dir()
 HISTORY_PATH = HISTORY_DIR / "transfer_history.json"
 
 

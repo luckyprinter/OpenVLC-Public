@@ -511,6 +511,8 @@ class RXPhysicalBackend:
 
             tid = int(parts[1])
             total_size = int(parts[3])
+            part_total_chunks = int(parts[4])
+            part_crc_expected = int(parts[5], 16)
             crc_expected_hex = parts[5]
             name_hex = parts[6]
             data_hex = parts[7]

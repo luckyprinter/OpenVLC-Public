@@ -24,7 +24,7 @@ High-frequency sampler (100 ms) feeds the waveform buffer.
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QFrame,
@@ -48,7 +48,6 @@ from gui_dev_v3.rx.signal_widgets import (
     CircularGauge,
     MarginScaleBar,
     MetricCard,
-    OOKWaveformWidget,
     QualityBar,
     SignalWaveform,
 )
@@ -238,21 +237,15 @@ class SignalMonitorPage(QWidget):
         super().__init__(parent)
         self._state = state
         self._settings_mgr = SettingsManager("rx")
-        self._paused = False
-        self._time_window = 30  # seconds for waveform
-        self._waveform_buffer: list = []
+        self._sample_interval_ms = 1000
+        self._last_sample_monotonic: float | None = None
+        self._waveform_start_monotonic: float | None = None
         self._pvo_hist: list[float] = []
         self._vref_hist: list[float] = []
         self._margin_hist: list[float] = []
-        self._last_ook_chunk: int = -1  # track chunk index for OOK update
         self._compact_layout = False
 
         self._build_ui()
-
-        # High-frequency sampler (100 ms)
-        self._sample_timer = QTimer(self)
-        self._sample_timer.timeout.connect(self._sample_waveform)
-        self._sample_timer.start(100)
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         """Reflow signal diagnostics into a scrollable single-column workspace."""
@@ -279,23 +272,9 @@ class SignalMonitorPage(QWidget):
             self._middle_splitter.setSizes([460, 300, 300])
             self._bottom_splitter.setSizes([450, 450])
 
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        if hasattr(self, "_sample_timer") and not self._sample_timer.isActive():
-            self._sample_timer.start(100)
-
-    def hideEvent(self, event) -> None:
-        super().hideEvent(event)
-        if hasattr(self, "_sample_timer") and self._sample_timer.isActive():
-            self._sample_timer.stop()
-
     def shutdown(self) -> None:
-        if hasattr(self, "_sample_timer"):
-            self._sample_timer.stop()
-            try:
-                self._sample_timer.timeout.disconnect()
-            except Exception:
-                pass
+        """Stop live trend updates when the receiver console is closing."""
+        self._signal_waveform.set_paused(True)
 
     # ------------------------------------------------------------------
     # UI Construction
@@ -371,15 +350,19 @@ class SignalMonitorPage(QWidget):
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(True)
 
-        # Left: Analog and digital traces stacked vertically (stretch 7)
+        # Left: measured receiver telemetry trend. Raw OOK samples are not
+        # currently streamed by firmware, so do not synthesize a bit waveform
+        # from repeated low-rate PVo/Vref status values.
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(6)
 
-        self._ook_widget = OOKWaveformWidget(parent=left_widget)
-        self._ook_widget.setMinimumHeight(280)
-        left_layout.addWidget(self._ook_widget, 1)
+        self._signal_waveform = SignalWaveform(parent=left_widget)
+        self._signal_waveform.setMinimumHeight(280)
+        self._signal_waveform._dt = 1.0
+        self._signal_waveform.refresh_rate_changed.connect(self._on_sample_interval_changed)
+        left_layout.addWidget(self._signal_waveform, 1)
 
         splitter.addWidget(left_widget)
 
@@ -418,10 +401,10 @@ class SignalMonitorPage(QWidget):
         rows = [
             ("ADC Code (estimated)", "adc_raw"),
             ("ADC Voltage", "adc_voltage"),
-            ("Comparator Output", "comparator"),
+            ("PVo vs Vref", "comparator"),
             ("Threshold (Vref)", "threshold_vref"),
-            ("Photodiode Status", "photodiode"),
-            ("Relative Light Estimate", "ambient_light"),
+            ("PVo Activity (derived)", "photodiode"),
+            ("Illuminance (lux)", "ambient_light"),
             ("ADC Reference (nominal)", "supply_voltage"),
             ("Vref Mode", "vref_mode"),
             ("Vref Target", "vref_target"),
@@ -575,35 +558,56 @@ class SignalMonitorPage(QWidget):
     # --- Status Bar Removed ---
 
     # ------------------------------------------------------------------
-    # High-Frequency Sampler
+    # Telemetry sampling (called by the shell's one-second refresh)
     # ------------------------------------------------------------------
 
-    def _sample_waveform(self) -> None:
-        """Append current signal samples to waveform buffer (100 ms interval)."""
-        if self._paused:
-            return
-        sig = self._state.signal
-        if not self._state.serial_connected or _is_empty(sig):
-            return
-        pvo = sig.pvo
-        vref = sig.vref
-        margin = sig.margin
-        self._ook_widget.set_from_pvo_vref(pvo, vref)
-        self._pvo_hist.append(pvo)
-        self._vref_hist.append(vref)
-        self._margin_hist.append(margin)
+    def _on_sample_interval_changed(self, interval_ms: int) -> None:
+        """Apply a sampling interval no faster than the hardware telemetry."""
+        self._sample_interval_ms = max(1000, int(interval_ms))
 
-        # Cap history lists to prevent growth
-        for hist in (self._pvo_hist, self._vref_hist, self._margin_hist):
-            if len(hist) > 60:
-                hist[:] = hist[-60:]
+    def _append_telemetry_sample(self, state: RXAppState) -> None:
+        """Append one actual PVo/Vref telemetry update, never repeated timer copies."""
+        import time
+
+        if not state.serial_connected or _is_empty(state.signal):
+            self._pvo_hist.clear()
+            self._vref_hist.clear()
+            self._margin_hist.clear()
+            self._signal_waveform.clear_data()
+            self._last_sample_monotonic = None
+            self._waveform_start_monotonic = None
+            return
+
+        now = time.monotonic()
+        if (
+            self._last_sample_monotonic is not None
+            and (now - self._last_sample_monotonic) * 1000 < self._sample_interval_ms
+        ):
+            return
+
+        if self._waveform_start_monotonic is None:
+            self._waveform_start_monotonic = now
+        elapsed = now - self._waveform_start_monotonic
+        sig = state.signal
+        self._signal_waveform.add_sample(
+            sig.pvo, sig.vref, sig.margin, elapsed_time=elapsed
+        )
+        self._pvo_hist.append(sig.pvo)
+        self._vref_hist.append(sig.vref)
+        self._margin_hist.append(sig.margin)
+        for history in (self._pvo_hist, self._vref_hist, self._margin_hist):
+            if len(history) > 60:
+                del history[:-60]
+        self._last_sample_monotonic = now
 
     # ------------------------------------------------------------------
     # 1-second Refresh (called by shell timer)
     # ------------------------------------------------------------------
 
     def refresh(self, state: RXAppState) -> None:
-        """Update all widgets from the latest state. Called every 1 second."""
+        """Update all widgets from the latest physical telemetry snapshot."""
+        self._state = state
+        self._append_telemetry_sample(state)
         sig = state.signal
         transfer = state.transfer
         quality = transfer.quality
@@ -614,7 +618,6 @@ class SignalMonitorPage(QWidget):
             self._pvo_hist.clear()
             self._vref_hist.clear()
             self._margin_hist.clear()
-            self._ook_widget.clear()
             self._metric_pvo.set_value("—")
             self._metric_vref.set_value("—")
             self._metric_margin.set_value("—")
@@ -673,8 +676,8 @@ class SignalMonitorPage(QWidget):
                 _set_status_label(self._diag_labels[key], "\u2014", "default")
         else:
             adc_raw = int(sig.pvo / 3.3 * 4096)
-            comp = "HIGH" if sig.pvo > sig.vref else "LOW"
-            photo_status = "ACTIVE" if sig.pvo > 0.01 else "INACTIVE"
+            comp = "ABOVE" if sig.pvo > sig.vref else "BELOW"
+            photo_status = "PRESENT" if sig.pvo > 0.01 else "LOW"
             vref_target = f"{sig.pvo - sig.target_margin:.2f} V"
             vref_error = f"{sig.vref - (sig.pvo - sig.target_margin):+.2f} V"
 

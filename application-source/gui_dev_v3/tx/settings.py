@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QBoxLayout, QWidget, QPushButton, QSizePolicy
 
 from gui_dev_v3.settings import (
     BrowseButton,
@@ -160,8 +160,13 @@ class HardwareConnectionPage(QWidget):
         bind_radio_group(mode_group, mgr, "connection/mode", "Auto Detect (Recommended)")
         self.opts_card.body.addWidget(mode_group)
 
-        port_layout = QHBoxLayout()
+        self._port_row_compact = True
+        port_layout = QBoxLayout(QBoxLayout.Direction.TopToBottom)
+        self._port_layout = port_layout
+        port_layout.setSpacing(8)
         self.port_combo = ComboSetting([], "")
+        self.port_combo.setMinimumWidth(0)
+        self.port_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         from gui_dev_v3.tx.backends.physical import _list_usb_serial_ports
         
         def _refresh_ports():
@@ -266,6 +271,19 @@ class HardwareConnectionPage(QWidget):
         lo.addStretch(1)
 
 
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Keep the port selector and connection actions reachable at narrow widths."""
+        super().resizeEvent(event)
+        compact = self.width() < 560
+        if compact == self._port_row_compact:
+            return
+        self._port_row_compact = compact
+        self._port_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self._port_layout.setSpacing(8 if compact else 6)
 
     def refresh(self, state: TXAppState) -> None:
         if state is None:

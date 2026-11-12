@@ -24,6 +24,7 @@ from gui_dev_v3.data.session import build_empty_session, build_session_from_stat
 from gui_dev_v3.data.status import read_status
 from gui_dev_v3.models import SessionState, SignalState, TransferRecord, TransferStatus
 from gui_dev_v3.logic.batch_assembler import BatchAssembler
+from gui_dev_v3.runtime_paths import configure_runtime_data_dir
 
 STATUS_FRESHNESS_SEC = 30.0
 
@@ -104,7 +105,7 @@ class RXPhysicalBackend:
         self._active_received_chunks: int = 0
         self._active_filename: str = ""
         self._active_total_size: int = 0
-        self._save_dir: Path = Path.home() / "vlc_rx_captures"
+        self._save_dir: Path = configure_runtime_data_dir() / "received"
         # Last completed transfer — persisted so UI tabs can read it after reception
         self._last_completed_transfer: TransferRecord | None = None
         # Vref PWM auto-calibrator state

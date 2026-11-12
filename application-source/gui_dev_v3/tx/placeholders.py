@@ -151,9 +151,19 @@ class TransmitPage(QWidget):
             self.start_btn.style().polish(self.start_btn)
             return
 
-        # Start the batch
-        # Find if there are queued items
-        queued_items = [i for i, item in enumerate(self.state.transmission_queue) if item["status"] == "Queued"]
+        # Starting a real batch requires both connected hardware and
+        # at least one queued file. Keep the stop action available while active.
+        if not self.state.serial_connected:
+            QMessageBox.information(
+                self, "Hardware Disconnected",
+                "Connect the transmitter before starting a batch.",
+            )
+            return
+
+        queued_items = [
+            i for i, item in enumerate(self.state.transmission_queue)
+            if item["status"] == "Queued"
+        ]
         if not queued_items:
             QMessageBox.information(
                 self, "Queue Empty", 
@@ -228,6 +238,18 @@ class TransmitPage(QWidget):
             self.history_table.setItem(row, 3, outcome_item)
         self.history_table.setSortingEnabled(True)
         self.history_table.blockSignals(False)
+
+        has_queued_items = any(
+            item.get("status") == "Queued" for item in state.transmission_queue
+        )
+        can_start = self._batch_active or (
+            state.serial_connected and has_queued_items
+        )
+        self.start_btn.setEnabled(can_start)
+        self.start_btn.setToolTip(
+            "Stop the active batch" if self._batch_active
+            else "Connect hardware and queue at least one file to start"
+        )
 
         # 3. Batch State Machine Processing
         if self._batch_active:

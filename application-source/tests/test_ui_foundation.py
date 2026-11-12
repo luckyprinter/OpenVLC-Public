@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication
 from gui_dev_v3.ui_foundation import (
     PageIntro,
     SidebarNavigationList,
+    WorkspaceHeader,
     add_navigation_item,
 )
 
@@ -72,3 +73,21 @@ def test_sidebar_navigation_is_keyboard_accessible(qapp: QApplication) -> None:
     assert item.toolTip() == "Signal"
 
     navigation.close()
+
+
+def test_workspace_header_collapses_supplemental_label_on_narrow_width(
+    qapp: QApplication,
+) -> None:
+    header = WorkspaceHeader("RECEIVER WORKSPACE")
+    header.resize(420, 52)
+    header.show()
+    qapp.processEvents()
+
+    assert header.page_heading.text() == "Dashboard"
+    assert not header.workspace_label.isVisible()
+
+    header.resize(640, 52)
+    qapp.processEvents()
+    assert header.workspace_label.isVisible()
+
+    header.close()

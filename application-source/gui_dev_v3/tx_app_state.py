@@ -43,7 +43,6 @@ class TXAppState:
     using_mock_data: bool = False
     record_count: int = 0
     tid: int = 0
-    mode: str = "physical"
     current_capture: SessionCapture | None = None
     transmission_queue: list[dict[str, Any]] = field(default_factory=list)
     session_history: list[dict[str, Any]] = field(default_factory=list)
@@ -71,16 +70,6 @@ class TXAppState:
             subs = list(self._subscribers)
         for callback in subs:
             callback(self)
-
-    def set_mode(self, mode: str) -> None:
-        """Compatibility guard: this application supports physical hardware only."""
-        if mode == self.mode:
-            return
-        if mode != "physical":
-            raise ValueError("Only physical hardware mode is supported.")
-        self.mode = "physical"
-        self._refresh()
-        self.notify()
 
     def _refresh(self) -> None:
         """Refresh state from the physical ESP32 transmitter backend."""

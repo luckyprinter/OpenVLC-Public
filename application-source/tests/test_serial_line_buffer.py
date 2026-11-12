@@ -1,4 +1,5 @@
 from gui_dev_v3.serial.line_buffer import SerialLineBuffer
+from gui_dev_v3.serial.session import MAX_SERIAL_LINE_BYTES
 
 
 def test_large_hex_line_is_emitted_only_after_newline():
@@ -25,3 +26,15 @@ def test_overlong_line_is_discarded_and_next_line_recovers():
     assert buffer.feed(b"123456789") == []
     assert buffer.overflow_count == 1
     assert buffer.feed(b"discarded\nOK\n") == ["OK"]
+
+
+def test_session_limit_accepts_maximum_dma_hex_line():
+    payload = b"\xAB" * (512 * 1024)
+    line = b"RX_FILE_HEX:" + payload.hex().encode() + b"\n"
+    buffer = SerialLineBuffer(max_line_bytes=MAX_SERIAL_LINE_BYTES)
+    lines = []
+    for offset in range(0, len(line), 64 * 1024):
+        lines.extend(buffer.feed(line[offset:offset + 64 * 1024]))
+
+    assert len(lines) == 1
+    assert len(lines[0]) == len(line) - 1

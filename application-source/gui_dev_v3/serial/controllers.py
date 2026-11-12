@@ -204,6 +204,10 @@ class TXSerialController(SerialSession):
                 )
                 return False
 
+            batch_total_chunks = sum(
+                (min(part_size, len(data) - offset) + chunk_size - 1) // chunk_size
+                for offset in range(0, len(data), part_size)
+            )
             self.status(
                 "Batching large file",
                 f"{len(data):,} B split into {part_count} parts",
@@ -256,8 +260,8 @@ class TXSerialController(SerialSession):
                 file_name=path.name,
                 size=len(data),
                 tid=part_tid,
-                chunk=part_count,
-                total_chunks=part_count,
+                chunk=batch_total_chunks,
+                total_chunks=batch_total_chunks,
                 elapsed_time=elapsed_label,
                 data_rate=data_rate,
             )

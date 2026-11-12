@@ -426,6 +426,8 @@ def test_rx_export_preserves_unreadable_history_instead_of_overwriting(qapp, mon
 
     page = ExportPage()
     assert page._history_data == []
+    page._history_data.append({"tid": 99, "filename": "must-not-overwrite.bin"})
+    page._save_history()
     assert history_path.read_text(encoding="utf-8") == "{ invalid json"
     page.close()
 

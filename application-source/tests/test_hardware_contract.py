@@ -82,7 +82,7 @@ def test_method2_identical_file_has_zero_ber() -> None:
 
     assert result["strict_bit_errors"] == 0
     assert result["overlap_ber"] == 0.0
-    assert result["strict_ber"] == 0.0
+    assert result["strict_ber"] is None
     assert result["length_delta"] == 0
 
 

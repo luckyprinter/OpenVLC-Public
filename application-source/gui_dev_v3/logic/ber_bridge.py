@@ -1,6 +1,7 @@
 """BER and transfer quality logic — copied from vlc_migration and enhanced with beta helpers."""
 
 from __future__ import annotations
+from pathlib import Path
 import os
 from gui_dev_v3.models import ChunkRecord, ChunkStatus, TransferQuality
 

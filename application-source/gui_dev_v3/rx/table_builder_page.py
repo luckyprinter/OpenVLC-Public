@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import csv
 import io
-import math
-import random
 from typing import Any
 
 from PySide6.QtCore import Qt, QTimer
@@ -274,7 +272,7 @@ class TableBuilderPage(QWidget):
         btn_row.setSpacing(16)
         layout.addLayout(btn_row)
 
-        preview_btn = QPushButton("  \U0001f50d  Preview Table")
+        preview_btn = QPushButton("Preview Blank Template")
         preview_btn.setMinimumHeight(38)
         preview_btn.setStyleSheet(
             f"background: {COLORS.get('purple', '#7c3aed')}; color: white; "
@@ -283,7 +281,7 @@ class TableBuilderPage(QWidget):
         preview_btn.clicked.connect(self._on_preview)
         btn_row.addWidget(preview_btn)
 
-        generate_btn = QPushButton("  \u2699  Generate Table")
+        generate_btn = QPushButton("Create Blank Table")
         generate_btn.setMinimumHeight(38)
         generate_btn.setObjectName("Primary")
         generate_btn.clicked.connect(self._on_generate)
@@ -508,6 +506,14 @@ class TableBuilderPage(QWidget):
 
         title_row.addStretch(1)
 
+        self._preview_notice = QLabel(
+            "Template only — cells are intentionally blank. Enter actual measurements "
+            "before exporting; no synthetic test data is generated."
+        )
+        self._preview_notice.setObjectName("Muted")
+        self._preview_notice.setWordWrap(True)
+        layout.addWidget(self._preview_notice)
+
         back_btn = QPushButton("  \u2190  Back to Builder")
         back_btn.clicked.connect(self._show_builder)
         back_btn.setMinimumHeight(32)
@@ -570,7 +576,7 @@ class TableBuilderPage(QWidget):
         self._preview_view.show()
 
     def _on_preview(self) -> None:
-        """Preview with mock data — relies on selected columns."""
+        """Preview a blank table template using the selected columns."""
         if not self._selected_keys:
             return
         self._generate_table_data(preview=True)
@@ -621,315 +627,49 @@ class TableBuilderPage(QWidget):
         return labels
 
     def _generate_table_data(self, preview: bool = True) -> None:
-        """Generate mock data matching the experiment pattern from Image 3."""
+        """Create a blank table template; never fabricate experimental measurements."""
         keys = self._get_column_keys()
         labels = self._get_column_labels()
         n_rows = self._rows_spin.value()
 
-        # Build realistic mock data
-        rows: list[list[str]] = []
-        for i in range(n_rows):
-            dist = 1.0 + i * 0.5  # 1.0, 1.5, 2.0, ...
-            row: list[str] = []
-            for key in keys:
-                val = self._compute_mock_value(key, dist, i, n_rows)
-                row.append(val)
-            rows.append(row)
+        # A trial number is a row identifier, not a measured value. All
+        # experimental fields remain empty until the user supplies real data.
+        rows = [
+            [str(row + 1) if key == "trial_col" else "" for key in keys]
+            for row in range(n_rows)
+        ]
 
         self._preview_title.setText(
-            f"GENERATED TABLE PREVIEW — {self._name_input.text()}"
+            f"TABLE TEMPLATE PREVIEW — {self._name_input.text()}"
+        )
+        self._preview_notice.setText(
+            "Template only — cells are intentionally blank. Enter actual measurements "
+            "before exporting; no synthetic test data is generated."
         )
 
-        # Build table
         column_count = len(labels)
         self._preview_table.setColumnCount(column_count)
         self._preview_table.setHorizontalHeaderLabels(labels)
         self._preview_table.setRowCount(n_rows)
 
-        for r, row_data in enumerate(rows):
-            for c, val in enumerate(row_data):
-                item = QTableWidgetItem(val)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignRight
-                                      if c > 0 else Qt.AlignmentFlag.AlignLeft)
-                self._preview_table.setItem(r, c, item)
+        for row_index, row_data in enumerate(rows):
+            for column_index, value in enumerate(row_data):
+                item = QTableWidgetItem(value)
+                item.setTextAlignment(
+                    Qt.AlignmentFlag.AlignRight
+                    if column_index > 0 else Qt.AlignmentFlag.AlignLeft
+                )
+                self._preview_table.setItem(row_index, column_index, item)
 
-        # Auto-fit all columns — content-aware with proportional stretch
         header = self._preview_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(False)
-        # Give last column a minimum stretch so table fills the view
         if column_count > 1:
-            for c in range(column_count):
-                if self._preview_table.columnWidth(c) < 60:
-                    self._preview_table.setColumnWidth(c, 60)
+            for column in range(column_count):
+                if self._preview_table.columnWidth(column) < 60:
+                    self._preview_table.setColumnWidth(column, 60)
         self._preview_table.setMinimumWidth(600)
-
         self._show_preview()
-
-    def _compute_mock_value(self, key: str, dist: float, row: int, total: int) -> str:
-        """Generate realistic VLC test data for a given column key."""
-        template = self._template_combo.currentText()
-
-        # Handle specific template mock data if a standard template is selected
-        if template == "Adaptive Calibration":
-            pvos = [0.81, 1.24, 1.78, 2.35]
-            vrefs = [0.45, 0.88, 1.42, 1.99]
-            idx = row % len(pvos)
-            if key == "trial_col":
-                return str(row + 1)
-            if key == "pvo":
-                return f"{pvos[idx]:.2f}"
-            if key == "vref":
-                return f"{vrefs[idx]:.2f}"
-            if key == "margin":
-                return f"{pvos[idx] - vrefs[idx]:.2f}"
-            if key == "calibration_status":
-                return "Success"
-
-        elif template == "Distance Performance":
-            offsets = [0.0, 0.5, 1.0, 1.5]
-            opt_dists = [2.10, 2.16, 2.33, 2.58]
-            margins = [0.36, 0.37, 0.35, 0.34]
-            idx = row % len(offsets)
-            if key == "trial_col":
-                return str(row + 1)
-            if key == "horizontal_offset":
-                return f"{offsets[idx]:.1f}"
-            if key == "optical_distance":
-                return f"{opt_dists[idx]:.2f}"
-            if key == "margin":
-                return f"{margins[idx]:.2f}"
-            if key == "ber":
-                return "0.00"
-            if key == "crc_status":
-                return "PASS"
-
-        elif template == "Ambient Light Performance":
-            luxes = [120, 250, 420, 650]
-            pvos = [1.82, 2.07, 2.33, 2.61]
-            vrefs = [1.46, 1.71, 1.97, 2.25]
-            idx = row % len(luxes)
-            if key == "trial_col":
-                return str(row + 1)
-            if key == "lux_level":
-                return str(luxes[idx])
-            if key == "pvo":
-                return f"{pvos[idx]:.2f}"
-            if key == "vref":
-                return f"{vrefs[idx]:.2f}"
-            if key == "margin":
-                return f"{pvos[idx] - vrefs[idx]:.2f}"
-            if key == "ber":
-                return "0.00"
-            if key == "crc_status":
-                return "PASS"
-            if key == "reconstruction_result":
-                return "Complete"
-
-        elif template == "LED Wattage":
-            wattages = ["6W", "9W", "12W"]
-            pvos = [1.98, 2.24, 2.55]
-            vrefs = [1.62, 1.88, 2.19]
-            idx = row % len(wattages)
-            if key == "trial_col":
-                return str(row + 1)
-            if key == "led_wattage":
-                return wattages[idx]
-            if key == "pvo":
-                return f"{pvos[idx]:.2f}"
-            if key == "vref":
-                return f"{vrefs[idx]:.2f}"
-            if key == "margin":
-                return f"{pvos[idx] - vrefs[idx]:.2f}"
-            if key == "ber":
-                return "0.00"
-            if key == "crc_status":
-                return "PASS"
-            if key == "reconstruction_result":
-                return "Complete"
-
-        elif template == "Flicker Comfort":
-            wattages = ["6W", "9W", "12W"]
-            notes = [
-                "Dim but stable; visible flicker during transmission",
-                "Moderate brightness; visible flicker during transmission",
-                "Brightest setting; visible flicker during transmission"
-            ]
-            idx = row % len(wattages)
-            if key == "led_wattage":
-                return wattages[idx]
-            if key == "viewing_distance":
-                return "1.5"
-            if key == "flicker_observed":
-                return "Yes"
-            if key == "glare_observed":
-                return "No"
-            if key == "comfort_rating":
-                return "Tolerable"
-            if key == "notes_col":
-                return notes[idx]
-
-        elif template == "Payload Performance":
-            categories = ["Text Document", "Image", "Audio", "Engineering Design File"]
-            types = ["TXT", "JPG", "WAV", "FZPZ"]
-            sizes = [5.00, 45.59, 15.94, 7.48]
-            chunks = [20, 183, 64, 30]
-            times = [9, 86, 31, 14]
-            idx = row % len(categories)
-            if key == "file_category":
-                return categories[idx]
-            if key == "file_type":
-                return types[idx]
-            if key == "file_size":
-                return f"{sizes[idx]:.2f}"
-            if key == "chunks_count":
-                return str(chunks[idx])
-            if key == "transfer_time":
-                return str(times[idx])
-            if key == "ber":
-                return "0.00"
-            if key == "crc_status":
-                return "PASS"
-            if key == "reconstruction_result":
-                return "Complete"
-
-        elif template == "Ambient Light test matrix":
-            conditions = ["Dim room", "Normal room light", "TV/unstable nearby light"]
-            luxes = [120, 250, 420]
-            pvos = [1.82, 2.07, 2.33]
-            vrefs = [1.46, 1.71, 1.97]
-            idx = row % len(conditions)
-            if key == "test_id":
-                return f"A{row + 1}"
-            if key == "ambient_condition":
-                return conditions[idx]
-            if key == "lux_level":
-                return str(luxes[idx])
-            if key == "lux_tool":
-                return "UT383BT Lux Meter"
-            if key == "distance_m":
-                return "2.10"
-            if key == "alignment":
-                return "Perfect Alignment"
-            if key == "pvo":
-                return f"{pvos[idx]:.2f}"
-            if key == "vref":
-                return f"{vrefs[idx]:.2f}"
-            if key == "margin":
-                return f"{pvos[idx] - vrefs[idx]:.2f}"
-            if key == "crc_status":
-                return "PASS"
-            if key == "reconstruction_result":
-                return "Complete"
-
-        elif template == "Batch Transfer limits":
-            exts = ["txt", "png", "zip"]
-            sizes = ["75 KiB", "120 KiB", "150 KiB"]
-            paths = ["direct stream", "direct firmware stream", "GUI batched transfer"]
-            behaviors = [
-                "accepted by ESP32 RAM buffer",
-                "rejected or file too large",
-                "split into 80 KiB VLCB1 parts"
-            ]
-            crcs = ["PASS", "FAIL", "PASS"]
-            statuses = ["Complete", "Failed", "Complete"]
-            idx = row % len(exts)
-            if key == "test_id":
-                return f"M{row + 1}"
-            if key == "file_type":
-                return exts[idx]
-            if key == "file_size":
-                return sizes[idx]
-            if key == "transfer_path":
-                return paths[idx]
-            if key == "expected_behavior":
-                return behaviors[idx]
-            if key == "crc_status":
-                return crcs[idx]
-            if key == "reconstruction_result":
-                return statuses[idx]
-
-        elif template == "Sensor Comparison":
-            sensors = ["BPW34 photodiode", "Phototransistor"]
-            front_ends = ["OPA2604 TIA + LM393", "Transistor Pre-amp"]
-            pvos = [2.35, 3.10]
-            vrefs = [1.99, 2.50]
-            idx = row % len(sensors)
-            if key == "test_id":
-                return f"S{row + 1}"
-            if key == "receiver_sensor":
-                return sensors[idx]
-            if key == "front_end":
-                return front_ends[idx]
-            if key == "file_name":
-                return "thesis.pdf (24.81 KB)"
-            if key == "distance_m":
-                return "2.10"
-            if key == "alignment":
-                return "Perfect Alignment"
-            if key == "pvo":
-                return f"{pvos[idx]:.2f}"
-            if key == "vref":
-                return f"{vrefs[idx]:.2f}"
-            if key == "crc_status":
-                return "PASS"
-            if key == "reconstruction_result":
-                return "Complete"
-
-        # Fallback to general/default formula-based mock values
-        if key == "distance_m":
-            return f"{dist:.2f}"
-        if key == "optical_distance":
-            od = math.sqrt(dist * dist + 2.1 * 2.1)
-            return f"{od:.2f}"
-        if key == "height_m":
-            return "2.10"
-        if key == "led_wattage":
-            return "12"
-        if key == "lux_level":
-            return f"{random.randint(200, 900)}"
-        if key == "horizontal_offset":
-            return f"{max(0.0, dist - 1.0):.2f}"
-        if key == "notes_col":
-            return "" if row % 3 else "Good LOS"
-
-        # Auto columns from available list
-        if key == "file_name":
-            names = ["thesis.pdf", "report.txt", "image.png", "audio.wav"]
-            return names[row % len(names)]
-        if key == "file_size":
-            sizes = [24.81, 5.0, 45.59, 15.94, 92.01, 18.6, 7.48, 120.5, 33.2, 68.4]
-            return f"{sizes[row % len(sizes)]:.2f}"
-        if key == "transfer_time":
-            t = 9 + dist * 8
-            return f"{t:.1f}"
-        if key == "data_rate":
-            rate = 7132 / (1 + dist * 0.15)
-            return f"{rate:.0f}"
-        if key == "ber":
-            ber = 0.00001 * math.pow(10, dist * 0.4)
-            return f"{ber:.4f}"
-        if key == "strict_ber":
-            ber = 0.00002 * math.pow(10, dist * 0.35)
-            return f"{ber:.4f}"
-        if key == "bit_errors":
-            return str(int(dist * random.randint(1, 10)))
-        if key == "crc_status":
-            return "PASS" if dist < 4.0 else "FAIL"
-        if key == "chunk_completion":
-            completion = 100.0 - max(0, (dist - 1.0) * 4.5)
-            return f"{completion:.2f}"
-        if key == "pvo":
-            pvo = 2.89 - (dist - 1.0) * 0.175
-            return f"{pvo:.3f}"
-        if key == "vref":
-            vref = 2.53 - (dist - 1.0) * 0.16
-            return f"{vref:.3f}"
-        if key == "margin":
-            margin = 0.36 - (dist - 1.0) * 0.028
-            return f"{margin:.3f}"
-
-        return "—"
 
     # ──────────────────────────────────────────────
     # Export actions

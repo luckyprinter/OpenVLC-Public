@@ -509,3 +509,51 @@ def test_legacy_rx_serial_controller_uses_application_owned_receive_directory(mo
     controller = RXSerialController()
 
     assert controller._save_dir == tmp_path / "openvlc-data" / "received"
+
+
+
+def test_rx_manual_connect_uses_only_the_explicitly_selected_port(monkeypatch):
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    backend = RXPhysicalBackend()
+    attempted = []
+
+    def detect(port):
+        attempted.append(port)
+        return {"device": "VLC_RX", "firmware": "rx_test", "board": "test"}
+
+    backend.scan_ports = lambda: pytest.fail("manual connection must not scan fallback ports")
+    backend.detect_firmware = detect
+    backend._open_serial = lambda: True
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._connect_locked("MANUAL_RX_PORT") is True
+    assert attempted == ["MANUAL_RX_PORT"]
+    assert backend.port == "MANUAL_RX_PORT"
+    backend.disconnect()
+
+
+def test_tx_manual_connect_uses_only_the_explicitly_selected_port(monkeypatch):
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    backend = TXPhysicalBackend()
+    attempted = []
+
+    def detect(port):
+        attempted.append(port)
+        return {"device": "VLC_TX", "firmware": "tx_test", "board": "test"}
+
+    backend.scan_ports = lambda: pytest.fail("manual connection must not scan fallback ports")
+    backend.detect_firmware = detect
+    backend._open_serial = lambda: True
+    backend._wait_for_firmware_ready = lambda: True
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._connect_locked("MANUAL_TX_PORT") is True
+    assert attempted == ["MANUAL_TX_PORT"]
+    assert backend.port == "MANUAL_TX_PORT"
+    backend.disconnect()

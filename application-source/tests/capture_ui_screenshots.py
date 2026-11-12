@@ -96,7 +96,7 @@ def _capture_nested_views(window, app, mode: str, page_name: str, shell, width: 
             tab_widget = tabs.widget(index)
             content = tab_widget.widget() if hasattr(tab_widget, "widget") else tab_widget
             if content is not None and hasattr(content, "_compact_layout"):
-                expected_compact = content.width() < 900 or content.height() < 620
+                expected_compact = content.width() < 1100 or content.height() < 740
                 if content._compact_layout != expected_compact:
                     raise RuntimeError(
                         f"RX Study & Data {tabs.tabText(index)} did not reflow at "

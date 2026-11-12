@@ -170,7 +170,9 @@ class _PerformanceMetricsPanel(Card):
             else COLORS["muted"]
         )
         self.crc_row.setStatus(crc_status or "—", crc_color)
-        self.margin_row.setValue(f"{sig.margin:.3f} V")
+        self.margin_row.setValue(
+            f"{sig.margin:.3f} V" if state.serial_connected else "—"
+        )
         self.data_rate_row.setValue(
             f"{sig.data_rate:.2f} kbps"
             if sig.data_rate is not None and sig.data_rate > 0 else "—"
@@ -200,16 +202,24 @@ class _SignalMonitorPanel(Card):
     def refresh(self, state: RXAppState) -> None:
         self._state = state
         sig = state.signal
-        self.pvo_row.setValue(f"{sig.pvo:.3f} V")
-        self.vref_row.setValue(f"{sig.vref:.3f} V")
-        self.adc_vref_row.setValue(
-            f"{sig.adc_vref:.3f} V" if sig.adc_vref is not None else "—"
-        )
+        if state.serial_connected:
+            self.pvo_row.setValue(f"{sig.pvo:.3f} V")
+            self.vref_row.setValue(f"{sig.vref:.3f} V")
+            self.adc_vref_row.setValue(
+                f"{sig.adc_vref:.3f} V" if sig.adc_vref is not None else "—"
+            )
+        else:
+            self.pvo_row.setValue("—")
+            self.vref_row.setValue("—")
+            self.adc_vref_row.setValue("—")
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("rx")
         vref_auto = mgr.get("link/vref_auto", False)
         self.vref_mode_row.setValue("Auto" if vref_auto else "Manual")
-        self.lux_row.setValue(f"{sig.lux} (uncal.)")
+        self.lux_row.setValue(
+            f"{sig.lux} (uncal.)"
+            if state.serial_connected and sig.lux is not None else "—"
+        )
 
 
 class _SignalWaveformPanel(Card):
@@ -307,9 +317,9 @@ class _FileInfoPanel(Card):
         self.filesize_row.setValue(f"{transfer.size_bytes / 1024:.2f} KiB" if transfer.size_bytes else "—")
         self.received_size_row.setValue(f"{received_size / 1024:.2f} KiB" if received_size else "—")
 
-        pct = state.progress_percent
-        self.pct_row.setValue(f"{pct}%")
-        self.progress_bar.set_percent(pct)
+        pct = state.progress_percent if transfer.tid > 0 else None
+        self.pct_row.setValue(f"{pct}%" if pct is not None else "—")
+        self.progress_bar.set_percent(pct if pct is not None else 0)
 
 
 class _ActivityLogPanel(Card):

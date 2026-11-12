@@ -619,8 +619,21 @@ class ThemePickerGrid(QWidget):
         grid.setContentsMargins(0, 6, 0, 6)
         grid.setSpacing(6)
 
-        # Only show the 5 primary presets (not the dark/light legacy aliases)
-        primary_presets = [p for p in THEME_PRESETS]
+        # Keep the default picker focused on five curated presets. Older
+        # presets remain supported in theme.py so existing saved preferences
+        # continue to load; if one is currently selected, keep it visible so
+        # the user can see the active choice and switch away from it.
+        curated_keys = {
+            "graphite_lab",
+            "midnight_navy",
+            "arctic_light",
+            "dark_lab",
+            "clean_data",
+        }
+        primary_presets = [
+            preset for preset in THEME_PRESETS
+            if preset["key"] in curated_keys or preset["key"] == current
+        ]
         cols = 3
         for i, preset in enumerate(primary_presets):
             card = _SwatchCard(preset, active=(preset["key"] == current))

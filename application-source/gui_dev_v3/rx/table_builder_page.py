@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QHBoxLayout,
+    QLayout,
     QBoxLayout,
     QHeaderView,
     QLabel,
@@ -102,12 +103,16 @@ class TableBuilderPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._compact_layout = False
+        self.setMinimumWidth(0)
         self._stack = QVBoxLayout(self)
+        self._stack.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         self._stack.setContentsMargins(0, 0, 0, 0)
         self._stack.setSpacing(0)
 
         self._builder_view = self._build_builder_view()
         self._preview_view = self._build_preview_view()
+        self._builder_view.setMinimumWidth(0)
+        self._preview_view.setMinimumWidth(0)
 
         self._stack.addWidget(self._builder_view)
         self._stack.addWidget(self._preview_view)
@@ -125,6 +130,8 @@ class TableBuilderPage(QWidget):
         outer = QWidget()
         layout = QVBoxLayout(outer)
         self._builder_layout = layout
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        outer.setMinimumWidth(0)
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(20)
 

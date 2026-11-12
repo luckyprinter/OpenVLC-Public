@@ -585,6 +585,8 @@ class SignalMonitorPage(QWidget):
         if self._paused:
             return
         sig = self._state.signal
+        if not self._state.serial_connected or _is_empty(sig):
+            return
         pvo = sig.pvo
         vref = sig.vref
         margin = sig.margin
@@ -611,6 +613,10 @@ class SignalMonitorPage(QWidget):
 
         # --- Top row: 4 MetricCards + 2 CircularGauges ---
         if empty:
+            self._pvo_hist.clear()
+            self._vref_hist.clear()
+            self._margin_hist.clear()
+            self._ook_widget.clear()
             self._metric_pvo.set_value("—")
             self._metric_vref.set_value("—")
             self._metric_margin.set_value("—")

@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDateTimeEdit,
     QHBoxLayout,
+    QBoxLayout,
+    QSizePolicy,
     QHeaderView,
     QLabel,
     QLineEdit,
@@ -48,8 +50,10 @@ class ExperimentsPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
+        self._main_layout = layout
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(24)
+        self._compact_layout = False
 
         # Page title
         title = QLabel("EXPERIMENTS")
@@ -58,12 +62,15 @@ class ExperimentsPage(QWidget):
         layout.addWidget(title)
 
         # Two-panel body
-        body = QHBoxLayout()
+        body = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._body_layout = body
         body.setSpacing(24)
         layout.addLayout(body, 1)
 
         # ── Left Panel: New Experiment Form ──
         form_card = Card("New Experiment")
+        form_card.setMinimumWidth(0)
+        form_card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         form_card.body.setSpacing(14)
         body.addWidget(form_card, 2)  # ~40%
 
@@ -111,6 +118,8 @@ class ExperimentsPage(QWidget):
         body.addLayout(right_col, 3)  # ~60%
 
         table_card = Card("Saved Experiments")
+        table_card.setMinimumWidth(0)
+        table_card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         table_card.body.setSpacing(8)
         right_col.addWidget(table_card, 1)
 
@@ -131,6 +140,7 @@ class ExperimentsPage(QWidget):
         self._table.verticalHeader().setDefaultSectionSize(32)
         self._table.setSortingEnabled(True)
         self._table.setMinimumHeight(220)
+        self._table.setMinimumWidth(0)
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
         table_card.body.addWidget(self._table)
 
@@ -165,6 +175,26 @@ class ExperimentsPage(QWidget):
 
         # Load data
         self._reload_table()
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Stack experiment creation and saved records on compact workspaces."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        self._body_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self._body_layout.setSpacing(12 if compact else 24)
+        self._main_layout.setContentsMargins(
+            12 if compact else 32,
+            12 if compact else 28,
+            12 if compact else 32,
+            12 if compact else 28,
+        )
+        self._main_layout.setSpacing(12 if compact else 24)
 
     def _reload_table(self, filter_text: str = "") -> None:
         experiments = list_experiments()

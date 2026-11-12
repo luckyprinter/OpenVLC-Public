@@ -407,42 +407,59 @@ class FileDetailsWidget(Card):
 # ── Section 5: TX LINK PROFILE ───────────────────────────────────────
 
 class TXConfigurationWidget(Card):
-    """Show the application TX profile without fabricating a live bitstream."""
+    """Show saved TX settings without fabricating a live bitstream."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, settings_manager=None) -> None:
         super().__init__("TX LINK PROFILE", parent)
+        if settings_manager is None:
+            from gui_dev_v3.settings import SettingsManager
+            settings_manager = SettingsManager("tx")
+        self._settings_manager = settings_manager
         self.body.setSpacing(5)
-        self._status = muted_label("Application profile · not hardware-verified")
+        self._status = muted_label("Saved settings · TX disconnected")
         self.body.addWidget(self._status)
 
-        self.row_encoding = _DetailRow("Encoding", "4B5B")
-        self.row_modulation = _DetailRow("Modulation", "NRZ / OOK")
+        self.row_protocol = _DetailRow("Protocol", "4B5B / NRZ-OOK")
         self.row_rate = _DetailRow("Symbol Rate", "15,000 sym/s")
         self.row_gpio = _DetailRow("LED Output", "GPIO 5")
-        self.row_output = _DetailRow("LED Profile", "100 % · Pre-emphasis Off")
+        self.row_drive = _DetailRow("LED Drive", "100 %")
+        self.row_driver = _DetailRow("Driver / Idle", "Active-low · Idle on")
+        self.row_gap = _DetailRow("Frame Gap", "1 ms")
         for row in (
-            self.row_encoding,
-            self.row_modulation,
+            self.row_protocol,
             self.row_rate,
             self.row_gpio,
-            self.row_output,
+            self.row_drive,
+            self.row_driver,
+            self.row_gap,
         ):
             self.body.addWidget(row)
         self.body.addStretch(1)
 
+    def _int_setting(self, key: str, default: int) -> int:
+        try:
+            return max(0, int(self._settings_manager.get(key, default)))
+        except (TypeError, ValueError, OverflowError):
+            return default
+
     def refresh(self, state: TXAppState) -> None:
         self._status.setText(
-            "TX connected · application profile"
+            "Saved settings · TX connected"
             if state.serial_connected
-            else "TX disconnected · defaults"
+            else "Saved settings · TX disconnected"
         )
-        self.row_encoding.setValue(state.encoding or "—")
-        self.row_modulation.setValue(state.modulation or "—")
-        self.row_rate.setValue(state.symbol_rate or "—")
-        self.row_gpio.setValue(f"GPIO {state.led_pin}" if state.led_pin else "—")
-        output = state.tx_power or "—"
-        pre_emphasis = state.pre_emphasis or "—"
-        self.row_output.setValue(f"{output} · {pre_emphasis}")
+        symbol_hz = self._int_setting("link/symbol_hz", 15000)
+        intensity = self._int_setting("link/cal_intensity_pct", 100)
+        frame_gap_ms = self._int_setting("link/frame_gap_ms", 1)
+        active_low = bool(self._settings_manager.get("link/active_low", True))
+        idle_on = bool(self._settings_manager.get("link/idle_on", True))
+
+        self.row_rate.setValue(f"{symbol_hz:,} sym/s")
+        self.row_drive.setValue(f"{intensity} %")
+        driver_mode = "Active-low" if active_low else "Active-high"
+        idle_mode = "Idle on" if idle_on else "Idle off"
+        self.row_driver.setValue(f"{driver_mode} · {idle_mode}")
+        self.row_gap.setValue(f"{frame_gap_ms} ms")
 
 
 # ── Section 6: TRANSMISSION LOGS ─────────────────────────────────────

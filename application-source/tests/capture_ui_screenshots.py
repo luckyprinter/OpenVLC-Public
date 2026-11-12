@@ -14,7 +14,10 @@ from PySide6.QtWidgets import QApplication
 from gui_dev_v3.app import VLCMainWindow, load_bundled_fonts
 
 
-SCALE_LABEL = os.environ.get("OPENVLC_SCREENSHOT_SCALE", "1.0").replace(".", "p")
+SCALE_VALUE = float(os.environ.get("OPENVLC_SCREENSHOT_SCALE", "1.0"))
+if SCALE_VALUE <= 0:
+    raise ValueError("OPENVLC_SCREENSHOT_SCALE must be greater than zero")
+SCALE_LABEL = str(SCALE_VALUE).replace(".", "p")
 OUTPUT_DIR = Path("ui-screenshots") / f"scale-{SCALE_LABEL}"
 WINDOW_SIZES = ((1366, 768), (1280, 720), (1024, 700))
 PAGES = {
@@ -90,10 +93,15 @@ def main() -> int:
             raise RuntimeError(f"Could not create {mode.upper()} console")
 
         for width, height in WINDOW_SIZES:
-            window.resize(width, height)
+            # The listed sizes describe physical display pixels. Qt lays out
+            # widgets in device-independent pixels, so divide by the active
+            # scale factor to model the usable workspace on a real display.
+            logical_width = max(1, round(width / SCALE_VALUE))
+            logical_height = max(1, round(height / SCALE_VALUE))
+            window.resize(logical_width, logical_height)
             app.processEvents()
 
-            expected_sidebar = 72 if width < 1120 else 224
+            expected_sidebar = 72 if logical_width < 1120 else 224
             if shell.sidebar.width() != expected_sidebar:
                 raise RuntimeError(
                     f"{mode.upper()} sidebar width {shell.sidebar.width()} "

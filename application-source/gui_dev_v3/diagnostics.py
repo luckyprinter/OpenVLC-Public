@@ -209,8 +209,8 @@ def record_local_event(role: str, event: str, **fields: Any) -> bool:
 def build_diagnostics_controls(mgr: Any, role: str):
     """Build the explicit opt-in and local data controls used by TX and RX."""
     from PySide6.QtWidgets import (
-        QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QMessageBox,
-        QPlainTextEdit, QPushButton, QVBoxLayout,
+        QBoxLayout, QCheckBox, QDialog, QFileDialog, QLabel, QMessageBox,
+        QPlainTextEdit, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
     )
     from gui_dev_v3.widgets import Card, muted_label, primary_button
 
@@ -238,15 +238,39 @@ def build_diagnostics_controls(mgr: Any, role: str):
 
     consent.toggled.connect(update_consent)
 
-    actions = QHBoxLayout()
+    class _ResponsiveActionRow(QWidget):
+        """Keep diagnostics actions reachable when settings content is narrow."""
+
+        def __init__(self, buttons: tuple[QPushButton, ...]) -> None:
+            super().__init__()
+            self._compact = True
+            self._layout = QBoxLayout(QBoxLayout.Direction.TopToBottom, self)
+            self._layout.setContentsMargins(0, 0, 0, 0)
+            self._layout.setSpacing(8)
+            for button in buttons:
+                button.setMinimumHeight(34)
+                button.setSizePolicy(
+                    QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+                )
+                self._layout.addWidget(button)
+
+        def resizeEvent(self, event) -> None:  # type: ignore[override]
+            super().resizeEvent(event)
+            compact = self.width() < 520
+            if compact == self._compact:
+                return
+            self._compact = compact
+            self._layout.setDirection(
+                QBoxLayout.Direction.TopToBottom
+                if compact else QBoxLayout.Direction.LeftToRight
+            )
+
     review = primary_button("Review Local Data")
     export = primary_button("Export Local Data")
     clear = QPushButton("Delete Local Data")
     clear.setObjectName("Danger")
-    actions.addWidget(review)
-    actions.addWidget(export)
-    actions.addWidget(clear)
-    card.body.addLayout(actions)
+    actions = _ResponsiveActionRow((review, export, clear))
+    card.body.addWidget(actions)
 
     def require_enabled() -> bool:
         if not store.enabled:

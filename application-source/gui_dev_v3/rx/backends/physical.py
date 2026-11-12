@@ -751,13 +751,13 @@ class RXPhysicalBackend:
             except Exception:
                 return False
 
-    def apply_link_settings(self) -> None:
-        """Apply saved settings to physical RX firmware."""
+    def apply_link_settings(self) -> bool:
+        """Apply saved settings and report the first failed serial write."""
         if not self._connected or not self._ser:
-            return
+            return False
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("rx")
-        
+
         symbol_hz = int(mgr.get("link/symbol_hz", 15000))
         sample_phase_pct = int(mgr.get("link/sample_phase_pct", 50))
         vref_target_mv = int(mgr.get("link/vref_target_mv", 1700))
@@ -766,27 +766,33 @@ class RXPhysicalBackend:
         vref_settle_ms = int(mgr.get("link/vref_settle_ms", 120))
         vref_auto = 1 if mgr.get("link/vref_auto", False) else 0
         majority_sampling = 1 if mgr.get("link/majority_sampling", True) else 0
-        report_chunks = 1
-        invert_symbols = 1 if mgr.get("link/invert_symbols", False) else 0
-        
-        self.send_command(f"FREQ={symbol_hz}\n")
-        self.send_command(f"PHASE={sample_phase_pct}\n")
-        self.send_command(f"MAJ={majority_sampling}\n")
-        self.send_command(f"REPORT={report_chunks}\n")
-        self.send_command(f"VREF_MARGIN={vref_margin_mv}\n")
-        self.send_command(f"VREF_PWM_FS={vref_pwm_full_scale_mv}\n")
-        self.send_command(f"VREF_SETTLE_MS={vref_settle_ms}\n")
-        
-        if vref_auto:
-            self.send_command("VREF_MODE=AUTO\n")
-        else:
-            self.send_command("VREF_MODE=MANUAL\n")
-            # VREF_SET must be sent LAST because the firmware blocks/delays to let the RC filter settle.
-            # Sending it earlier causes the ESP32's 64-byte UART buffer to overflow with the remaining commands.
-            self.send_command(f"VREF_SET={vref_target_mv}\n")
-            # Reset PWM autocal so it will re-converge after the target changes
+        commands = [
+            f"FREQ={symbol_hz}\\n",
+            f"PHASE={sample_phase_pct}\\n",
+            f"MAJ={majority_sampling}\\n",
+            "REPORT=1\\n",
+            f"VREF_MARGIN={vref_margin_mv}\\n",
+            f"VREF_PWM_FS={vref_pwm_full_scale_mv}\\n",
+            f"VREF_SETTLE_MS={vref_settle_ms}\\n",
+            "VREF_MODE=AUTO\\n" if vref_auto else "VREF_MODE=MANUAL\\n",
+        ]
+        if not vref_auto:
+            # VREF_SET must be last: firmware delays while the RC filter settles.
+            commands.append(f"VREF_SET={vref_target_mv}\\n")
+
+        for command in commands:
+            if not self.send_command(command):
+                self.log(
+                    "Settings Apply Failed",
+                    f"RX firmware did not accept the settings write: {command.strip()}",
+                )
+                return False
+
+        if not vref_auto:
+            # Reset PWM autocal so it will re-converge after the target changes.
             self._pwm_autocal_target_mv = 0
             self._pwm_autocal_converged = False
+        return True
 
     def cleanup(self) -> None:
         """Close serial connection and release port."""

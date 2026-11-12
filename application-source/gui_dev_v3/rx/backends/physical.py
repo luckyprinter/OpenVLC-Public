@@ -8,7 +8,7 @@ Communicates with actual VLC_RX firmware at 460800 baud (RX) or 115200 baud (TX)
 - _poll_lq() drains the line queue instead of calling reset_input_buffer() which
   would destroy async firmware messages before they are processed
 - Falls back to vlc_beta bridge files when serial unavailable but process is fresh
-- No mock data, no simulated values
+- Reports only measurements and transfer data received from physical hardware
 """
 
 from __future__ import annotations

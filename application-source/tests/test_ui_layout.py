@@ -69,10 +69,22 @@ def test_console_shell_reflows_without_overlapping_navigation(
     qapp.processEvents()
 
 
-def test_tx_dashboard_uses_real_profile_instead_of_synthetic_bitstream(qapp):
+def test_tx_dashboard_uses_saved_profile_instead_of_synthetic_bitstream(qapp):
     from types import SimpleNamespace
 
     from gui_dev_v3.tx.dashboard import CurrentSessionWidget, FileDetailsWidget, TXConfigurationWidget
+
+    class FakeSettingsManager:
+        values = {
+            "link/symbol_hz": 12000,
+            "link/cal_intensity_pct": 65,
+            "link/active_low": False,
+            "link/idle_on": False,
+            "link/frame_gap_ms": 2,
+        }
+
+        def get(self, key, default=None):
+            return self.values.get(key, default)
 
     state = SimpleNamespace(
         serial_connected=False,
@@ -82,19 +94,18 @@ def test_tx_dashboard_uses_real_profile_instead_of_synthetic_bitstream(qapp):
         status_text="Offline — no hardware",
         estimated_time="00:00:00",
         elapsed_time="00:00:00",
-        encoding="4B5B",
-        modulation="NRZ / OOK",
-        symbol_rate="15,000 sym/s",
-        led_pin=5,
-        tx_power="100 %",
-        pre_emphasis="Disabled",
         session_history=[],
     )
 
-    profile = TXConfigurationWidget()
+    profile = TXConfigurationWidget(settings_manager=FakeSettingsManager())
     profile.refresh(state)
+    assert profile.row_protocol.val.text() == "4B5B / NRZ-OOK"
+    assert profile.row_rate.val.text() == "12,000 sym/s"
     assert profile.row_gpio.val.text() == "GPIO 5"
-    assert any(word in profile._status.text().lower() for word in ("offline", "disconnected"))
+    assert profile.row_drive.val.text() == "65 %"
+    assert profile.row_driver.val.text() == "Active-high · Idle off"
+    assert profile.row_gap.val.text() == "2 ms"
+    assert "disconnected" in profile._status.text().lower()
     assert not hasattr(profile, "canvas")
 
     session = CurrentSessionWidget()

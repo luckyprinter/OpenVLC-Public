@@ -80,3 +80,39 @@ def test_crc_pass_does_not_create_a_ber_comparison(tmp_path, monkeypatch):
     assert record.quality.total_bits == 0
     assert record.quality.compared_bytes == 0
     assert record.received_path is not None
+
+
+def test_cached_status_is_not_reported_as_live_serial_connection(monkeypatch):
+    import time
+    from types import SimpleNamespace
+    import gui_dev_v3.rx.backends.physical as physical_module
+    import gui_dev_v3.settings as settings_module
+
+    class OfflineSettings:
+        def __init__(self, _role):
+            pass
+
+        def get(self, key, default=None):
+            if key == "connection/auto_connect":
+                return False
+            return default
+
+    monkeypatch.setattr(settings_module, "SettingsManager", OfflineSettings)
+    monkeypatch.setattr(
+        physical_module,
+        "read_status",
+        lambda role: {"role": role, "updated_at": time.time()},
+    )
+    monkeypatch.setattr(physical_module, "_is_fresh", lambda _status: True)
+    transfer = SimpleNamespace(tid=4)
+    session = SimpleNamespace(latest_transfer=transfer)
+    backend = RXPhysicalBackend()
+    backend._build_from_status = lambda *_args: (session, [transfer])
+    backend._build_log = lambda *_args: []
+    backend.scan_ports = lambda: []
+
+    snapshot = backend.refresh()
+
+    assert snapshot.transfer is transfer
+    assert snapshot.serial_connected is False
+    assert snapshot.firmware_found is False

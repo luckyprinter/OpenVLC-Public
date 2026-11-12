@@ -688,7 +688,12 @@ def test_rx_manual_mode_without_selected_port_never_starts_auto_discovery(monkey
         "gui_dev_v3.rx.backends.physical.read_status", lambda _role: {}
     )
     backend = RXPhysicalBackend()
-    backend.scan_ports = lambda: pytest.fail("empty manual mode must not scan ports")
+    # The offline snapshot may enumerate ports to populate the UI's port
+    # count. It must not probe firmware or initiate an automatic connection.
+    backend.scan_ports = lambda: []
+    backend.detect_firmware = lambda _port: pytest.fail(
+        "empty manual mode must not probe firmware"
+    )
     backend.auto_connect = lambda: pytest.fail("empty manual mode must not auto-connect")
     backend.connect = lambda _port: pytest.fail("empty manual mode has no port to connect")
 

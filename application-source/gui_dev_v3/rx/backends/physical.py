@@ -542,8 +542,14 @@ class RXPhysicalBackend:
                     "details": f"Part {index_text}/{count_text} of '{original_name}' validated",
                 })
                 if assembled is None:
+                    # This firmware part has ended; the assembler retains
+                    # bounded batch state independently of the live transfer
+                    # snapshot, so do not leave stale per-part progress visible.
                     self._active_tid = None
                     self._active_filename = ""
+                    self._active_total_size = 0
+                    self._active_total_chunks = 0
+                    self._active_received_chunks = 0
                     self._active_started_monotonic = None
                     return
                 file_bytes = assembled["data"]

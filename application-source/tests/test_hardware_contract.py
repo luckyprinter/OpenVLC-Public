@@ -163,3 +163,22 @@ def test_non_dma_large_file_batching_uses_configured_chunk_and_rounds(
         1,
     ]
     assert all(chunk == 300 for _part_size, chunk in sent_parts)
+
+
+def test_runtime_status_uses_application_owned_data_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from gui_dev_v3.data import status
+    monkeypatch.setenv('VLC_DATA_DIR', str(tmp_path))
+    assert status._resolve_state_dir() == tmp_path / 'state'
+
+def test_transfer_records_use_application_owned_log_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from gui_dev_v3.data import records
+    monkeypatch.setenv('VLC_DATA_DIR', str(tmp_path))
+    assert records._resolve_log_dir() == tmp_path / 'logs' / 'rx'
+
+def test_runtime_data_modules_do_not_reference_retired_vlc_beta_paths() -> None:
+    gui_root = Path(__file__).resolve().parents[1] / 'gui_dev_v3'
+    status_source = (gui_root / 'data' / 'status.py').read_text(encoding='utf-8')
+    records_source = (gui_root / 'data' / 'records.py').read_text(encoding='utf-8')
+    assert 'vlc_beta' not in status_source
+    assert 'vlc_beta' not in records_source
+    assert 'BETA_LOG_DIR' not in records_source

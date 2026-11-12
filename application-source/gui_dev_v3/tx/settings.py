@@ -387,8 +387,6 @@ class TXSettingsPage(QWidget):
         lo.addWidget(live_card)
         lo.addStretch(1)
 
-        current_mode = state.mode if state else str(mgr.get("general/mode", "physical"))
-        self._update_visibility(current_mode)
 
     def _on_apply_settings(self) -> None:
         if not self._state:
@@ -429,45 +427,12 @@ class TXSettingsPage(QWidget):
                     "The transmitter is not connected or a serial write failed. "
                     "Check the TX connection and reapply the settings.",
                 )
-        else:
-            self._state.update_simulation_params(
-                symbol_hz=freq,
-                preamble_bits=preamble,
-                post_frame_idle_ms=gap,
-                frame_gap_ms=fgap,
-                active_low=active_low,
-                idle_on=idle_on,
-                cal_intensity_pct=intensity,
-                quiet_mode=quiet
-            )
-
-    def _update_visibility(self, mode: str) -> None:
-        pass
 
     def _update_link_param(self, command_key: str, value: Any) -> None:
         if not self._state:
             return
-        if self._state.mode == "physical":
-            if command_key != "PREAMBLE_BITS":
-                self._state.send_firmware_command(f"{command_key}={value}\n")
-        else:
-            mapping = {
-                "FREQ": "symbol_hz",
-                "PREAMBLE_BITS": "preamble_bits",
-                "GAP": "post_frame_idle_ms",
-                "FGAP": "frame_gap_ms",
-                "ACTIVE_LOW": "active_low",
-                "IDLE_ON": "idle_on",
-                "INTENSITY": "cal_intensity_pct",
-                "QUIET": "quiet_mode",
-            }
-            param_name = mapping.get(command_key)
-            if param_name:
-                if command_key in ("ACTIVE_LOW", "IDLE_ON", "QUIET"):
-                    val_bool = (value != 0)
-                    self._state.update_simulation_params(**{param_name: val_bool})
-                else:
-                    self._state.update_simulation_params(**{param_name: value})
+        if command_key != "PREAMBLE_BITS":
+            self._state.send_firmware_command(f"{command_key}={value}\\n")
 
     def refresh(self, state: TXAppState) -> None:
         if state is None:

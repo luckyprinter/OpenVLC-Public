@@ -369,6 +369,8 @@ def test_rx_export_stacks_history_and_inspector_on_compact_display(qapp, monkeyp
     monkeypatch.setattr(export_page_module, "HISTORY_DIR", tmp_path)
     monkeypatch.setattr(export_page_module, "HISTORY_PATH", tmp_path / "history.json")
     page = ExportPage()
+    assert page._history_data == []
+    assert not export_page_module.HISTORY_PATH.exists()
     page.resize(680, 500)
     page.show()
     qapp.processEvents()
@@ -380,4 +382,16 @@ def test_rx_export_stacks_history_and_inspector_on_compact_display(qapp, monkeyp
     qapp.processEvents()
     assert not page._compact_layout
     assert page.splitter.orientation() == Qt.Orientation.Horizontal
+    page.close()
+
+
+def test_rx_export_preserves_unreadable_history_instead_of_overwriting(qapp, monkeypatch, tmp_path):
+    history_path = tmp_path / "history.json"
+    history_path.write_text("{ invalid json", encoding="utf-8")
+    monkeypatch.setattr(export_page_module, "HISTORY_DIR", tmp_path)
+    monkeypatch.setattr(export_page_module, "HISTORY_PATH", history_path)
+
+    page = ExportPage()
+    assert page._history_data == []
+    assert history_path.read_text(encoding="utf-8") == "{ invalid json"
     page.close()

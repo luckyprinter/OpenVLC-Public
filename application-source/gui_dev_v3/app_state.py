@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -132,7 +133,26 @@ class RXAppState:
             self.expected_file_data = None
             self._method2_cache_key = None
             self._method2_cache = None
+        self._update_current_capture_method2()
         self.notify()
+
+    def _update_current_capture_method2(self) -> None:
+        """Persist Method 2 when a reference is selected after reception."""
+        with self._lock:
+            capture = self.current_capture
+            transfer = self.session.latest_transfer if self.session else None
+        if capture is None or transfer is None or capture.tid != transfer.tid:
+            return
+        result = self.get_method2_comparison()
+        if result is None:
+            return
+        updated = replace(capture, ber=result["strict_ber"], ber_method="method2")
+        with self._lock:
+            if self.current_capture is not capture:
+                return
+            self.current_capture = updated
+        from gui_dev_v3.data import save_session_capture
+        save_session_capture(updated)
 
     def clear_expected_file(self) -> None:
         with self._lock:

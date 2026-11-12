@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Literal, Any
+from typing import Any
 
 from gui_dev_v3.data.session import build_empty_session
 from gui_dev_v3.models import SessionState, SignalState, TransferRecord, SessionCapture
@@ -17,13 +17,11 @@ from gui_dev_v3.settings_store import AppSettings, load_settings
 
 # Backend imports
 from gui_dev_v3.rx.backends.physical import RXPhysicalBackend, RXPhysicalSnapshot
-from gui_dev_v3.rx.backends.simulation import RXSimulationBackend, RXSimulationSnapshot
 
 StateSubscriber = Callable[["RXAppState"], None]
 
 POLL_INTERVAL_MS = 1000  # Refresh status every second
 
-AppMode = Literal["physical", "simulated"]
 
 # Module-level empty defaults (built once)
 _EMPTY_SESSION = build_empty_session()
@@ -33,29 +31,24 @@ _EMPTY_TRANSFER = _EMPTY_SESSION.latest_transfer
 
 @dataclass
 class RXAppState:
-    """Observable state store with physical/simulated mode.
-
-    - physical: reads real data from ESP32 via serial (RXPhysicalBackend).
-    - simulated: generates all data from virtual channel model (RXSimulationBackend).
-    """
+    """Observable receiver state populated by the physical ESP32 backend."""
 
     settings: AppSettings = field(default_factory=load_settings)
     session: SessionState = field(default_factory=build_empty_session)
     signal: SignalState = field(default=_EMPTY_SIGNAL)
     transfer: TransferRecord = field(default=_EMPTY_TRANSFER)
     activity_log: list[dict[str, str]] = field(default_factory=list)
-    using_mock_data: bool = True
+    using_mock_data: bool = False
     serial_connected: bool = False
-    mode: AppMode = "physical"
+    mode: str = "physical"
     expected_file_path: str | None = None
     expected_file_data: bytes | None = None
     current_capture: SessionCapture | None = None
     _subscribers: list[StateSubscriber] = field(default_factory=list, init=False, repr=False)
     _lock: __import__("threading").Lock = field(default_factory=__import__("threading").Lock, init=False, repr=False)
 
-    # Backend instances (initialized lazily, default to None)
+    # Physical backend is initialized lazily when the application first refreshes.
     _physical: RXPhysicalBackend | None = field(default=None, init=False, repr=False)
-    _simulation: RXSimulationBackend | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._last_tid = 0
@@ -106,31 +99,13 @@ class RXAppState:
             self.settings = settings
         self.notify()
 
-    def set_mode(self, mode: AppMode) -> None:
-        """Switch between physical and simulated mode, then refresh."""
-        if mode == self.mode:
-            return
-        # If switching away from simulation, stop/cleanup first
-        with self._lock:
-            if self.mode == "simulated" and self._simulation:
-                self._simulation.cleanup()
-                self._simulation = None
-            self.mode = mode
+    def set_mode(self, mode: str) -> None:
+        """Compatibility guard: this application supports physical hardware only."""
+        if mode != "physical":
+            raise ValueError("Only physical ESP32 hardware mode is supported.")
+        self.mode = "physical"
         self._refresh()
         self.notify()
-
-    def update_simulation_params(self, **kwargs: Any) -> None:
-        """Safely update simulation backend parameters and notify subscribers."""
-        with self._lock:
-            if self._simulation is None:
-                self._simulation = RXSimulationBackend()
-                if self.expected_file_data is not None:
-                    self._simulation.set_expected_file(self.expected_file_data, self.expected_file_path)
-            self._simulation.set_params(**kwargs)
-            mode = self.mode
-        if mode == "simulated":
-            self._refresh()
-            self.notify()
 
     def load_expected_file(self, filepath: str) -> None:
         """Load expected/original reference file bytes for BER comparison."""
@@ -140,8 +115,6 @@ class RXAppState:
             with self._lock:
                 self.expected_file_data = data
                 self.expected_file_path = filepath
-                if self._simulation:
-                    self._simulation.set_expected_file(self.expected_file_data, self.expected_file_path)
             self._refresh()
             self.notify()
         except Exception:
@@ -152,8 +125,6 @@ class RXAppState:
         with self._lock:
             self.expected_file_path = None
             self.expected_file_data = None
-            if self._simulation:
-                self._simulation.set_expected_file(None, None)
         self._refresh()
         self.notify()
 
@@ -167,29 +138,15 @@ class RXAppState:
         return False
 
     def _refresh(self) -> None:
-        """Refresh state by delegating to the active backend."""
+        """Refresh receiver state from the physical ESP32 backend."""
+        if self._physical is None:
+            self._physical = RXPhysicalBackend()
+        snapshot = self._physical.refresh()
         with self._lock:
-            mode = self.mode
-        if mode == "simulated":
-            if self._simulation is None:
-                self._simulation = RXSimulationBackend()
-                if self.expected_file_data is not None:
-                    self._simulation.set_expected_file(self.expected_file_data, self.expected_file_path)
-            snap = self._simulation.refresh() if self._simulation else None
-            with self._lock:
-                if snap:
-                    self._apply_sim_snapshot(snap)
-                else:
-                    self._load_empty()
-        else:
-            if self._physical is None:
-                self._physical = RXPhysicalBackend()
-            snap = self._physical.refresh() if self._physical else None
-            with self._lock:
-                if snap:
-                    self._apply_phy_snapshot(snap)
-                else:
-                    self._load_empty()
+            if snapshot:
+                self._apply_phy_snapshot(snapshot)
+            else:
+                self._load_empty()
 
     def _apply_phy_snapshot(self, s: RXPhysicalSnapshot) -> None:
         self.session = s.session
@@ -206,36 +163,25 @@ class RXAppState:
         self.serial_connected = s.serial_connected
         self.using_mock_data = False
 
-    def _apply_sim_snapshot(self, s: RXSimulationSnapshot) -> None:
-        self.session = s.session
-        self.signal = s.session.signal
-        self.transfer = s.transfer
-        self.activity_log = s.activity_log[-500:]
-        self.serial_connected = getattr(self._simulation, "_tx_connected", False)
-        self.using_mock_data = True
-
     def _load_empty(self) -> None:
         import time
         now = time.strftime("%H:%M:%S")
         self.session = _EMPTY_SESSION
         self.signal = _EMPTY_SIGNAL
         self.transfer = _EMPTY_TRANSFER
-        self.using_mock_data = True
+        self.using_mock_data = False
         self.serial_connected = False
 
     def force_connect_serial(self, port: str) -> bool:
         """Force connect physical backend to a port, bypassing detection."""
         with self._lock:
             mode = self.mode
-            if mode == "physical":
-                if self._physical is None:
-                    self._physical = RXPhysicalBackend()
-                res = self._physical.connect(port, force=True)
-        if mode == "physical":
-            self._refresh()
-            self.notify()
-            return res
-        return False
+            if self._physical is None:
+                self._physical = RXPhysicalBackend()
+            res = self._physical.connect(port, force=True)
+        self._refresh()
+        self.notify()
+        return res
 
     def refresh(self) -> None:
         """Public refresh — called by QTimer."""
@@ -325,19 +271,6 @@ class RXAppState:
                 except Exception:
                     pass
                 self._physical = None
-            if self._simulation:
-                try:
-                    self._simulation.cleanup()
-                except Exception:
-                    pass
-                self._simulation = None
-
-    def get_new_simulation_samples(self, last_idx: int) -> list[tuple[float, float, float, int]]:
-        """Get new simulation samples from simulation backend, if available."""
-        with self._lock:
-            if not self._simulation:
-                return []
-            return self._simulation.get_new_samples(last_idx)
 
 
 def build_default_state() -> RXAppState:

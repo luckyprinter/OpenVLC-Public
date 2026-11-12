@@ -181,7 +181,7 @@ def test_settings_container_reduces_gutters_on_compact_width(qapp):
     assert settings._nav_panel.width() == 180
     assert settings._nav_list.accessibleName() == "Settings sections"
     assert settings._nav_list.wordWrap()
-    assert settings._nav_list.item(0).text() == "General &\nDisplay"
+    assert settings._nav_list.item(0).text() == "General"
     assert settings._nav_list.item(0).data(Qt.ItemDataRole.AccessibleTextRole) == "General & Display"
     wrapper_layout = settings._page_wrappers[0].layout()
     margins = wrapper_layout.contentsMargins()

@@ -65,26 +65,30 @@ class SettingsManager:
         self._settings.sync()
 
 
-def reset_all_settings(mgr: SettingsManager, window: QWidget | None = None) -> None:
+def reset_all_settings(mgr: SettingsManager, window: QWidget | None = None) -> bool:
     """Reset both console preference scopes and the shared display settings.
 
-    RX and TX use separate QSettings application scopes under the same
-    organization. Resetting from either console must clear both scopes;
-    otherwise the other console would silently retain its old preferences.
+    Persist and verify the shared defaults before clearing either QSettings
+    scope. If a corrupt settings file cannot be backed up or the new file
+    cannot be written, leave the existing console preferences and in-memory
+    window settings untouched so the UI can report the failure accurately.
     """
     from gui_dev_v3.settings_store import AppSettings, save_settings
+
+    defaults = AppSettings()
+    if not save_settings(defaults, allow_corrupt_recovery=True):
+        return False
 
     # Reuse the current manager and clear the other console's scope too.
     mgr.clear()
     other_scope = "tx" if getattr(mgr, "scope", "rx") == "rx" else "rx"
     SettingsManager(other_scope).clear()
 
-    defaults = AppSettings()
-    save_settings(defaults, allow_corrupt_recovery=True)
     # closeEvent persists the window's in-memory display values. Replace them
     # too, otherwise closing after reset would silently restore the old values.
     if window is not None and hasattr(window, "settings"):
         window.settings = defaults
+    return True
 
 
 def bind_toggle(toggle: ToggleSetting, mgr: SettingsManager, key: str, default: bool = True) -> None:

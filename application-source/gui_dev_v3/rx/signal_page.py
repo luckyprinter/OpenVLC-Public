@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    QSizePolicy,
     QDialog,
     QPushButton,
 )
@@ -271,6 +272,11 @@ class SignalMonitorPage(QWidget):
         orientation = Qt.Orientation.Vertical if compact else Qt.Orientation.Horizontal
         self._middle_splitter.setOrientation(orientation)
         self._bottom_splitter.setOrientation(orientation)
+        # A horizontal QSplitter normally enforces the sum of its children's
+        # minimum widths. Keep children collapsible in compact mode so that
+        # the page itself can actually reach the width that triggers reflow.
+        self._middle_splitter.setChildrenCollapsible(compact)
+        self._bottom_splitter.setChildrenCollapsible(compact)
         if compact:
             self._middle_splitter.setSizes([320, 240, 200])
             self._bottom_splitter.setSizes([300, 260])
@@ -372,7 +378,9 @@ class SignalMonitorPage(QWidget):
 
     def _build_middle_row(self) -> QSplitter:
         splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
+        # Start collapsible so a narrow parent can receive its resize event
+        # before the responsive handler switches the splitter to vertical.
+        splitter.setChildrenCollapsible(True)
 
         # Left: Analog and digital traces stacked vertically (stretch 7)
         left_widget = QWidget()
@@ -397,6 +405,11 @@ class SignalMonitorPage(QWidget):
         margin_card = Card("Margin Analysis")
         margin_card.body.addWidget(margin_widget)
         splitter.addWidget(margin_card)
+
+        for index in range(splitter.count()):
+            child = splitter.widget(index)
+            child.setMinimumWidth(0)
+            child.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
 
         splitter.setStretchFactor(0, 6)
         splitter.setStretchFactor(1, 3)
@@ -467,7 +480,7 @@ class SignalMonitorPage(QWidget):
 
     def _build_bottom_row(self) -> QSplitter:
         splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
+        splitter.setChildrenCollapsible(True)
 
         # --- 1. Transfer Statistics (ProgressBar on top + compact 6-row table) ---
         transfer_widget = self._build_transfer_stats()
@@ -480,6 +493,11 @@ class SignalMonitorPage(QWidget):
         quality_card = Card("Signal Quality Metrics")
         quality_card.body.addWidget(quality_widget)
         splitter.addWidget(quality_card)
+
+        for index in range(splitter.count()):
+            child = splitter.widget(index)
+            child.setMinimumWidth(0)
+            child.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
 
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 1)

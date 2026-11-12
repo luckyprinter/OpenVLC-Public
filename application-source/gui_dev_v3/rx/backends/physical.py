@@ -517,6 +517,10 @@ class RXPhysicalBackend:
 
             filename = bytes.fromhex(name_hex).decode("utf-8", errors="replace") if name_hex else f"rx_{tid}.bin"
             file_bytes = bytes.fromhex(data_hex)
+            if len(file_bytes) != total_size:
+                raise ValueError(
+                    f"RX payload length mismatch: header={total_size}, decoded={len(file_bytes)}"
+                )
 
             # Verify CRC16-CCITT
             calc_crc = crc16_ccitt(file_bytes)

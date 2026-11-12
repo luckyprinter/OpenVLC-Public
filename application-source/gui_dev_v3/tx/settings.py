@@ -29,7 +29,7 @@ from gui_dev_v3.settings import (
 )
 from gui_dev_v3.settings_store import RESOLUTION_PRESETS
 from gui_dev_v3.tx_app_state import TXAppState
-from gui_dev_v3.widgets import Card, muted_label, ModeSelectCard, primary_button
+from gui_dev_v3.widgets import Card, muted_labelprimary_button
 
 # ── General & Display ──────────────────────────────────────────────────
 

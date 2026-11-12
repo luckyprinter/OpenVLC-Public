@@ -317,21 +317,20 @@ class CircularGauge(QWidget):
 
 
 class SignalWaveform(QWidget):
-    """Real-time scrolling signal waveform viewer with three traces.
+    """Scrolling trend of measured PVo, Vref, and margin telemetry.
 
-    Uses pyqtgraph PlotWidget for smooth, GPU-accelerated rendering.
-    Displays PVo (green), Vref (blue), and Margin (amber) traces over a
-    configurable scrolling time window.
+    This plots the actual values reported by the receiver's low-rate status
+    telemetry. It is not an oscilloscope trace or a decoded OOK bit waveform.
     """
 
-    MAX_SAMPLES = 600  # at 100 ms / sample → 60 s
+    MAX_SAMPLES = 600  # bounded trend history; default sampling is one second
     refresh_rate_changed = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._paused = False
         self._time_window = 10.0  # 10 s default to match image
-        self._dt = 0.1  # default 100 ms interval
+        self._dt = 1.0  # receiver status telemetry refreshes once per second
         self._buffer: list[tuple[float, float, float]] = []
         self._times: list[float] = []
         self._playback_mode = False
@@ -352,7 +351,7 @@ class SignalWaveform(QWidget):
         top_row = QHBoxLayout()
         top_row.setContentsMargins(8, 4, 8, 4)
 
-        header = QLabel("SIGNAL WAVEFORMS (LIVE)")
+        header = QLabel("PVo / Vref TELEMETRY TREND")
         header.setStyleSheet(f"color: {_CLR_GREEN}; font-weight: bold; "
                              f"font-size: 12px; background: transparent;")
         top_row.addWidget(header)
@@ -447,7 +446,7 @@ class SignalWaveform(QWidget):
         side_panel.addWidget(refresh_lbl)
 
         self._refresh_combo = QComboBox()
-        self._refresh_combo.addItems(["100 ms", "200 ms", "500 ms"])
+        self._refresh_combo.addItems(["1 s", "2 s", "5 s"])
         self._refresh_combo.setCurrentIndex(0)
         self._refresh_combo.setStyleSheet(combo_style)
         self._refresh_combo.currentTextChanged.connect(self._on_refresh_combo_changed)
@@ -675,9 +674,9 @@ class SignalWaveform(QWidget):
         self.set_time_window(seconds)
 
     def _on_refresh_combo_changed(self, text: str) -> None:
-        ms = int(text.replace(" ms", ""))
-        self._dt = ms / 1000.0
-        self.refresh_rate_changed.emit(ms)
+        seconds = float(text.replace(" s", ""))
+        self._dt = seconds
+        self.refresh_rate_changed.emit(int(seconds * 1000))
 
     def _on_trace_toggle(self) -> None:
         self._pvo_curve.setVisible(self._pvo_cb.isChecked())

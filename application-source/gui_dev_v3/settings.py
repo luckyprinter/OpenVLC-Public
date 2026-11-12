@@ -80,7 +80,7 @@ def reset_all_settings(mgr: SettingsManager, window: QWidget | None = None) -> N
     SettingsManager(other_scope).clear()
 
     defaults = AppSettings()
-    save_settings(defaults)
+    save_settings(defaults, allow_corrupt_recovery=True)
     # closeEvent persists the window's in-memory display values. Replace them
     # too, otherwise closing after reset would silently restore the old values.
     if window is not None and hasattr(window, "settings"):

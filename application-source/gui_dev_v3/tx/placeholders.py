@@ -55,6 +55,7 @@ class TransmitPage(QWidget):
         top_row.setSpacing(14)
 
         queue_card = Card("Transmission Queue")
+        self._queue_card = queue_card
         self.queue_table = QTableWidget(0, 3)
         self.queue_table.setHorizontalHeaderLabels(["Filename", "Size", "Status"])
         self.queue_table.verticalHeader().setDefaultSectionSize(32)
@@ -76,6 +77,7 @@ class TransmitPage(QWidget):
         right_col = QVBoxLayout()
         right_col.setSpacing(14)
         ctrl_card = Card("Queue Controls")
+        self._controls_card = ctrl_card
         self.start_btn = primary_button("Start Batch Transmission")
         self.start_btn.setMinimumHeight(40)
         self.start_btn.clicked.connect(self._on_start_batch)
@@ -87,6 +89,7 @@ class TransmitPage(QWidget):
         right_col.addWidget(ctrl_card)
 
         config_card = Card("Batch Configuration")
+        self._config_card = config_card
         config_card.body.addWidget(_detail_row("Batch Mode", "Sequential"))
         config_card.body.addWidget(_detail_row("Retry Policy", "Max 3 retries"))
         config_card.body.addWidget(_detail_row("Delay Between Files", "2.0 seconds"))
@@ -97,6 +100,7 @@ class TransmitPage(QWidget):
 
         # History spans the full workspace width for readable column headings.
         history_card = Card("Session History")
+        self._history_card = history_card
         self.history_table = QTableWidget(0, 4)
         self.history_table.setHorizontalHeaderLabels(["Time", "File", "Throughput", "Outcome"])
         self.history_table.verticalHeader().setDefaultSectionSize(32)
@@ -116,8 +120,25 @@ class TransmitPage(QWidget):
         history_card.body.addWidget(self.history_table, 1)
         layout.addWidget(history_card, 2)
 
+        self._compact_layout = False
+
         if self.state:
             self.refresh(self.state)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Prioritize the active queue on short/high-DPI displays."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+
+        # Session history has its own full navigation destination. Hiding the
+        # duplicate dashboard table gives the active queue and stop/start
+        # controls enough vertical room without shrinking the controls.
+        self._history_card.setVisible(not compact)
+        self._config_card.setVisible(not compact)
+        self.queue_table.setMinimumHeight(120 if compact else 150)
 
     def _on_start_batch(self) -> None:
         if not self.state:

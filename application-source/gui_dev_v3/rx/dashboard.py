@@ -410,10 +410,12 @@ class RXDashboardPage(QWidget):
         # identity and completion state so its rows retain readable height.
         self._file_info.filesize_row.setVisible(not compact)
         self._file_info.received_size_row.setVisible(not compact)
-        self._file_info.body.setContentsMargins(
-            12, 8, 12, 10
-        ) if compact else self._file_info.body.setContentsMargins(16, 14, 16, 16)
-        self._file_info.body.setSpacing(6 if compact else 10)
+        if compact:
+            self._file_info.body.setContentsMargins(12, 8, 12, 10)
+            self._file_info.body.setSpacing(6)
+        else:
+            self._file_info.body.setContentsMargins(16, 14, 16, 16)
+            self._file_info.body.setSpacing(10)
         self._file_info.setVisible(True)
         self._reception.setVisible(True)
 

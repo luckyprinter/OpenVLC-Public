@@ -227,6 +227,24 @@ def main() -> int:
                     ):
                         inner_tabs.setCurrentIndex(inner_index)
                         app.processEvents()
+                        if inner_name == "export":
+                            export_page = study_page.export_page
+                            folder_field = export_page._folder_edit
+                            if folder_field.cursorPosition() != 0 or not folder_field.toolTip():
+                                raise RuntimeError(
+                                    f"RX Export folder path is not readable at {width}x{height}"
+                                )
+                            history_table = export_page.table
+                            header_width = history_table.horizontalHeader().length()
+                            viewport_width = history_table.viewport().width()
+                            if (
+                                header_width > viewport_width + 2
+                                and history_table.horizontalScrollBar().maximum() <= 0
+                            ):
+                                raise RuntimeError(
+                                    f"RX Export history columns overflow without usable "
+                                    f"horizontal scrolling at {width}x{height}"
+                                )
                         inner_target = OUTPUT_DIR / (
                             f"rx_study_data_{inner_name}_{width}x{height}.png"
                         )

@@ -56,7 +56,6 @@ application-source/
 │   ├── logic/                # Business logic & signal processing
 │   ├── assets/              # Fonts & static resources
 │   │
-│   ├── tx_models.py         # TX data models used by the physical backend
 │   └── codemap.md           # Code organization reference
 │
 ├── OpenVLC-v3.spec         # PyInstaller spec file

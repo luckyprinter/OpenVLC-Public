@@ -335,7 +335,6 @@ class SignalWaveform(QWidget):
         self._times: list[float] = []
         self._playback_mode = False
         self._updating_range = False
-        self._target_margin = 0.365
 
         self._init_ui()
         self._init_plot()
@@ -441,7 +440,7 @@ class SignalWaveform(QWidget):
 
         side_panel.addSpacing(4)
 
-        refresh_lbl = QLabel("Refresh Rate")
+        refresh_lbl = QLabel("Sample Interval")
         refresh_lbl.setStyleSheet(lbl_style)
         side_panel.addWidget(refresh_lbl)
 
@@ -506,28 +505,6 @@ class SignalWaveform(QWidget):
         plot.setYRange(0, 3.5)
         plot.setXRange(0, self._time_window)
 
-        # Target Margin dashed line
-        self._target_line = pg.InfiniteLine(
-            pos=self._target_margin,
-            angle=0,
-            pen=QPen(QColor(_CLR_MARGIN), 1, Qt.DashLine),
-            label=f"Target {self._target_margin:.3f}V",
-            labelOpts={"color": _CLR_MARGIN, "movable": False},
-        )
-        plot.addItem(self._target_line)
-
-        # Safe Margin Zone (0.35 - 0.45 V)
-        zone_brush = QColor(_CLR_GREEN)
-        zone_brush.setAlpha(20)
-        self._safe_zone = pg.LinearRegionItem(
-            values=(0.35, 0.45),
-            orientation="horizontal",
-            brush=zone_brush,
-            pen=QPen(QColor(_CLR_GREEN), 0),
-            movable=False,
-        )
-        plot.addItem(self._safe_zone)
-
         # Trace curves (initially empty)
         self._pvo_curve = plot.plot(
             pen=QPen(QColor(_CLR_PVO), 2.5),
@@ -557,14 +534,6 @@ class SignalWaveform(QWidget):
         )
         self._empty_text.setPos(self._time_window / 2, 1.75)
         plot.addItem(self._empty_text)
-
-        # Dashed baseline for empty state
-        self._empty_line = pg.InfiniteLine(
-            pos=1.75,
-            angle=0,
-            pen=QPen(QColor(_CLR_BORDER), 1, Qt.DashLine),
-        )
-        plot.addItem(self._empty_line)
 
         # Connect user range changes to auto-disable follow live
         plot.getViewBox().sigRangeChanged.connect(self._on_range_changed)
@@ -711,9 +680,6 @@ class SignalWaveform(QWidget):
     def _update_empty_state(self) -> None:
         has_data = len(self._buffer) > 0
         self._empty_text.setVisible(not has_data)
-        self._empty_line.setVisible(not has_data)
-        self._target_line.setVisible(has_data)
-        self._safe_zone.setVisible(has_data)
 
 
 # ---------------------------------------------------------------------------

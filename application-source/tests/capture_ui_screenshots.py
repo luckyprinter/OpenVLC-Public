@@ -66,6 +66,17 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
                             f"(bottom={child_bottom}, content_bottom={content_bottom})"
                         )
 
+    if mode == "tx" and page_name == "dashboard":
+        page = shell._page_widgets.get("dashboard")
+        pipeline = getattr(page, "_pipeline", None)
+        if pipeline is None or pipeline.height() < 112:
+            raise RuntimeError(f"TX pipeline panel is too short at {width}x{height}")
+        for stage_name in ("stage_file", "stage_chunk", "stage_enc", "stage_mod", "stage_esp", "stage_optical"):
+            stage = getattr(pipeline, stage_name, None)
+            desc = getattr(stage, "desc_lbl", None) if stage is not None else None
+            if stage is None or stage.height() < 38 or desc is None or desc.height() < 12:
+                raise RuntimeError(f"TX pipeline stage {stage_name} is clipped at {width}x{height}")
+
     if mode == "tx":
         page = shell._page_widgets.get(page_name)
         table_names = {

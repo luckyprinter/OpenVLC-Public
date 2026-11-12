@@ -22,7 +22,11 @@ from gui_dev_v3.rx.study_data_page import StudyDataPage
 from gui_dev_v3.rx.ber_analyzer_page import BERAnalyzerPage
 from gui_dev_v3.widgets import scrollable
 from gui_dev_v3.theme import COLORS
-from gui_dev_v3.ui_foundation import SidebarNavigationList, add_navigation_item
+from gui_dev_v3.ui_foundation import (
+    SidebarNavigationList,
+    WorkspaceHeader,
+    add_navigation_item,
+)
 
 
 class RXShell(QWidget):
@@ -126,23 +130,9 @@ class RXShell(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        header = QWidget()
-        header.setObjectName("HeaderBar")
-        header.setFixedHeight(52)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(20, 0, 20, 0)
-        header_layout.setSpacing(10)
-
-        self._page_heading = QLabel("Dashboard")
-        self._page_heading.setStyleSheet("font-size: 15px; font-weight: 700; background: transparent;")
-        header_layout.addWidget(self._page_heading)
-        header_layout.addStretch(1)
-
-        workspace_label = QLabel("RECEIVER WORKSPACE")
-        workspace_label.setObjectName("Muted")
-        workspace_label.setStyleSheet("font-size: 10px; font-weight: 700; letter-spacing: 1px; background: transparent;")
-        header_layout.addWidget(workspace_label)
-        main_layout.addWidget(header)
+        self._workspace_header = WorkspaceHeader("RECEIVER WORKSPACE")
+        self._page_heading = self._workspace_header.page_heading
+        main_layout.addWidget(self._workspace_header)
 
         self.pages = QStackedWidget()
         main_layout.addWidget(self.pages, 1)

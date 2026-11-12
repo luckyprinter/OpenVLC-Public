@@ -10,7 +10,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QBoxLayout, QScrollArea, QWidget
 
-from gui_dev_v3.app import VLCMainWindow
+from gui_dev_v3.app import VLCMainWindow, _minimum_window_dimensions
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.rx.dashboard import RXDashboardPage
 from gui_dev_v3.rx.receive_page import ReceivePage
@@ -850,3 +850,21 @@ def test_export_page_path_and_empty_inspector_are_honest(qapp, monkeypatch, tmp_
     assert "PVo/Vref/margin telemetry" in description
     assert "decoded bitstream" not in description.lower()
     page.close()
+
+
+@pytest.mark.parametrize(
+    ("available_width", "available_height", "expected"),
+    [
+        (1920, 1080, (640, 480)),
+        (1366, 768, (640, 480)),
+        (800, 600, (640, 480)),
+        (680, 500, (640, 452)),
+        (500, 400, (468, 352)),
+    ],
+)
+def test_minimum_window_dimensions_allow_responsive_laptop_sizes(
+    available_width: int,
+    available_height: int,
+    expected: tuple[int, int],
+) -> None:
+    assert _minimum_window_dimensions(available_width, available_height) == expected

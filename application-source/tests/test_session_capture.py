@@ -202,3 +202,35 @@ def test_app_state_reads_legacy_method2_capture():
 
     assert comparison is not None
     assert comparison["strict_ber"] == 0.0125
+
+
+
+def test_save_session_capture_preserves_corrupt_existing_file(tmp_path, monkeypatch):
+    capture_dir = tmp_path / "captures"
+    capture_dir.mkdir(parents=True)
+    monkeypatch.setattr(records, "CAPTURE_DIR", capture_dir)
+    path = capture_dir / "session_42.json"
+    original = b"{ broken capture record"
+    path.write_bytes(original)
+
+    capture = SessionCapture(
+        tid=42,
+        timestamp="2026-11-13 12:00:00",
+        filename="capture.bin",
+        ber=0.0,
+        crc_status="PASS",
+        throughput_kbps=1.0,
+        analog_time=[],
+        pvo_samples=[],
+        vref_samples=[],
+        margin_samples=[],
+        ook_bits=[],
+        protocol_events=[],
+        ber_method="method2_reference_file",
+    )
+
+    records.save_session_capture(capture)
+
+    assert path.read_bytes() == original
+    assert list(capture_dir.glob("*.tmp")) == []
+    assert list(capture_dir.glob(".*.tmp")) == []

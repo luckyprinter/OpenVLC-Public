@@ -488,5 +488,5 @@ def test_rx_link_settings_stop_and_report_when_a_write_fails(
     backend.log = lambda stage, detail="": logged.append((stage, detail))  # type: ignore[method-assign]
 
     assert backend.apply_link_settings() is False
-    assert sent == ["FREQ=15000\\n", "PHASE=50\\n"]
+    assert sent == ["FREQ=15000\n", "PHASE=50\n"]
     assert logged and logged[0][0] == "Settings Apply Failed"

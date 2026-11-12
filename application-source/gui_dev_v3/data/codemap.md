@@ -21,5 +21,5 @@ Physical backends call:
 
 ## Integration
 - **Depends on**: `models.py` (all domain types).
-- **Depended by**: `rx/backends/physical.py`, `rx/backends/simulation.py` (indirect via models), `app_state.py` (via backends).
+- **Depended by**: `rx/backends/physical.py`, `app_state.py` (via the physical backend).
 - **External**: Filesystem (`vlc_beta/state/`, `vlc_beta/logs/rx/`, `~/.vlc_rx/`, `~/.vlc_rx_app/`).

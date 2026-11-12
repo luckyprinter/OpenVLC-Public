@@ -668,8 +668,9 @@ class RXPhysicalBackend:
             self._active_started_monotonic = None
             self._active_batch_group_id = None
         except Exception as e:
-            if batch_group_id is not None:
-                self._batch_assembler.discard(batch_group_id)
+            group_to_discard = batch_group_id or self._active_batch_group_id
+            if group_to_discard is not None:
+                self._batch_assembler.discard(group_to_discard)
             # A rejected or malformed completed-file record must not leave a
             # phantom active transfer in the dashboard.
             self._active_tid = None

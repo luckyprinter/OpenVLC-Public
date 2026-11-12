@@ -3,7 +3,7 @@
 Communicates with actual VLC_RX firmware at 460800 baud (RX) or 115200 baud (TX).
 - Sends IDENTIFY to detect and read firmware version
 - Opens persistent serial connection after detection
-- Background thread reads ALL serial lines continuously (like vlc_beta's poll_serial)
+- Background thread reads ALL serial lines continuously (in a dedicated reader thread)
 - Dispatches RX_FILE_HEX, RX_TRANSFER_NOTICE, RX_RAM_STORE, LQ, VREF_* to handlers
 - _poll_lq() drains the line queue instead of calling reset_input_buffer() which
   would destroy async firmware messages before they are processed
@@ -15,6 +15,7 @@ from __future__ import annotations
 import binascii
 import json
 import queue
+from pathlib import Path
 import re
 import threading
 import time

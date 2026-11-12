@@ -529,11 +529,17 @@ def test_rx_link_settings_stop_and_report_when_a_write_fails(
     sent: list[str] = []
     logged: list[tuple[str, str]] = []
 
-    def fail_second_write(command: str) -> bool:
+    def fail_second_ack(command: str, _prefix: str, timeout: float = 2.0) -> bool:
         sent.append(command)
-        return len(sent) < 2
+        if len(sent) >= 2:
+            backend.log(
+                "Settings Apply Failed",
+                f"No firmware acknowledgement for {command.strip()} (expected RX 4B5B PHASE =).",
+            )
+            return False
+        return True
 
-    backend.send_command = fail_second_write  # type: ignore[method-assign]
+    backend._send_command_and_confirm = fail_second_ack  # type: ignore[method-assign]
     backend.log = lambda stage, detail="": logged.append((stage, detail))  # type: ignore[method-assign]
 
     assert backend.apply_link_settings() is False
@@ -541,6 +547,53 @@ def test_rx_link_settings_stop_and_report_when_a_write_fails(
     assert logged and logged[0][0] == "Settings Apply Failed"
 
  
+def test_rx_settings_wait_for_firmware_acknowledgements(monkeypatch: pytest.MonkeyPatch):
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    backend = RXPhysicalBackend()
+    backend._connected = True
+    backend._ser = object()
+    backend._pwm_autocal_target_mv = 0
+    backend._pwm_autocal_converged = False
+    responses = {
+        "FREQ=15000\\n": "RX 4B5B FREQ = 15000 | symbol_us=66",
+        "PHASE=50\\n": "RX 4B5B PHASE = 50%",
+        "MAJ=1\\n": "RX 4B5B MAJ = 1",
+        "REPORT=1\\n": "RX REPORT = 1",
+        "VREF_MARGIN=365\\n": "VREF_MARGIN_OK:target_margin_mv=365",
+        "VREF_PWM_FS=2625\\n": "VREF_PWM_FS_OK:vref_mode=MANUAL",
+        "VREF_SETTLE_MS=120\\n": "VREF_SETTLE_OK:settle_ms=120",
+        "VREF_MODE=MANUAL\\n": "VREF_MODE_OK:vref_mode=MANUAL",
+        "VREF_SET=1700\\n": "VREF_SET_OK:vref_mode=MANUAL:target_mv=1700",
+    }
+
+    def respond(command: str) -> bool:
+        backend._dispatch_line(responses[command])
+        return True
+
+    backend.send_command = respond  # type: ignore[method-assign]
+    backend.log = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+
+    assert backend.apply_link_settings() is True
+
+
+def test_rx_settings_reject_firmware_skip_response():
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    backend = RXPhysicalBackend()
+    backend._command_response_condition = threading.Condition()
+    from collections import deque
+    backend._command_response_lines = deque(maxlen=128)
+    backend.send_command = lambda _command: (
+        backend._dispatch_line("VREF_SET_SKIP:reason=rx_transfer_active") or True
+    )  # type: ignore[method-assign]
+    logged: list[tuple[str, str]] = []
+    backend.log = lambda stage, detail="": logged.append((stage, detail))  # type: ignore[method-assign]
+
+    assert backend._send_command_and_confirm("VREF_SET=1700\\n", "VREF_SET_OK:", timeout=0.05) is False
+    assert logged and "VREF_SET_SKIP" in logged[0][1]
+
+
 def test_tx_link_settings_report_partial_configuration_failures(
     monkeypatch: pytest.MonkeyPatch,
 ):

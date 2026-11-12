@@ -6,6 +6,7 @@ from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
 def test_firmware_crc_failure_does_not_invent_ber(monkeypatch):
     monkeypatch.setattr(logger, "file_log", lambda *_args, **_kwargs: None)
     backend = RXPhysicalBackend()
+    backend._record_diag = lambda *_args, **_kwargs: None
     backend._active_tid = 12
     backend._active_filename = "sample.bin"
     backend._active_total_size = 32
@@ -26,6 +27,7 @@ def test_firmware_crc_failure_does_not_invent_ber(monkeypatch):
 def test_rejected_batch_fragment_clears_active_rx_transfer(tmp_path, monkeypatch):
     monkeypatch.setattr(logger, "file_log", lambda *_args, **_kwargs: None)
     backend = RXPhysicalBackend()
+    backend._record_diag = lambda *_args, **_kwargs: None
     backend._save_dir = tmp_path
     backend._active_tid = 9
     backend._active_filename = "old.bin"

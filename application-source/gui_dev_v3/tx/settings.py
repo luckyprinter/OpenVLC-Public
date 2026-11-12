@@ -429,7 +429,7 @@ class TXSettingsPage(QWidget):
         if not self._state:
             return
         if command_key != "PREAMBLE_BITS":
-            self._state.send_firmware_command(f"{command_key}={value}\\n")
+            self._state.send_firmware_command(f"{command_key}={value}\n")
 
     def refresh(self, state: TXAppState) -> None:
         if state is None:

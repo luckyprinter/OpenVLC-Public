@@ -209,7 +209,11 @@ class RXPhysicalBackend:
                 self._record_diag("serial_connected", role="rx", baud_rate=RX_BAUD,
                                   firmware_family="rx")
                 self.log("Connected", f"Auto-connected to {port} (VLC_RX)")
-                self.apply_link_settings()
+                if not self.apply_link_settings():
+                    self.log(
+                        "Connected with Settings Warning",
+                        "RX serial connection is active, but one or more saved link settings were not applied. Review the Settings Apply Failed entry.",
+                    )
                 return True
         if ports:
             self.log("Failed", "No VLC_RX devices found.")
@@ -250,7 +254,11 @@ class RXPhysicalBackend:
         self._record_diag("serial_connected", role="rx", baud_rate=RX_BAUD,
                           firmware_family="rx")
         self.log("Connected", f"Opened {port} successfully")
-        self.apply_link_settings()
+        if not self.apply_link_settings():
+            self.log(
+                "Connected with Settings Warning",
+                "RX serial connection is active, but one or more saved link settings were not applied. Review the Settings Apply Failed entry.",
+            )
         return True
 
     def disconnect(self) -> None:

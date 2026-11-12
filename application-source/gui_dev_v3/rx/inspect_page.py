@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt, Signal, QRectF, QSize
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QBrush
 from PySide6.QtWidgets import (
     QDialog,
+    QBoxLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -28,6 +29,7 @@ from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.models import ChunkRecord, ChunkStatus
 from gui_dev_v3.theme import COLORS
 from gui_dev_v3.widgets import Card, muted_label, value_label, panel_header
+from gui_dev_v3.ui_foundation import PageIntro
 
 # Color palette for chunk statuses mapping
 _COLORS = {
@@ -335,27 +337,37 @@ class InspectPage(QWidget):
         self._last_chunk_count = -1
         self._last_expected_path = ""
         self._current_chunks: list[ChunkRecord] = []
+        self._compact_layout = False
 
         # Page layout
         lo = QVBoxLayout(self)
         lo.setContentsMargins(20, 16, 20, 20)
         lo.setSpacing(12)
+        lo.addWidget(PageIntro(
+            "RECEIVER  /  DATA INSPECTION",
+            "Inspect received data",
+            "Compare chunks, review integrity, and inspect received bytes against a reference file.",
+            self,
+        ))
 
         # ── 1. Transfer Snapshot Card ──
         self.snap_card = Card("Transfer Snapshot")
         self.snap_lbl = QLabel("TID: —  |  Filename: —  |  Size: —  |  Total: 0 chunks")
         self.snap_lbl.setStyleSheet("font-weight: 600; font-size: 13px; color: #FFFFFF;")
+        self.snap_lbl.setWordWrap(True)
         self.snap_card.body.addWidget(self.snap_lbl)
         lo.addWidget(self.snap_card)
 
         # ── 2. Reference File Status Card ──
         self.ref_status_card = Card("Reference File Status")
-        ref_status_lo = QHBoxLayout()
+        ref_status_lo = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._ref_status_layout = ref_status_lo
         ref_status_lo.setContentsMargins(4, 4, 4, 4)
         ref_status_lo.setSpacing(12)
         
         self.ref_status_lbl = QLabel("No original reference file loaded")
         self.ref_status_lbl.setStyleSheet("font-weight: 600; font-size: 11px; color: #8c99aa;")
+        self.ref_status_lbl.setWordWrap(True)
         ref_status_lo.addWidget(self.ref_status_lbl, 1)
         
         self.inspect_load_btn = QPushButton("Load Reference")
@@ -376,7 +388,8 @@ class InspectPage(QWidget):
         self.map_card.body.addWidget(self._health_map)
         
         # Legend row
-        legend_row = QHBoxLayout()
+        legend_row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._legend_layout = legend_row
         legend_row.setSpacing(16)
         CHUNK_LEGEND = [
             ("Match",     "#22c55e"),
@@ -390,12 +403,15 @@ class InspectPage(QWidget):
             dot.setStyleSheet(f"color: {color}; font-size: 10px; font-weight: 700; background: transparent;")
             legend_row.addWidget(dot)
         legend_row.addStretch(1)
-        self.map_card.body.addLayout(legend_row)
+        self._legend_row = QWidget()
+        self._legend_row.setLayout(legend_row)
+        self.map_card.body.addWidget(self._legend_row)
         
         lo.addWidget(self.map_card)
 
         # ── 4. Bottom Row (Byte Explorer & Chunk Details) ──
-        bottom_lo = QHBoxLayout()
+        bottom_lo = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._bottom_layout = bottom_lo
         bottom_lo.setSpacing(12)
 
         # Left Column: Chunk Explorer
@@ -427,6 +443,26 @@ class InspectPage(QWidget):
         # Wire map selection changes
         self._health_map.selection_changed.connect(self._on_map_selection)
         self._health_map.chunk_selected.connect(self._on_map_double_click)
+
+        self.chunk_table.itemSelectionChanged.connect(self._on_table_selection)
+        self.chunk_table.cellDoubleClicked.connect(self._on_table_double_click)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Stack the byte/chunk explorers when the available width is small."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        direction = (
+            QBoxLayout.Direction.TopToBottom
+            if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self._ref_status_layout.setDirection(direction)
+        self._bottom_layout.setDirection(direction)
+        self._legend_layout.setDirection(direction)
+        self.chunk_table.setMinimumHeight(150 if compact else 180)
+        self.byte_table.setMinimumHeight(150 if compact else 180)
 
         # Wire table selections
         self.chunk_table.itemSelectionChanged.connect(self._on_table_selection)

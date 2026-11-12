@@ -114,3 +114,55 @@ def add_navigation_item(
     item.setData(Qt.ItemDataRole.AccessibleDescriptionRole, f"Open {label}.")
     navigation.addItem(item)
     return item
+
+
+class WorkspaceHeader(QWidget):
+    """Shared, compact-safe page header for both application workspaces."""
+
+    def __init__(self, workspace_label: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("WorkspaceHeader")
+        self.setFixedHeight(52)
+        self.setAccessibleName(workspace_label.title())
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 0, 20, 0)
+        layout.setSpacing(0)
+
+        from PySide6.QtWidgets import QHBoxLayout
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(10)
+
+        self.page_heading = QLabel("Dashboard", self)
+        self.page_heading.setObjectName("WorkspacePageHeading")
+        self.page_heading.setMinimumWidth(0)
+        self.page_heading.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Preferred,
+        )
+        self.page_heading.setStyleSheet(
+            "font-size: 15px; font-weight: 700; background: transparent;"
+        )
+        self.page_heading.setAccessibleName("Current page")
+        row.addWidget(self.page_heading, 1)
+
+        self.workspace_label = QLabel(workspace_label, self)
+        self.workspace_label.setObjectName("WorkspaceLabel")
+        self.workspace_label.setSizePolicy(
+            QSizePolicy.Policy.Maximum,
+            QSizePolicy.Policy.Preferred,
+        )
+        self.workspace_label.setStyleSheet(
+            "font-size: 10px; font-weight: 700; letter-spacing: 1px; "
+            "background: transparent;"
+        )
+        row.addWidget(self.workspace_label)
+        layout.addLayout(row)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        # Preserve the page title on narrow work areas; the workspace identity
+        # is supplemental and can safely collapse before text is clipped.
+        self.workspace_label.setVisible(self.width() >= 520)

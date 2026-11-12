@@ -45,7 +45,7 @@ application-source/
 │   ├── rx/                  # Receiver (RX) console UI
 │   │   ├── shell.py         # RX main window
 │   │   ├── panels/          # RX panel modules
-│   │   └── backends/        # Physical & simulation backends
+│   │   └── backends/        # Physical ESP32 hardware backends
 │   │
 │   ├── tx/                  # Transmitter (TX) console UI
 │   │   ├── shell.py         # TX main window
@@ -56,8 +56,7 @@ application-source/
 │   ├── logic/                # Business logic & signal processing
 │   ├── assets/              # Fonts & static resources
 │   │
-│   ├── mock_data.py         # Mock data for RX testing
-│   ├── tx_mock_data.py      # Mock data for TX testing
+│   ├── tx_mock_data.py      # TX data models used by the physical backend
 │   └── codemap.md           # Code organization reference
 │
 ├── OpenVLC-v3.spec         # PyInstaller spec file
@@ -115,7 +114,7 @@ sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 \
 ## Architecture
 
 ### State Management
-- **RXAppState** (`app_state.py`) — Manages RX session state with physical/simulated backend switching
+- **RXAppState** (`app_state.py`) — Manages RX session state from the physical ESP32 backend
 - **TXAppState** (`tx_app_state.py`) — Manages TX session state and file transmission
 - **AppSettings** (`settings_store.py`) — Persistent user preferences
 
@@ -133,7 +132,7 @@ sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 \
 - 📊 **Real-time Signal Visualization** — Live waveform plots
 - 🔧 **Hardware Control** — Vref PWM adjustment and serial command interface
 - 📁 **File Transfer** — Application-level handling for larger files
-- 🧪 **Simulation Mode** — Test without physical hardware
+- 🔌 **Hardware-first** — Communicates with real ESP32 transmitter and receiver boards
 - ⚙️ **Persistent Settings** — Resolution, theme, and connection settings saved locally
 
 ## Development Guidelines

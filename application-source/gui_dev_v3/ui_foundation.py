@@ -121,7 +121,8 @@ class WorkspaceHeader(QWidget):
 
     def __init__(self, workspace_label: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        # Retain the existing theme hook used by both shells.\n        self.setObjectName("HeaderBar")
+        # Retain the existing theme hook used by both shells.
+        self.setObjectName("HeaderBar")
         self.setFixedHeight(52)
         self.setAccessibleName(workspace_label.title())
 

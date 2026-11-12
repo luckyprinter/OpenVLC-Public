@@ -25,6 +25,7 @@ from gui_dev_v3.data.status import read_status
 from gui_dev_v3.models import SessionState, SignalState, TransferRecord, TransferStatus
 from gui_dev_v3.logic.batch_assembler import BatchAssembler
 from gui_dev_v3.runtime_paths import configure_runtime_data_dir
+from gui_dev_v3.serial.detection import prioritize_preferred_port
 
 STATUS_FRESHNESS_SEC = 30.0
 
@@ -188,6 +189,11 @@ class RXPhysicalBackend:
     def _auto_connect_locked(self) -> bool:
         """Perform discovery and persistent connection while holding the shared lock."""
         ports = self.scan_ports()
+        # Try this RX console's last successful port first. If it is stale,
+        # prioritize_preferred_port leaves the actual enumerated fallback list intact.
+        from gui_dev_v3.settings import SettingsManager
+        preferred = SettingsManager("rx").get("connection/port", "")
+        ports = prioritize_preferred_port(ports, str(preferred or ""))
         if ports:
             self.log("Scan", f"Found {len(ports)} ports: {', '.join(ports)}")
         for port in ports:

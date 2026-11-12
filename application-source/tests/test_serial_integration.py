@@ -557,3 +557,32 @@ def test_tx_manual_connect_uses_only_the_explicitly_selected_port(monkeypatch):
     assert attempted == ["MANUAL_TX_PORT"]
     assert backend.port == "MANUAL_TX_PORT"
     backend.disconnect()
+
+
+def test_rx_close_releases_serial_handle_before_joining_reader():
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    backend = RXPhysicalBackend()
+    reader_started = threading.Event()
+    handle_closed = threading.Event()
+
+    class BlockingReadHandle:
+        is_open = True
+
+        def close(self):
+            self.is_open = False
+            handle_closed.set()
+
+    def reader():
+        reader_started.set()
+        handle_closed.wait(timeout=5.0)
+
+    backend._ser = BlockingReadHandle()
+    backend._reader_thread = threading.Thread(target=reader, daemon=True)
+    backend._reader_thread.start()
+    assert reader_started.wait(timeout=1.0)
+
+    assert backend._close_serial() is True
+    assert handle_closed.is_set()
+    assert backend._ser is None
+    assert backend._reader_thread is None

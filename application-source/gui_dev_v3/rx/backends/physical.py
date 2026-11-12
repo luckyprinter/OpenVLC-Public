@@ -889,20 +889,37 @@ class RXPhysicalBackend:
                     self._last_scan_time = now
                     # Run detection in a background thread so the GUI never freezes
                     import threading
-                    target_port = mgr.get("connection/port", "") if mode == "Manual" else None
-                    self._connecting = True
+                    target_port = (
+                        str(mgr.get("connection/port", "") or "").strip()
+                        if mode == "Manual" else None
+                    )
+                    if mode == "Manual" and not target_port:
+                        # Manual mode is an explicit user choice. Never fall
+                        # back to automatic role discovery when no port is set.
+                        if not getattr(self, "_manual_port_warning_logged", False):
+                            self._log_queue.append({
+                                "time": time.strftime("%H:%M:%S"),
+                                "event": "Manual Port Required",
+                                "details": "Select an RX serial port in Settings before connecting.",
+                            })
+                            self._manual_port_warning_logged = True
+                    else:
+                        self._manual_port_warning_logged = False
+                        self._connecting = True
 
-                    def _bg_connect():
-                        try:
-                            if target_port:
-                                self.connect(target_port)
-                            else:
-                                self.auto_connect()
-                        finally:
-                            self._connecting = False
+                        def _bg_connect():
+                            try:
+                                if mode == "Manual":
+                                    self.connect(target_port)
+                                else:
+                                    self.auto_connect()
+                            finally:
+                                self._connecting = False
 
-                    self._connect_thread = threading.Thread(target=_bg_connect, daemon=True)
-                    self._connect_thread.start()
+                        self._connect_thread = threading.Thread(
+                            target=_bg_connect, daemon=True
+                        )
+                        self._connect_thread.start()
 
         if not self._connected:
             # Retain recent cached telemetry while reporting the device as disconnected

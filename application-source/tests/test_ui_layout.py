@@ -797,3 +797,32 @@ def test_rx_dashboard_reports_connection_state_not_decoder_lock(qapp):
     assert page._receiver_state.protocol_row.val.text() == "4B5B / OOK"
     assert page._receiver_state.connection_row.val.text() != "LOCKED"
     page.close()
+
+
+
+def test_session_inspector_replays_telemetry_and_labels_legacy_threshold_samples(qapp):
+    from gui_dev_v3.models import SessionCapture
+    from gui_dev_v3.rx.export_page import SessionInspectorCard
+
+    inspector = SessionInspectorCard()
+    capture = SessionCapture(
+        tid=91,
+        timestamp="2026-11-13 12:00:00",
+        filename="telemetry.bin",
+        ber=None,
+        crc_status="PASS",
+        throughput_kbps=0.0,
+        analog_time=[0.0, 1.0, 2.0],
+        pvo_samples=[1.0, 1.1, 1.2],
+        vref_samples=[0.7, 0.7, 0.7],
+        margin_samples=[0.3, 0.4, 0.5],
+        ook_bits=[1, 0, 1, 0],
+        protocol_events=[],
+        ber_method="unavailable",
+    )
+    inspector.show_capture(capture, {"status": "Complete", "size_bytes": 3})
+
+    assert len(inspector.signal_waveform._buffer) == 3
+    assert "Legacy threshold-state samples" in inspector.bitstream_text.toPlainText()
+    assert "NOT decoded symbol-rate OOK bits" in inspector.bitstream_text.toPlainText()
+    inspector.close()

@@ -21,6 +21,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .transfer_plan import MAX_BATCH_PARTS, plan_stream_parts
 from .session import (
     MAX_STREAM_FILE_BYTES,
     MAX_NAME_BYTES,
@@ -177,46 +178,78 @@ class TXSerialController(SerialSession):
         round_count = max(1, int(rounds))
 
         if not use_dma and len(data) > MAX_STREAM_FILE_BYTES:
-            import math
             group_id = random.randint(1, 65535)
             full_crc = crc16_ccitt(data)
-            part_count = math.ceil(len(data) / MAX_STREAM_FILE_BYTES)
-            
+            part_size, part_count = plan_stream_parts(
+                len(data), chunk_size, max_file_bytes=MAX_STREAM_FILE_BYTES
+            )
+            if part_count > MAX_BATCH_PARTS:
+                self.status(
+                    "File too large",
+                    f"Requires {part_count} parts; firmware limit is {MAX_BATCH_PARTS}",
+                    state="error",
+                )
+                return False
+
+            # Validate the longest metadata prefix before sending any part.
+            longest_prefix = (
+                f"VLCB1~{group_id:04X}~{part_count:03d}~"
+                f"{part_count:03d}~{full_crc:04X}~"
+            )
+            if len((longest_prefix + path.name).encode("utf-8")) > MAX_NAME_BYTES:
+                self.status(
+                    "Filename too long",
+                    f"Batch metadata plus filename must fit {MAX_NAME_BYTES} UTF-8 bytes",
+                    state="error",
+                )
+                return False
+
             self.status(
                 "Batching large file",
                 f"{len(data):,} B split into {part_count} parts",
                 state="active",
             )
-            
-            for part_index, offset in enumerate(range(0, len(data), MAX_STREAM_FILE_BYTES), start=1):
-                part = data[offset:offset + MAX_STREAM_FILE_BYTES]
+
+            for part_index, offset in enumerate(range(0, len(data), part_size), start=1):
+                part = data[offset:offset + part_size]
                 part_tid = random.randint(1, 65535)
                 part_crc = crc16_ccitt(part)
                 # Format: VLCB1~group_id~part_index~part_count~full_crc~original_name
                 prefix = f"VLCB1~{group_id:04X}~{part_index:03d}~{part_count:03d}~{full_crc:04X}~"
-                part_name = prefix + path.name
-                part_name_bytes = part_name.encode("utf-8", errors="replace")[:MAX_NAME_BYTES]
-                
+                part_name_bytes = (prefix + path.name).encode("utf-8")
+
                 self.status(
                     "Sending batch part",
                     f"Part {part_index}/{part_count}...",
                     state="active",
                 )
-                success = self._send_stream(path, part, part_name_bytes, chunk_size, part_tid, part_crc, round_count)
+                success = self._send_stream(
+                    path, part, part_name_bytes, chunk_size, part_tid, part_crc, round_count
+                )
                 if not success:
                     return False
-                
-                # Delay for RX to process batch part
+
+                # Delay for RX to process the completed part before the next.
                 if part_index < part_count:
-                    import time as _time
                     delay_s = max(6.0, min(14.0, 3.0 + (len(part) / 20_000.0)))
-                    self.status("Batch delay", f"Waiting {delay_s:.1f}s for RX buffer...", state="active")
-                    _time.sleep(delay_s)
-                    
+                    self.status(
+                        "Batch delay",
+                        f"Waiting {delay_s:.1f}s for RX buffer...",
+                        state="active",
+                    )
+                    time.sleep(delay_s)
+
             self.status("Batch complete", f"All {part_count} parts sent", state="ready")
             return True
 
-        name_bytes = path.name.encode("utf-8", errors="replace")[:MAX_NAME_BYTES]
+        name_bytes = path.name.encode("utf-8")
+        if len(name_bytes) > MAX_NAME_BYTES:
+            self.status(
+                "Filename too long",
+                f"Filename must fit {MAX_NAME_BYTES} UTF-8 bytes",
+                state="error",
+            )
+            return False
         tid         = random.randint(1, 65535)
         file_crc    = crc16_ccitt(data)
 

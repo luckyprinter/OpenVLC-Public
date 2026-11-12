@@ -34,7 +34,7 @@ from gui_dev_v3.settings import (
 )
 from gui_dev_v3.settings_store import RESOLUTION_PRESETS
 from gui_dev_v3.theme import COLORS
-from gui_dev_v3.widgets import Card, muted_labelprimary_button
+from gui_dev_v3.widgets import Card, muted_label, primary_button
 
 
 # ── General & Display ──────────────────────────────────────────────────

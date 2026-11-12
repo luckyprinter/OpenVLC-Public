@@ -146,17 +146,23 @@ class _PerformanceMetricsPanel(Card):
 
     def refresh(self, state: RXAppState) -> None:
         sig = state.signal
-        self.ber_row.setValue(f"{sig.ber:.4f}")
-        self.strict_ber_row.setValue(f"{sig.strict_ber:.4f}")
-        crc_status = (sig.crc_status or "").strip().upper()
-        crc_color = (
-            COLORS["green"] if crc_status == "PASS"
-            else COLORS["red"] if crc_status in {"FAIL", "FAILED", "CRC FAILED"}
-            else COLORS["muted"]
-        )
-        self.crc_row.setStatus(sig.crc_status or "—", crc_color)
-        self.margin_row.setValue(f"{sig.margin:.3f} V")
-        self.data_rate_row.setValue(f"{sig.data_rate:.2f} kbps" if sig.data_rate > 0 else "— kbps")
+        has_transfer = bool(state.transfer.total_chunks or state.transfer.received_chunks)
+        if state.serial_connected and has_transfer:
+            self.ber_row.setValue(f"{sig.ber:.4f}")
+            self.strict_ber_row.setValue(f"{sig.strict_ber:.4f}")
+            self.crc_row.setStatus(
+                sig.crc_status or "—",
+                COLORS["green"] if (sig.crc_status or "").strip().upper() == "PASS"
+                else COLORS["red"] if (sig.crc_status or "").strip().upper() in {"FAIL", "FAILED", "CRC FAILED"}
+                else COLORS["muted"],
+            )
+        else:
+            self.ber_row.setValue("—")
+            self.strict_ber_row.setValue("—")
+            self.crc_row.setStatus("—", COLORS["muted"])
+
+        self.margin_row.setValue(f"{sig.margin:.3f} V" if state.serial_connected else "—")
+        self.data_rate_row.setValue(f"{sig.data_rate:.2f} kbps" if state.serial_connected and sig.data_rate > 0 else "—")
 
 
 class _SignalMonitorPanel(Card):
@@ -182,14 +188,20 @@ class _SignalMonitorPanel(Card):
     def refresh(self, state: RXAppState) -> None:
         self._state = state
         sig = state.signal
-        self.pvo_row.setValue(f"{sig.pvo:.3f} V")
-        self.vref_row.setValue(f"{sig.vref:.3f} V")
-        self.adc_vref_row.setValue(f"{sig.adc_vref:.3f} V")
+        if state.serial_connected:
+            self.pvo_row.setValue(f"{sig.pvo:.3f} V")
+            self.vref_row.setValue(f"{sig.vref:.3f} V")
+            self.adc_vref_row.setValue(f"{sig.adc_vref:.3f} V")
+            self.lux_row.setValue(f"{sig.lux} (uncal.)")
+        else:
+            self.pvo_row.setValue("—")
+            self.vref_row.setValue("—")
+            self.adc_vref_row.setValue("—")
+            self.lux_row.setValue("—")
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("rx")
         vref_auto = mgr.get("link/vref_auto", False)
         self.vref_mode_row.setValue("Auto" if vref_auto else "Manual")
-        self.lux_row.setValue(f"{sig.lux} (uncal.)")
 
 
 class _SignalWaveformPanel(Card):

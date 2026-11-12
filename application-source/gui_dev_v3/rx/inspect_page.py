@@ -466,10 +466,14 @@ class InspectPage(QWidget):
         self._current_chunks = transfer.chunks
 
         # Method 2 requires the original reference file selected by the user.
-        if state.expected_file_data is not None and expected_path:
+        if expected_path:
+            try:
+                reference_size = os.path.getsize(expected_path)
+            except OSError:
+                reference_size = None
+            size_label = f" ({reference_size:,} B)" if reference_size is not None else " (file unavailable)"
             self.ref_status_lbl.setText(
-                f"Original reference: {os.path.basename(expected_path)} "
-                f"({len(state.expected_file_data):,} B)"
+                f"Original reference: {os.path.basename(expected_path)}{size_label}"
             )
             self.ref_status_lbl.setStyleSheet(
                 "font-weight: 600; font-size: 11px; color: #22c55e;"

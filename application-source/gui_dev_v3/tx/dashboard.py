@@ -138,21 +138,7 @@ class DeviceStatusWidget(QFrame):
         
     def refresh(self, state: TXAppState) -> None:
         connected = state.serial_connected
-        mode = state.mode
-        
-        if mode == "simulated":
-            if connected:
-                self.box_connection.setValue("Connected (Simulated)", COLORS["green"])
-                self.box_firmware.setValue("Virtual Channel", COLORS["value"])
-                self.box_protocol.setValue("VLC Beta v3.0", COLORS["value"])
-                self.box_usb.setValue("UDP localhost:9902 (Active)", COLORS["green"])
-            else:
-                self.box_connection.setValue("Waiting for RX Link (Sim)", COLORS["amber"])
-                self.box_firmware.setValue("Virtual Channel", COLORS["value"])
-                self.box_protocol.setValue("VLC Beta v3.0", COLORS["value"])
-                self.box_usb.setValue("UDP localhost:9902 (Listening)", COLORS["muted"])
-        else:
-            if connected:
+        if connected:
                 self.box_connection.setValue("Hardware Connected", COLORS["green"])
                 physical = getattr(state, "_physical", None)
                 firmware_info = getattr(physical, "_firmware_info", None) if physical else None
@@ -169,7 +155,7 @@ class DeviceStatusWidget(QFrame):
             else:
                 self.box_connection.setValue("Disconnected", COLORS["red"])
                 self.box_firmware.setValue("—", COLORS["muted"])
-                self.box_protocol.setValue("VLC Beta v3.0", COLORS["value"])
+                self.box_protocol.setValue("4B5B / NRZ-OOK", COLORS["value"])
                 self.box_usb.setValue("Inactive", COLORS["muted"])
 
 
@@ -781,10 +767,6 @@ class TXDashboardPage(QWidget):
                 file_log("TX", "User Action", f"Clicked Start Transmission for {Path(filepath).name}")
                 self._state.start_transmission(filepath)
 
-    def _on_cancel_clicked(self) -> None:
-        if self._state.mode == "simulated" and self._state._simulation:
-            self._state._simulation.stop()
-            self._state.refresh()
 
     def refresh(self, state: TXAppState | None = None) -> None:
         if state is not None:

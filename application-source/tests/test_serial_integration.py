@@ -491,3 +491,50 @@ def test_rx_link_settings_stop_and_report_when_a_write_fails(
     assert backend.apply_link_settings() is False
     assert sent == ["FREQ=15000\n", "PHASE=50\n"]
     assert logged and logged[0][0] == "Settings Apply Failed"
+
+ 
+def test_tx_link_settings_report_partial_configuration_failures(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    class FakeSettings:
+        def __init__(self, _role: str) -> None:
+            pass
+
+        def get(self, _key: str, default: Any = None) -> Any:
+            return default
+
+    class FakeController:
+        is_connected = True
+
+        def __init__(self, apply_result: bool) -> None:
+            self.apply_result = apply_result
+
+        def apply_4b5b_settings(self, **_kwargs: Any) -> bool:
+            return self.apply_result
+
+    monkeypatch.setattr("gui_dev_v3.settings.SettingsManager", FakeSettings)
+    backend = TXPhysicalBackend()
+    backend._connected = True
+    backend._controller = FakeController(False)
+    sent: list[str] = []
+    logged: list[tuple[str, str]] = []
+    backend.send_command = lambda command: sent.append(command) or True  # type: ignore[method-assign]
+    backend.log = lambda event, detail="": logged.append((event, detail))  # type: ignore[method-assign]
+
+    assert backend.apply_link_settings() is False
+    assert sent == []
+    assert logged == [("Settings Apply Failed", "TX 4B5B/link configuration could not be sent")]
+
+    backend._controller = FakeController(True)
+    backend.send_command = lambda command: sent.append(command) or False  # type: ignore[method-assign]
+    logged.clear()
+    assert backend.apply_link_settings() is False
+    assert sent == ["INTENSITY=100"]
+    assert logged == [("Settings Apply Failed", "Serial write failed at INTENSITY")]
+
+    backend.send_command = lambda command: sent.append(command) or True  # type: ignore[method-assign]
+    logged.clear()
+    assert backend.apply_link_settings() is True
+    assert logged == [("Settings Applied", "Saved TX link settings were sent successfully")]

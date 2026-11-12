@@ -35,7 +35,6 @@ class RXAppState:
     activity_log: list[dict[str, str]] = field(default_factory=list)
     using_mock_data: bool = False
     serial_connected: bool = False
-    mode: str = "physical"
     expected_file_path: str | None = None
     expected_file_data: bytes | None = None
     current_capture: SessionCapture | None = None
@@ -92,16 +91,6 @@ class RXAppState:
     def apply_settings(self, settings: AppSettings) -> None:
         with self._lock:
             self.settings = settings
-        self.notify()
-
-    def set_mode(self, mode: str) -> None:
-        """Compatibility guard: this application supports physical hardware only."""
-        if mode == self.mode:
-            return
-        if mode != "physical":
-            raise ValueError("Only physical hardware mode is supported.")
-        self.mode = "physical"
-        self._refresh()
         self.notify()
 
     def load_expected_file(self, filepath: str) -> None:

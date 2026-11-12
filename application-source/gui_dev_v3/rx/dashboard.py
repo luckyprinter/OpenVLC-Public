@@ -37,6 +37,7 @@ from gui_dev_v3.widgets import (
     value_label,
 )
 from gui_dev_v3.rx.signal_widgets import OOKWaveformWidget, SignalWaveform
+from gui_dev_v3.ui_foundation import PageIntro
 
 
 import math

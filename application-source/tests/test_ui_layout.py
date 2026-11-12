@@ -444,11 +444,13 @@ def test_table_builder_exports_blank_template_without_fabricated_measurements(qa
     assert "no synthetic test data" in page._preview_notice.text()
     assert page._preview_table.rowCount() > 0
     assert page._preview_table.columnCount() == len(page._get_column_labels())
+    column_keys = page._get_column_keys()
     for row in range(page._preview_table.rowCount()):
-        for column in range(page._preview_table.columnCount()):
+        for column, key in enumerate(column_keys):
             item = page._preview_table.item(row, column)
             assert item is not None
-            assert item.text() == ""
+            expected = str(row + 1) if key == "trial_col" else ""
+            assert item.text() == expected
 
     page.close()
 

@@ -50,13 +50,21 @@ def load_bundled_fonts() -> None:
     # Windows does not silently fall back to a monospaced system font.
     app = QApplication.instance()
     if app is not None:
-        # Start from the platform's normal UI font (Segoe UI on Windows,
-        # a proportional sans-serif on Linux), never a fixed-width fallback.
-        app_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
+        # Prefer the bundled proportional family, then an explicit platform
+        # UI family. Some offscreen Windows Qt builds report a fixed-width
+        # "general" font, so do not trust that fallback for the whole UI.
+        available = {family.lower(): family for family in QFontDatabase.families()}
+        available.update({family.lower(): family for family in loaded_families})
+        candidates = (
+            ("inter", "segoe ui", "arial")
+            if sys.platform == "win32"
+            else ("inter", "dejavu sans", "noto sans", "liberation sans")
+        )
         ui_family = next(
-            (family for family in loaded_families if family.lower().startswith("inter")),
+            (available[name] for name in candidates if name in available),
             None,
         )
+        app_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
         if ui_family:
             app_font.setFamily(ui_family)
         app.setFont(app_font)

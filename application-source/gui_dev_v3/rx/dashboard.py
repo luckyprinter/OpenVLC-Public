@@ -209,19 +209,13 @@ class _SignalWaveformPanel(Card):
         pass
 
     def refresh_telemetry(self, state: RXAppState, last_sample_index: int) -> int:
-        """Fetch new high-frequency samples and feed OOK widget."""
+        """Update the live OOK preview from the latest physical receiver reading."""
         sig = state.signal
-        has_signal = state.serial_connected and sig.pvo > 0.01
-
-        if not has_signal:
+        if not state.serial_connected or sig.pvo <= 0.01:
             self._ook.clear()
             return last_sample_index
 
-        else:
-        pvo = sig.pvo
-        vref = sig.vref
-        self._ook.set_from_pvo_vref(pvo, vref)
-
+        self._ook.set_from_pvo_vref(sig.pvo, sig.vref)
         return last_sample_index
 
 

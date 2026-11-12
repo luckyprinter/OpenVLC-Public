@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import threading
-from gui_dev_v3.tx_mock_data import TXFileInfo, TXProgress, TXSettings, TXState
 from gui_dev_v3.serial.controllers import TXSerialController
 
 

@@ -5,6 +5,11 @@ import pytest
 from gui_dev_v3.rx import experiment_store as store
 
 
+@pytest.fixture(autouse=True)
+def isolate_legacy_experiment_store(monkeypatch, tmp_path):
+    monkeypatch.setattr(store, "LEGACY_STORE_PATH", tmp_path / "no-legacy-store.json")
+
+
 def test_experiment_store_starts_empty_and_persists_user_created_records(
     monkeypatch, tmp_path
 ):

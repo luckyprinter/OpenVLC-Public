@@ -228,7 +228,7 @@ class _BitDecodePanel(Card):
     def __init__(self, state: RXAppState, parent: QWidget | None = None) -> None:
         super().__init__("Bit Decode", parent)
         self.sync_state_row = StatusRow("Sync State")
-        self.symbol_error_row = MetricRow("Symbol Errors")
+        self.symbol_error_row = MetricRow("Method 2 BER")
         self.manchester_row = StatusRow("Encoding")
         
         self.body.addWidget(self.sync_state_row)
@@ -243,7 +243,11 @@ class _BitDecodePanel(Card):
         
         if is_active:
             self.sync_state_row.setStatus("LOCKED", COLORS["green"])
-            self.symbol_error_row.setValue(f"{int(state.signal.ber * 1000)}")
+            self.symbol_error_row.setValue(
+                f"{transfer.quality.strict_ber * 100:.4f} %"
+                if transfer.quality and transfer.quality.strict_ber is not None
+                else "Awaiting reference"
+            )
             self.manchester_row.setStatus("4B5B OOK", COLORS["value"])
         else:
             self.sync_state_row.setStatus("SEARCHING", COLORS["muted"])

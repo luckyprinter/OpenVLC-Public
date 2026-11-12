@@ -50,7 +50,7 @@ class _DetailRow(QWidget):
         super().__init__(parent)
         self.setStyleSheet("background: transparent;")
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 2, 0, 2)
+        layout.setContentsMargins(0, 1, 0, 1)
         layout.setSpacing(8)
 
         self.lbl = QLabel(label)
@@ -325,7 +325,8 @@ class CurrentSessionWidget(Card):
 class FileDetailsWidget(Card):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("FILE DETAILS", parent)
-        self.body.setSpacing(6)
+        self.body.setContentsMargins(12, 10, 12, 12)
+        self.body.setSpacing(4)
         
         self.row_name = _DetailRow("Filename", "—")
         self.row_size = _DetailRow("Size", "—")
@@ -661,7 +662,7 @@ class TXDashboardPage(QWidget):
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(20, 16, 20, 16)
-        outer.setSpacing(14)
+        outer.setSpacing(10)
 
         # Clear page hierarchy: purpose first, live device state second.
         intro = QVBoxLayout()
@@ -693,7 +694,7 @@ class TXDashboardPage(QWidget):
         work_row.addWidget(self._file_details, 5)
         work_row.addWidget(self._session, 4)
         work_row.addWidget(self._bit_stream, 4)
-        outer.addLayout(work_row, 5)
+        outer.addLayout(work_row, 7)
 
         # Keep the progress strip compact so file controls retain usable height
         # on short displays and at increased system display scaling.

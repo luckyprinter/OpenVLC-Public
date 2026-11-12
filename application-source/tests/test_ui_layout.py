@@ -626,3 +626,20 @@ def test_rx_export_does_not_treat_legacy_ber_label_as_method2_proof(qapp, monkey
     page._populate_table()
     assert page.table.item(0, 6).text() == "N/A"
     page.close()
+
+def test_rx_export_does_not_overwrite_corrupt_legacy_history(qapp, monkeypatch, tmp_path):
+    legacy_path = tmp_path / "legacy-history.json"
+    original = "{ damaged legacy history"
+    legacy_path.write_text(original, encoding="utf-8")
+    current_path = tmp_path / "app-data" / "transfer_history.json"
+    monkeypatch.setattr(export_page_module, "HISTORY_DIR", current_path.parent)
+    monkeypatch.setattr(export_page_module, "HISTORY_PATH", current_path)
+    monkeypatch.setattr(export_page_module, "LEGACY_HISTORY_PATH", legacy_path)
+
+    page = ExportPage()
+    assert page._history_corrupt
+    page._history_data.append({"tid": 88, "filename": "must-not-replace.bin"})
+    page._save_history()
+    assert not current_path.exists()
+    assert legacy_path.read_text(encoding="utf-8") == original
+    page.close()

@@ -344,7 +344,7 @@ def test_rx_experiments_stack_form_and_saved_records_on_compact_display(qapp, mo
 
     page.resize(1100, 700)
     qapp.processEvents()
-    assert not page._compact_layout
+    assert not page._compact_layout, f"actual page size: {page.width()}x{page.height()}"
     assert page._body_layout.direction() == QBoxLayout.Direction.LeftToRight
     page.close()
 

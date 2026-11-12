@@ -8,7 +8,7 @@ from typing import Any
 from PySide6.QtCore import Qt, Signal, QFileInfo
 from PySide6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem,
-    QHeaderView, QPushButton, QMessageBox, QFileDialog, QLabel
+    QHeaderView, QPushButton, QMessageBox, QFileDialog, QLabel, QBoxLayout, QSizePolicy
 )
 
 from gui_dev_v3.tx_app_state import TXAppState
@@ -69,9 +69,11 @@ class FileManagerPage(QWidget):
         self.state = state
         self._files = [] # list of dicts: filepath, name, ext, size, crc, est_time
         
-        layout = QHBoxLayout(self)
+        layout = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
+        self._main_layout = layout
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(16)
+        self._compact_layout = False
 
         # Left Column - Directory Browser (Table)
         left_col = QVBoxLayout()
@@ -80,6 +82,10 @@ class FileManagerPage(QWidget):
         self.file_table = DragDropTable(0, 5)
         self.file_table.setHorizontalHeaderLabels(["Filename", "Type", "Size", "CRC-16", "Est. Time"])
         self.file_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.file_table.horizontalHeader().setMinimumSectionSize(56)
+        self.file_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.file_table.setMinimumWidth(0)
+        self.file_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         for i in range(1, 5):
             self.file_table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
         self.file_table.verticalHeader().setDefaultSectionSize(32)
@@ -142,6 +148,20 @@ class FileManagerPage(QWidget):
         right_col.addStretch(1)
         
         layout.addLayout(right_col, 4)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Stack file details below the directory table on compact workspaces."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        self._main_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self._main_layout.setStretch(0, 3 if compact else 6)
+        self._main_layout.setStretch(1, 2 if compact else 4)
 
     def _format_size(self, size_bytes: int) -> str:
         if size_bytes < 1024:

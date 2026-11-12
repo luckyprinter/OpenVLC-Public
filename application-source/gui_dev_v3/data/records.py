@@ -1,24 +1,23 @@
-"""Transfer record loaders — reads live data from vlc_beta logs and receive folder."""
+"""Transfer record loaders for application-owned logs and received files."""
 
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 from gui_dev_v3.models import ChunkRecord, ChunkStatus, TransferQuality, TransferRecord, TransferStatus, SessionCapture
 
-# Paths — resolve with VLC_DATA_DIR env var fallback
-def _resolve_data_dir(parents: int, *parts: str) -> Path:
-    """Resolve a data directory, checking env var first."""
+# Runtime transfer records are stored in the application-owned data directory.
+def _resolve_log_dir() -> Path:
+    """Resolve the application-owned RX log directory."""
+    import os
     env = os.getenv("VLC_DATA_DIR")
     if env:
-        return Path(env).expanduser() / Path(*parts)
-    return Path(__file__).resolve().parents[parents] / Path(*parts)
+        return Path(env).expanduser() / "logs" / "rx"
+    return Path(__file__).resolve().parents[2] / "logs" / "rx"
 
-BETA_LOG_DIR = _resolve_data_dir(3, "vlc_beta", "logs", "rx")
-PROJECT_LOG_DIR = _resolve_data_dir(2, "logs", "rx")
+LOG_DIR = _resolve_log_dir()
 RECEIVE_FOLDER = Path.home() / "LiFiReceived"
 TRANSFER_RECORDS_DIR = RECEIVE_FOLDER / "transfer_records"
 
@@ -29,10 +28,9 @@ _MAX_TID = 999_999
 
 
 def _log_dir() -> Path:
-    if BETA_LOG_DIR.exists():
-        return BETA_LOG_DIR
-    PROJECT_LOG_DIR.mkdir(parents=True, exist_ok=True)
-    return PROJECT_LOG_DIR
+    """Return the application-owned log directory, creating it when needed."""
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    return LOG_DIR
 
 
 def parse_lq_detail(detail: str) -> dict[str, float]:
@@ -167,10 +165,10 @@ def load_real_transfer_history() -> list[TransferRecord]:
         except OSError:
             pass
 
-    # 3. Load from beta log directory directly
-    if BETA_LOG_DIR.exists():
+    # 3. Load additional records from the application-owned log directory.
+    if LOG_DIR.exists():
         try:
-            for path in sorted(BETA_LOG_DIR.glob("rx_transfer_*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+            for path in sorted(LOG_DIR.glob("rx_transfer_*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
                 if path.name == "latest_rx_record.json":
                     continue
                 try:

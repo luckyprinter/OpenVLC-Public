@@ -45,7 +45,15 @@ def _read_all() -> tuple[list[dict[str, Any]], bool]:
         data = json.loads(STORE_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return [], True
-    if not isinstance(data, list) or any(not isinstance(item, dict) for item in data):
+    required = {"id", "name", "type", "created_at", "notes"}
+    allowed = required | {"record_count"}
+    if not isinstance(data, list) or any(
+        not isinstance(item, dict)
+        or not required.issubset(item)
+        or not set(item).issubset(allowed)
+        or not isinstance(item.get("id"), int)
+        for item in data
+    ):
         return [], True
     return data, False
 

@@ -21,3 +21,4 @@ def test_batch_crc_failure_uses_batch_flag_not_decorated_filename(monkeypatch):
     assert backend._last_completed_transfer is None
     assert backend._active_tid is None
     assert backend._active_is_batch is False
+    assert backend._active_started_monotonic is None

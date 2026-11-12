@@ -102,6 +102,8 @@ def test_rx_dashboard_simplifies_secondary_panels_on_compact_work_area(qapp):
     assert dashboard._compact_layout
     assert dashboard._reception.isVisible()
     assert dashboard._file_info.isVisible()
+    assert not dashboard._file_info.filesize_row.isVisible()
+    assert not dashboard._file_info.received_size_row.isVisible()
     assert not dashboard._perf.isVisible()
     assert not dashboard._signal_mon.isVisible()
     assert not dashboard._bit_decode.isVisible()
@@ -136,13 +138,18 @@ def test_theme_picker_reflows_to_two_columns_on_narrow_width(qapp):
 
 def test_settings_container_reduces_gutters_on_compact_width(qapp):
     page = QWidget()
-    settings = SettingsContainer([("General", page)])
+    settings = SettingsContainer([
+        ("General & Display", page),
+        ("Diagnostics & Logs", QWidget()),
+    ])
     settings.resize(700, 500)
     settings.show()
     qapp.processEvents()
 
     assert settings._nav_list.focusPolicy().name == "StrongFocus"
     assert settings._nav_list.accessibleName() == "Settings sections"
+    assert settings._nav_list.wordWrap()
+    assert settings._nav_list.item(0).text() == "General & Display"
     wrapper_layout = settings._page_wrappers[0].layout()
     margins = wrapper_layout.contentsMargins()
     assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (

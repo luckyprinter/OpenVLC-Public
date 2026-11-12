@@ -196,7 +196,16 @@ class TXSerialController(SerialSession):
                 f"VLCB1~{group_id:04X}~{part_count:03d}~"
                 f"{part_count:03d}~{full_crc:04X}~"
             )
-            if len((longest_prefix + path.name).encode("utf-8")) > MAX_NAME_BYTES:
+            try:
+                batch_name_bytes = (longest_prefix + path.name).encode("utf-8")
+            except UnicodeEncodeError:
+                self.status(
+                    "Filename not supported",
+                    "Choose a filename that can be encoded as UTF-8",
+                    state="error",
+                )
+                return False
+            if len(batch_name_bytes) > MAX_NAME_BYTES:
                 self.status(
                     "Filename too long",
                     f"Batch metadata plus filename must fit {MAX_NAME_BYTES} UTF-8 bytes",
@@ -267,7 +276,15 @@ class TXSerialController(SerialSession):
             )
             return True
 
-        name_bytes = path.name.encode("utf-8")
+        try:
+            name_bytes = path.name.encode("utf-8")
+        except UnicodeEncodeError:
+            self.status(
+                "Filename not supported",
+                "Choose a filename that can be encoded as UTF-8",
+                state="error",
+            )
+            return False
         if len(name_bytes) > MAX_NAME_BYTES:
             self.status(
                 "Filename too long",

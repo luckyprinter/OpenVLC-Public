@@ -1,14 +1,10 @@
-"""RX Physical Backend — live serial communication with ESP32 VLC_RX.
+"""RX physical backend for the VLC_RX ESP32.
 
-Communicates with actual VLC_RX firmware at 460800 baud (RX) or 115200 baud (TX).
-- Sends IDENTIFY to detect and read firmware version
-- Opens persistent serial connection after detection
-- Background thread reads ALL serial lines continuously (like vlc_beta's poll_serial)
-- Dispatches RX_FILE_HEX, RX_TRANSFER_NOTICE, RX_RAM_STORE, LQ, VREF_* to handlers
-- _poll_lq() drains the line queue instead of calling reset_input_buffer() which
-  would destroy async firmware messages before they are processed
-- Falls back to vlc_beta bridge files when serial unavailable but process is fresh
-- Reports only measurements and transfer data received from physical hardware
+Communicates with actual firmware at 460800 baud (RX) or 115200 baud (TX).
+A dedicated reader thread dispatches asynchronous transfer, signal, and Vref
+messages while the polling path requests link-quality telemetry. Cached status
+files may preserve recent measurements briefly after a disconnect, but they do
+not establish that the serial device is currently connected.
 """
 
 from __future__ import annotations
@@ -29,15 +25,6 @@ from gui_dev_v3.data.status import read_status
 from gui_dev_v3.models import SessionState, SignalState, TransferRecord, TransferStatus
 from gui_dev_v3.logic.batch_assembler import BatchAssembler
 
-# Resolve beta state dir with VLC_DATA_DIR env var fallback
-def _resolve_beta_state_dir() -> Path:
-    import os
-    env = os.getenv("VLC_DATA_DIR")
-    if env:
-        return Path(env).expanduser() / "state"
-    return Path(__file__).resolve().parents[4] / "vlc_beta" / "state"
-
-BETA_STATE_DIR = _resolve_beta_state_dir()
 STATUS_FRESHNESS_SEC = 30.0
 
 # RX firmware runs at 460800, TX at 115200 — try both for IDENTIFY
@@ -824,12 +811,10 @@ class RXPhysicalBackend:
         return None
 
     def refresh(self) -> RXPhysicalSnapshot:
-        """Read current state from live serial or vlc_beta bridge.
+        """Read live serial telemetry, then recent cached status, then offline state.
 
-        Priority:
-          1. Live serial: send LQ?, parse signal data
-          2. vlc_beta bridge: fresh status files (serial not available)
-          3. Empty offline state
+        Cached status is useful for continuity but is never treated as a live
+        serial connection.
         """
         if not self._connected:
             from gui_dev_v3.settings import SettingsManager
@@ -864,7 +849,7 @@ class RXPhysicalBackend:
                     self._connect_thread.start()
 
         if not self._connected:
-            # Fallback: vlc_beta bridge files
+            # Retain recent cached telemetry while reporting the device as disconnected
             rx_status = read_status("rx")
             sig_status = read_status("signal")
             if _is_fresh(rx_status) or _is_fresh(sig_status):
@@ -880,12 +865,12 @@ class RXPhysicalBackend:
                     session=session,
                     transfer=latest,
                     activity_log=log,
-                    serial_connected=bool(rx_status) or bool(sig_status),
+                    serial_connected=False,
                     device_port=self._port or "",
                     firmware_version=self._firmware_info.get("firmware", "") if self._firmware_info else "",
                     board_type=self._firmware_info.get("board", "") if self._firmware_info else "",
                     ports_scanned=len(self.scan_ports()),
-                    firmware_found=True,
+                    firmware_found=bool(self._firmware_info),
                 )
             
             log = list(self._log_queue)
@@ -996,7 +981,7 @@ class RXPhysicalBackend:
                 firmware_version=self._firmware_info.get("firmware", "") if self._firmware_info else "",
                 board_type=self._firmware_info.get("board", "") if self._firmware_info else "",
                 ports_scanned=len(self.scan_ports()),
-                firmware_found=self._connected,
+                firmware_found=bool(self._firmware_info),
             )
 
         # Check if serial connection looks alive
@@ -1226,7 +1211,7 @@ class RXPhysicalBackend:
 
     def _build_from_status(self, rx_status: dict | None,
                            sig_status: dict | None) -> tuple[SessionState, list[TransferRecord]]:
-        """Build state from vlc_beta bridge files."""
+        """Build a snapshot from recent application-owned status records."""
         transfers = load_real_transfer_history()
         latest = transfers[0] if transfers else None
         session = build_session_from_status("rx", latest)

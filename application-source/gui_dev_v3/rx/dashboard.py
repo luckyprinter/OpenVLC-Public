@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -92,13 +92,6 @@ class _ReceptionStatusPanel(Card):
         badge_layout.setContentsMargins(0, 0, 0, 0)
         
         from PySide6.QtWidgets import QPushButton
-        self.cancel_btn = QPushButton("Abort")
-        self.cancel_btn.setObjectName("CancelBtn")
-        self.cancel_btn.setStyleSheet(f"background: {COLORS['red']}; color: white; border-radius: 4px; padding: 2px 8px; font-weight: bold; font-size: 10px;")
-        self.cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.cancel_btn.clicked.connect(self._on_cancel)
-        badge_layout.addWidget(self.cancel_btn)
-        
         badge_layout.addStretch(1)
         self.badge = StatusBadge("IDLE", COLORS["muted"])
         badge_layout.addWidget(self.badge)
@@ -112,26 +105,26 @@ class _ReceptionStatusPanel(Card):
         
         self._state = state
 
-    def _on_cancel(self) -> None:
-        if self._state.mode == "simulated" and self._state._simulation:
-            self._state._simulation.cleanup()
-            self._state.notify()
-
     def refresh(self, state: RXAppState) -> None:
         self._state = state
         sig = state.signal
         transfer = state.transfer
 
-        stage = str(state.session.latest_transfer.status.value) if state.session.latest_transfer else "Idle"
-        is_active = state.is_receiving or "incomplete" in stage.lower()
-        badge_text = "RECEIVING" if is_active else "READY"
-        badge_color = COLORS["green"] if is_active else COLORS["green"]
+        # A disconnected receiver must never be presented as READY.
+        if state.is_receiving and state.serial_connected:
+            badge_text, badge_color = "RECEIVING", COLORS["green"]
+        elif state.serial_connected:
+            badge_text, badge_color = "READY", COLORS["green"]
+        else:
+            badge_text, badge_color = "DISCONNECTED", COLORS["red"]
 
         self.badge.setText(badge_text)
         self.badge.setStyleSheet(f"background: {badge_color}; color: #0b1016; border-radius: 10px; padding: 4px 9px; font-weight: 700; font-size: 11px;")
-        self.chunks_row.setValue(f"{transfer.received_chunks} / {transfer.total_chunks}")
+        self.chunks_row.setValue(
+            f"{transfer.received_chunks} / {transfer.total_chunks}"
+            if transfer.total_chunks > 0 else "—"
+        )
         self.time_elapsed_row.setValue(sig.time_elapsed if sig.time_elapsed else "—")
-        self.cancel_btn.setVisible(is_active)
 
 
 class _PerformanceMetricsPanel(Card):
@@ -153,11 +146,23 @@ class _PerformanceMetricsPanel(Card):
 
     def refresh(self, state: RXAppState) -> None:
         sig = state.signal
-        self.ber_row.setValue(f"{sig.ber:.4f}")
-        self.strict_ber_row.setValue(f"{sig.strict_ber:.4f}")
-        self.crc_row.setStatus(sig.crc_status, COLORS["green"] if sig.crc_status == "PASS" else COLORS["red"])
-        self.margin_row.setValue(f"{sig.margin:.3f} V")
-        self.data_rate_row.setValue(f"{sig.data_rate:.2f} kbps" if sig.data_rate > 0 else "— kbps")
+        has_transfer = bool(state.transfer.total_chunks or state.transfer.received_chunks)
+        if state.serial_connected and has_transfer:
+            self.ber_row.setValue(f"{sig.ber:.4f}")
+            self.strict_ber_row.setValue(f"{sig.strict_ber:.4f}")
+            self.crc_row.setStatus(
+                sig.crc_status or "—",
+                COLORS["green"] if (sig.crc_status or "").strip().upper() == "PASS"
+                else COLORS["red"] if (sig.crc_status or "").strip().upper() in {"FAIL", "FAILED", "CRC FAILED"}
+                else COLORS["muted"],
+            )
+        else:
+            self.ber_row.setValue("—")
+            self.strict_ber_row.setValue("—")
+            self.crc_row.setStatus("—", COLORS["muted"])
+
+        self.margin_row.setValue(f"{sig.margin:.3f} V" if state.serial_connected else "—")
+        self.data_rate_row.setValue(f"{sig.data_rate:.2f} kbps" if state.serial_connected and sig.data_rate > 0 else "—")
 
 
 class _SignalMonitorPanel(Card):
@@ -169,7 +174,9 @@ class _SignalMonitorPanel(Card):
         self.vref_row = MetricRow("Vref")
         self.adc_vref_row = MetricRow("ADC Vref")
         self.vref_mode_row = MetricRow("Vref Mode")
-        self.lux_row = MetricRow("Lux")
+        self.lux_row = MetricRow("Light estimate")
+        self.lux_row.setToolTip("Uncalibrated relative estimate derived from PVo; this is not a lux-meter measurement.")
+        self.lux_row.val.setToolTip("Uncalibrated relative estimate derived from PVo; this is not a lux-meter measurement.")
 
         self.body.addWidget(self.pvo_row)
         self.body.addWidget(self.vref_row)
@@ -181,14 +188,20 @@ class _SignalMonitorPanel(Card):
     def refresh(self, state: RXAppState) -> None:
         self._state = state
         sig = state.signal
-        self.pvo_row.setValue(f"{sig.pvo:.3f} V")
-        self.vref_row.setValue(f"{sig.vref:.3f} V")
-        self.adc_vref_row.setValue(f"{sig.adc_vref:.3f} V")
+        if state.serial_connected:
+            self.pvo_row.setValue(f"{sig.pvo:.3f} V")
+            self.vref_row.setValue(f"{sig.vref:.3f} V")
+            self.adc_vref_row.setValue(f"{sig.adc_vref:.3f} V")
+            self.lux_row.setValue(f"{sig.lux} (uncal.)")
+        else:
+            self.pvo_row.setValue("—")
+            self.vref_row.setValue("—")
+            self.adc_vref_row.setValue("—")
+            self.lux_row.setValue("—")
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("rx")
         vref_auto = mgr.get("link/vref_auto", False)
         self.vref_mode_row.setValue("Auto" if vref_auto else "Manual")
-        self.lux_row.setValue(f"{sig.lux} lx")
 
 
 class _SignalWaveformPanel(Card):
@@ -208,29 +221,13 @@ class _SignalWaveformPanel(Card):
         pass
 
     def refresh_telemetry(self, state: RXAppState, last_sample_index: int) -> int:
-        """Fetch new high-frequency samples and feed OOK widget."""
+        """Update the live OOK preview from the latest physical receiver reading."""
         sig = state.signal
-        mode = state.mode
-        has_signal = (state.serial_connected or mode == "simulated") and (
-            sig.pvo > 0.01 or mode == "simulated"
-        )
-
-        if not has_signal:
+        if not state.serial_connected or sig.pvo <= 0.01:
             self._ook.clear()
             return last_sample_index
 
-        if mode == "simulated":
-            new_samples = state.get_new_simulation_samples(last_sample_index)
-            for pvo, vref, margin, bit in new_samples:
-                self._ook.push_bit(bit)
-            if new_samples and state._simulation:
-                last_sample_index = state._simulation._sample_counter
-        else:
-            # Physical mode fallback (sample snapshot from state)
-            pvo = sig.pvo
-            vref = sig.vref
-            self._ook.set_from_pvo_vref(pvo, vref)
-
+        self._ook.set_from_pvo_vref(sig.pvo, sig.vref)
         return last_sample_index
 
 
@@ -307,99 +304,73 @@ class _ActivityLogPanel(Card):
 
 
 class RXDashboardPage(QWidget):
-    """Dashboard with live panels that auto-refresh from vlc_beta data."""
+    """Reception overview; detailed live waveforms remain on the Signal page."""
 
     def __init__(self, state: RXAppState, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._state = state
 
-        # Main layout
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(20, 16, 20, 20)
-        outer.setSpacing(12)
+        outer.setContentsMargins(20, 16, 20, 16)
+        outer.setSpacing(14)
 
-        # --- Top Row: 3 panels ---
+        # Receiver page identity and a concise description of its purpose.
+        intro = QVBoxLayout()
+        intro.setContentsMargins(2, 0, 2, 2)
+        intro.setSpacing(3)
+        eyebrow = QLabel("RECEIVER  /  MONITORING")
+        eyebrow.setObjectName("SectionTitle")
+        heading = QLabel("Reception overview")
+        heading.setStyleSheet("font-size: 21px; font-weight: 750; letter-spacing: -0.4px; background: transparent;")
+        description = QLabel("Track link quality, signal levels, file progress, and decoder state.")
+        description.setObjectName("Muted")
+        intro.addWidget(eyebrow)
+        intro.addWidget(heading)
+        intro.addWidget(description)
+        outer.addLayout(intro)
+
+        # At-a-glance link and signal indicators remain grouped together.
         self._reception = _ReceptionStatusPanel(state)
         self._perf = _PerformanceMetricsPanel(state)
         self._signal_mon = _SignalMonitorPanel(state)
-
         top_grid = QHBoxLayout()
-        top_grid.setSpacing(12)
+        top_grid.setSpacing(14)
         top_grid.addWidget(self._reception, 1)
         top_grid.addWidget(self._perf, 1)
         top_grid.addWidget(self._signal_mon, 1)
         outer.addLayout(top_grid)
 
-        # --- Splitter for Middle & Bottom Rows ---
+        # The file is the main object being received; decoder state is
+        # secondary context. Detailed live waveform analysis stays on Signal.
+        detail_widget = QWidget()
+        detail_widget.setMinimumHeight(180)
+        detail_grid = QHBoxLayout(detail_widget)
+        detail_grid.setContentsMargins(0, 0, 0, 0)
+        detail_grid.setSpacing(14)
+        self._file_info = _FileInfoPanel(state)
+        self._bit_decode = _BitDecodePanel(state)
+        detail_grid.addWidget(self._file_info, 3)
+        detail_grid.addWidget(self._bit_decode, 2)
+
+        self._activity_log = _ActivityLogPanel(state)
+        self._activity_log.setMinimumHeight(96)
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setChildrenCollapsible(False)
-
-        # --- Middle Row: Waveform (50%) | Bit Decode (20%) | File Info (30%) ---
-        mid_widget = QWidget()
-        mid_grid = QHBoxLayout(mid_widget)
-        mid_grid.setContentsMargins(0, 0, 0, 0)
-        mid_grid.setSpacing(10)
-        
-        self._signal_waveform = _SignalWaveformPanel()
-        self._bit_decode = _BitDecodePanel(state)
-        self._file_info = _FileInfoPanel(state)
-
-        mid_grid.addWidget(self._signal_waveform, 5)
-        mid_grid.addWidget(self._bit_decode, 2)
-        mid_grid.addWidget(self._file_info, 3)
-
-        # --- Bottom Row: Activity Log ---
-        self._activity_log = _ActivityLogPanel(state)
-        
-        splitter.addWidget(mid_widget)
+        splitter.addWidget(detail_widget)
         splitter.addWidget(self._activity_log)
-        
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
-        
+        splitter.setStretchFactor(0, 4)
+        splitter.setStretchFactor(1, 1)
         outer.addWidget(splitter, 1)
 
-        # High-frequency sampler (100 ms)
-        self._last_sample_index = 0
-        self._sample_timer = QTimer(self)
-        self._sample_timer.timeout.connect(self._sample_waveform)
-        self._sample_timer.start(100)
-
-        # Initial refresh
         self.refresh()
 
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        if self._state and self._state._simulation:
-            self._last_sample_index = self._state._simulation._sample_counter
-        if hasattr(self, "_sample_timer") and not self._sample_timer.isActive():
-            self._sample_timer.start(100)
-
-    def hideEvent(self, event) -> None:
-        super().hideEvent(event)
-        if hasattr(self, "_sample_timer") and self._sample_timer.isActive():
-            self._sample_timer.stop()
-
-    def shutdown(self) -> None:
-        if hasattr(self, "_sample_timer"):
-            self._sample_timer.stop()
-            try:
-                self._sample_timer.timeout.disconnect()
-            except Exception:
-                pass
-
-    def _sample_waveform(self) -> None:
-        if self._state is not None:
-            self._last_sample_index = self._signal_waveform.refresh_telemetry(self._state, self._last_sample_index)
-
     def refresh(self, state: RXAppState | None = None) -> None:
-        """Refresh all dashboard panels from current state. Called by shell timer."""
+        """Refresh the overview panels from the current receiver state."""
         if state is not None:
             self._state = state
         self._reception.refresh(self._state)
         self._perf.refresh(self._state)
         self._signal_mon.refresh(self._state)
-        self._signal_waveform.refresh(self._state)
         self._bit_decode.refresh(self._state)
         self._file_info.refresh(self._state)
         self._activity_log.refresh(self._state)

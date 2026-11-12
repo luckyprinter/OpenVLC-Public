@@ -5,9 +5,10 @@ from __future__ import annotations
 from datetime import datetime
 
 import qtawesome as qta
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QStackedWidget, QVBoxLayout, QWidget
 
+from gui_dev_v3.connection_status import PulsingDot
 from gui_dev_v3.app_state import POLL_INTERVAL_MS, RXAppState, build_default_state
 from gui_dev_v3.navigation import SIDEBAR_TABS
 from gui_dev_v3.settings import SettingsManager
@@ -23,63 +24,6 @@ from gui_dev_v3.widgets import scrollable
 from gui_dev_v3.theme import COLORS
 
 
-class PulsingDot(QWidget):
-    """A small animated pulsing dot that indicates connection state."""
-
-    _COLOR_MAP = {
-        "connected":   "status_dot_on",
-        "disconnected": "status_dot_off",
-        "simulated":   "status_dot_sim",
-    }
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedSize(10, 10)
-        self._state = "disconnected"
-        self._alpha = 255
-        self._direction = -8
-        self._anim_timer = QTimer(self)
-        self._anim_timer.timeout.connect(self._tick)
-        # Skip animation in headless/test environments to avoid non-deterministic renders
-        import os
-        if os.environ.get("QT_QPA_PLATFORM") != "offscreen":
-            self._anim_timer.start(40)
-
-    def set_state(self, state: str) -> None:
-        """Set dot state: 'connected', 'disconnected', or 'simulated'."""
-        if state != self._state:
-            self._state = state
-            self.update()
-
-    def _tick(self) -> None:
-        self._alpha += self._direction
-        if self._alpha <= 80:
-            self._direction = 8
-        elif self._alpha >= 255:
-            self._direction = -8
-        self.update()
-
-    def paintEvent(self, event) -> None:  # type: ignore[override]
-        from PySide6.QtGui import QPainter, QColor
-        from PySide6.QtCore import Qt
-        import os
-        color_key = self._COLOR_MAP.get(self._state, "status_dot_off")
-        color = QColor(COLORS.get(color_key, "#ef4444"))
-        color.setAlpha(self._alpha)
-        painter = QPainter(self)
-        # Skip antialiasing in headless mode — drawEllipse AA is non-deterministic
-        # between process launches on offscreen platform
-        if os.environ.get("QT_QPA_PLATFORM") != "offscreen":
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(color)
-        painter.drawEllipse(1, 1, 8, 8)
-        painter.end()
-
-    def cleanup(self) -> None:
-        self._anim_timer.stop()
-
-
 class RXShell(QWidget):
     """Main RX shell with sidebar navigation matching the image design."""
 
@@ -87,11 +31,6 @@ class RXShell(QWidget):
         super().__init__(parent)
         self.state = state or build_default_state()
         self._settings_mgr = SettingsManager("rx")
-
-        # Restore saved mode
-        saved_mode: str = str(self._settings_mgr.get("general/mode", "physical"))
-        if saved_mode in ("physical", "simulated") and saved_mode != self.state.mode:
-            self.state.set_mode(saved_mode)  # type: ignore[arg-type]
 
         # Outer vertical layout: content | footer
         outer = QVBoxLayout(self)
@@ -105,7 +44,7 @@ class RXShell(QWidget):
 
         # ── Sidebar ────
         self.sidebar = QWidget()
-        self.sidebar.setFixedWidth(220)
+        self.sidebar.setFixedWidth(224)
         self.sidebar.setObjectName("Sidebar")
         sidebar_layout = QVBoxLayout(self.sidebar)
         sidebar_layout.setContentsMargins(12, 16, 8, 12)
@@ -113,17 +52,19 @@ class RXShell(QWidget):
 
         # App title in sidebar
         title = QLabel("VLC Receiver")
+        self._sidebar_title = title
         title.setObjectName("Title")
         title.setStyleSheet(
-            "font-size: 16px; padding-left: 6px;"
+            "font-size: 17px; padding-left: 6px;"
         )
         title.setWordWrap(True)
         sidebar_layout.addWidget(title)
 
         subtitle = QLabel("Visible Light\nCommunication")
+        self._sidebar_subtitle = subtitle
         subtitle.setObjectName("Muted")
         subtitle.setStyleSheet(
-            "font-size: 11px; padding-left: 6px; padding-bottom: 8px; min-height: 28px;"
+            "font-size: 12px; padding-left: 6px; padding-bottom: 8px; min-height: 30px;"
         )
         sidebar_layout.addWidget(subtitle)
 
@@ -131,8 +72,10 @@ class RXShell(QWidget):
         self.nav = QListWidget()
         self.nav.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.nav.setSpacing(2)
+        self.nav.setIconSize(QSize(18, 18))
+        self._nav_items: list[tuple[QListWidgetItem, str]] = []
         self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.nav.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.nav.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         sidebar_layout.addWidget(self.nav, 1)
 
         # ── Connection Info Card (bottom of sidebar) ────────────────────
@@ -148,34 +91,61 @@ class RXShell(QWidget):
         status_row.setSpacing(6)
         self._pulse_dot = PulsingDot()
         self._conn_status = QLabel("Disconnected")
-        self._conn_status.setStyleSheet("font-size: 10px; font-weight: 600; background: transparent;")
+        self._conn_status.setStyleSheet("font-size: 11px; font-weight: 600; background: transparent;")
         status_row.addWidget(self._pulse_dot)
         status_row.addWidget(self._conn_status)
         status_row.addStretch(1)
         conn_card_layout.addLayout(status_row)
 
         self._conn_device = QLabel("Device: —")
-        self._conn_device.setStyleSheet("font-size: 10px; background: transparent;")
+        self._conn_device.setStyleSheet("font-size: 11px; background: transparent;")
         conn_card_layout.addWidget(self._conn_device)
 
         self._conn_firmware = QLabel("Firmware: —")
-        self._conn_firmware.setStyleSheet("font-size: 10px; background: transparent;")
+        self._conn_firmware.setStyleSheet("font-size: 11px; background: transparent;")
         conn_card_layout.addWidget(self._conn_firmware)
 
+        self._conn_card = conn_card
         sidebar_layout.addWidget(conn_card)
 
         # Version footer
         version = QLabel("v3.0 · PySide6")
+        self._sidebar_version = version
         version.setObjectName("Muted")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        version.setStyleSheet("font-size: 10px; padding: 6px;")
+        version.setStyleSheet("font-size: 11px; padding: 6px;")
         sidebar_layout.addWidget(version)
 
         content.addWidget(self.sidebar)
 
-        # ── Content area ────────────────────────────────────────────────
+        # ── Main workspace: page header + active page ───────────────────
+        main_area = QWidget()
+        self._main_area = main_area
+        main_layout = QVBoxLayout(main_area)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        header = QWidget()
+        header.setObjectName("HeaderBar")
+        header.setFixedHeight(52)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(20, 0, 20, 0)
+        header_layout.setSpacing(10)
+
+        self._page_heading = QLabel("Dashboard")
+        self._page_heading.setStyleSheet("font-size: 15px; font-weight: 700; background: transparent;")
+        header_layout.addWidget(self._page_heading)
+        header_layout.addStretch(1)
+
+        workspace_label = QLabel("RECEIVER WORKSPACE")
+        workspace_label.setObjectName("Muted")
+        workspace_label.setStyleSheet("font-size: 10px; font-weight: 700; letter-spacing: 1px; background: transparent;")
+        header_layout.addWidget(workspace_label)
+        main_layout.addWidget(header)
+
         self.pages = QStackedWidget()
-        content.addWidget(self.pages, 1)
+        main_layout.addWidget(self.pages, 1)
+        content.addWidget(main_area, 1)
 
         outer.addLayout(content, 1)
 
@@ -196,6 +166,46 @@ class RXShell(QWidget):
         self._timer.timeout.connect(self._on_poll_timer)
         self._timer.start(POLL_INTERVAL_MS)
 
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Use an icon-only sidebar on compact windows; keep normal font sizes."""
+        super().resizeEvent(event)
+        compact = self.width() < 1120
+        if compact == getattr(self, "_compact_sidebar", None):
+            return
+        self._compact_sidebar = compact
+
+        if compact:
+            self.sidebar.setFixedWidth(72)
+            self._sidebar_title.setText("VLC RX")
+            self._sidebar_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._sidebar_title.setStyleSheet("font-size: 13px; font-weight: 700;")
+            self._sidebar_subtitle.hide()
+            self._sidebar_version.hide()
+            self._conn_status.hide()
+            self._conn_device.hide()
+            self._conn_firmware.hide()
+            self._conn_card.layout().setContentsMargins(6, 8, 6, 8)
+            self.nav.setStyleSheet("QListWidget::item { padding: 10px 0; }")
+            for item, label in self._nav_items:
+                item.setText("")
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                item.setToolTip(label)
+        else:
+            self.sidebar.setFixedWidth(224)
+            self._sidebar_title.setText("VLC Receiver")
+            self._sidebar_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            self._sidebar_title.setStyleSheet("font-size: 17px; padding-left: 6px;")
+            self._sidebar_subtitle.show()
+            self._sidebar_version.show()
+            self._conn_status.show()
+            self._conn_device.show()
+            self._conn_firmware.show()
+            self._conn_card.layout().setContentsMargins(8, 8, 8, 8)
+            self.nav.setStyleSheet("")
+            for item, label in self._nav_items:
+                item.setText(label)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
     def _build_footer(self) -> QWidget:
         """Build bottom footer status bar."""
         footer = QWidget()
@@ -207,28 +217,15 @@ class RXShell(QWidget):
         layout.setSpacing(24)
 
         # Mode indicator (left)
-        self._footer_mode = QLabel("Mode: SIMULATED")
+        self._footer_mode = QLabel("Mode: HARDWARE")
         self._footer_mode.setStyleSheet(
-            "font-size: 10px; font-weight: 600; background: transparent;"
+            "font-size: 11px; font-weight: 600; background: transparent;"
         )
         layout.addWidget(self._footer_mode)
 
         layout.addStretch(1)
 
-        # Database status (right)
-        self._footer_db = QLabel("Database: Connected")
-        self._footer_db.setStyleSheet(
-            f"font-size: 10px; color: {COLORS['green']}; background: transparent; font-weight: 600;"
-        )
-        layout.addWidget(self._footer_db)
-
-        # Log status (right)
-        self._footer_log = QLabel("Log: Recording")
-        self._footer_log.setStyleSheet(
-            f"font-size: 10px; color: {COLORS['green']}; background: transparent; font-weight: 600;"
-        )
-        layout.addWidget(self._footer_log)
-
+        # Clock (right) — connection status is shown in the sidebar card.
         # Time clock (far right)
         self._footer_time = QLabel()
         self._footer_time.setStyleSheet(
@@ -250,52 +247,36 @@ class RXShell(QWidget):
         self._footer_time.setText(now.strftime("%H:%M:%S"))
 
     def _update_status_indicators(self) -> None:
-        """Update connection and mode indicators from current state."""
+        """Update receiver connection indicators from the physical ESP32 state."""
         connected = self.state.serial_connected
-        mode = self.state.mode.upper() if hasattr(self.state, 'mode') else "SIMULATED"
-
-        # Determine dot state and status text
-        if self.state.mode == "simulated":
-            if connected:
-                dot_state = "connected"
-                status_text = "Connected (Sim)"
-                status_color = COLORS.get("status_dot_on", COLORS["green"])
-                self._conn_device.setText("Device: Simulated TX")
-                self._conn_firmware.setText("Firmware: Virtual")
+        if connected:
+            dot_state = "connected"
+            status_text = "Connected"
+            status_color = COLORS.get("status_dot_on", COLORS["green"])
+            physical = getattr(self.state, "_physical", None)
+            port = getattr(physical, "port", None) if physical else None
+            firmware_info = getattr(physical, "_firmware_info", None) if physical else None
+            firmware_name = (firmware_info or {}).get("firmware", "")
+            if firmware_name and firmware_name not in ("rx_unknown", "rx_forced"):
+                firmware_label = firmware_name
+            elif firmware_name == "rx_forced":
+                firmware_label = "Force-connected · version unknown"
             else:
-                dot_state = "simulated"
-                status_text = "Listening (Sim)"
-                status_color = COLORS.get("status_dot_sim", COLORS["amber"])
-                self._conn_device.setText("Device: —")
-                self._conn_firmware.setText("Firmware: —")
+                firmware_label = "Detected · version not reported"
+            device_suffix = f" ({port})" if port else ""
+            self._conn_device.setText(f"Device: VLC_RX{device_suffix}")
+            self._conn_firmware.setText(f"Firmware: {firmware_label}")
         else:
-            if connected:
-                dot_state = "connected"
-                status_text = "Connected"
-                status_color = COLORS.get("status_dot_on", COLORS["green"])
-                self._conn_device.setText("Device: VLC_RX")
-                self._conn_firmware.setText("Firmware: v1.0")
-            else:
-                dot_state = "disconnected"
-                status_text = "Disconnected"
-                status_color = COLORS.get("status_dot_off", COLORS["red"])
-                self._conn_device.setText("Device: —")
-                self._conn_firmware.setText("Firmware: —")
+            dot_state = "disconnected"
+            status_text = "Disconnected"
+            status_color = COLORS.get("status_dot_off", COLORS["red"])
+            self._conn_device.setText("Device: —")
+            self._conn_firmware.setText("Firmware: —")
 
         self._pulse_dot.set_state(dot_state)
         self._conn_status.setText(status_text)
-        self._conn_status.setStyleSheet(f"font-size: 10px; font-weight: 600; color: {status_color}; background: transparent;")
-
-        # Footer mode
-        self._footer_mode.setText(f"Mode: {mode}")
-
-    def _on_mode_changed(self, mode: str) -> None:
-        """Handle mode toggle from the sidebar — switch mode and refresh current page."""
-        self.state.set_mode(mode)  # type: ignore[arg-type]
-        self._settings_mgr.set("general/mode", mode)
-        self._update_status_indicators()
-        # Refresh the current page after mode switch
-        self._refresh_current_page()
+        self._conn_status.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {status_color}; background: transparent;")
+        self._footer_mode.setText("Mode: HARDWARE")
 
     def _refresh_current_page(self) -> None:
         """Call refresh() on the current page if it supports it."""
@@ -347,7 +328,9 @@ class RXShell(QWidget):
             except Exception:
                 icon = qta.icon("fa5s.circle")  # Fallback
             item = QListWidgetItem(icon, label)
+            item.setToolTip(label)
             self.nav.addItem(item)
+            self._nav_items.append((item, label))
             page = page_map.get(page_key)
             if page:
                 self._page_widgets[page_key] = page
@@ -376,7 +359,8 @@ class RXShell(QWidget):
 
     def _on_nav_changed(self, index: int) -> None:
         if 0 <= index < len(SIDEBAR_TABS):
-            _, page_key, _ = SIDEBAR_TABS[index]
+            label, page_key, _ = SIDEBAR_TABS[index]
+            self._page_heading.setText(label)
             page = self._page_widgets.get(page_key)
             if page:
                 self.pages.setCurrentWidget(page)

@@ -42,6 +42,7 @@ class SettingsManager:
     APP_NAME = "VLC Receiver"
 
     def __init__(self, scope: str = "rx") -> None:
+        self.scope = scope
         self._settings = QSettings(self.APP_NAME, scope)
 
     def get(self, key: str, default: object = None) -> object:
@@ -63,6 +64,28 @@ class SettingsManager:
         """Clear all settings from persistence."""
         self._settings.clear()
         self._settings.sync()
+
+
+def reset_all_settings(mgr: SettingsManager, window: QWidget | None = None) -> None:
+    """Reset both console preference scopes and the shared display settings.
+
+    RX and TX use separate QSettings application scopes under the same
+    organization. Resetting from either console must clear both scopes;
+    otherwise the other console would silently retain its old preferences.
+    """
+    from gui_dev_v3.settings_store import AppSettings, save_settings
+
+    # Reuse the current manager and clear the other console's scope too.
+    mgr.clear()
+    other_scope = "tx" if getattr(mgr, "scope", "rx") == "rx" else "rx"
+    SettingsManager(other_scope).clear()
+
+    defaults = AppSettings()
+    save_settings(defaults)
+    # closeEvent persists the window's in-memory display values. Replace them
+    # too, otherwise closing after reset would silently restore the old values.
+    if window is not None and hasattr(window, "settings"):
+        window.settings = defaults
 
 
 def bind_toggle(toggle: ToggleSetting, mgr: SettingsManager, key: str, default: bool = True) -> None:
@@ -596,8 +619,21 @@ class ThemePickerGrid(QWidget):
         grid.setContentsMargins(0, 6, 0, 6)
         grid.setSpacing(6)
 
-        # Only show the 5 primary presets (not the dark/light legacy aliases)
-        primary_presets = [p for p in THEME_PRESETS]
+        # Keep the default picker focused on five curated presets. Older
+        # presets remain supported in theme.py so existing saved preferences
+        # continue to load; if one is currently selected, keep it visible so
+        # the user can see the active choice and switch away from it.
+        curated_keys = {
+            "graphite_lab",
+            "midnight_navy",
+            "arctic_light",
+            "dark_lab",
+            "clean_data",
+        }
+        primary_presets = [
+            preset for preset in THEME_PRESETS
+            if preset["key"] in curated_keys or preset["key"] == current
+        ]
         cols = 3
         for i, preset in enumerate(primary_presets):
             card = _SwatchCard(preset, active=(preset["key"] == current))

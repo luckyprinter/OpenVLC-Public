@@ -2,7 +2,7 @@ name: Verify PyInstaller Spec
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'refactor/**', 'redesign/**']
     paths:
       - 'application-source/**'
       - '.github/workflows/verify_pyinstaller_spec.yml'
@@ -37,7 +37,7 @@ jobs:
         working-directory: application-source
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements-build.txt
 
       - name: Build Application
         working-directory: application-source

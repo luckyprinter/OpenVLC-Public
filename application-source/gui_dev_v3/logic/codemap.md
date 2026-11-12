@@ -17,7 +17,7 @@ Contains pure computation logic isolated from UI and I/O. Currently provides a s
 
 ## Flow
 ```
-caller (mock_data.py, simulation backend)
+caller (unit tests and physical transfer analysis)
   → transfer_quality_from_chunks(chunks, label, crc_status)
     → iterates ChunkRecord list
     → computes aggregate metrics
@@ -26,5 +26,5 @@ caller (mock_data.py, simulation backend)
 
 ## Integration
 - **Depends on**: `models.py` (`ChunkRecord`, `ChunkStatus`, `TransferQuality`).
-- **Depended by**: `mock_data.py` (builds mock quality from chunks), `rx/backends/simulation.py` (computes quality from simulated chunks).
+- **Depended by**: unit tests and receiver BER/transfer analysis.
 - **External**: None (pure Python standard library).

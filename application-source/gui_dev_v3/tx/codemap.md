@@ -32,6 +32,6 @@ TXShell.__init__()
 ```
 
 ## Integration
-- **Depends on**: Root `tx_app_state.py` (`TXAppState`), `tx_mock_data.py`, `widgets.py`, `theme.py`, `settings.py` (helpers), `#tx/backends/`.
+- **Depends on**: Root `tx_app_state.py` (`TXAppState`), `widgets.py`, `theme.py`, `settings.py` (helpers), `#tx/backends/`.
 - **Depended by**: Root `app.py` creates `VLCTransmitterWindow` → `TXShell` as central widget via `main_tx()`.
 - **External**: PySide6.

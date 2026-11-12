@@ -162,8 +162,7 @@ class ReceivePage(QWidget):
         self.progress_bar.update()
 
         # Update terminal text
-        # If simulated, decode ascii representation of chunk payloads
-        # We look at accumulated received bytes or construct a preview from received chunks
+        # Decode the actual payload bytes accumulated from received chunks
         decoded_text = ""
         # Sort chunks by index
         valid_chunks = [c for c in transfer.chunks if c.received]
@@ -186,12 +185,12 @@ class ReceivePage(QWidget):
         if self._vref_locked:
             self.lock_btn.setText("Lock Vref (Fixed)")
             self.lock_btn.setStyleSheet(f"background: {COLORS['amber']}; color: black; font-weight: bold;")
-            if self._app_state and self._app_state.mode == "physical":
+            if self._app_state:
                 self._app_state.send_firmware_command("VREF_MODE=MANUAL\n")
         else:
             self.lock_btn.setText("Auto Vref (Auto-Calibrate)")
             self.lock_btn.setStyleSheet("")
-            if self._app_state and self._app_state.mode == "physical":
+            if self._app_state:
                 self._app_state.send_firmware_command("VREF_MODE=AUTO\n")
 
     def _on_clear_terminal(self) -> None:

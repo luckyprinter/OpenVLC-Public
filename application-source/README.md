@@ -26,49 +26,42 @@ For the exact software version associated with the reported experimental results
 
 ## Structure
 
-```
+```text
 application-source/
-├── gui_dev_v3/              # Main GUI application package
-│   ├── __init__.py
-│   ├── app.py               # Main entry points (main(), main_tx())
-│   ├── app_state.py         # RX state management & backends
-│   ├── tx_app_state.py      # TX state management
-│   ├── theme.py             # QSS styling & color schemes
-│   ├── widgets.py           # Reusable UI components
-│   ├── settings.py          # Settings UI panels
-│   ├── settings_store.py    # Persistent app settings
-│   ├── navigation.py        # Navigation logic
-│   ├── logger.py            # Logging infrastructure
-│   ├── models.py            # Data models (SessionState, SignalState, etc.)
-│   ├── version.py           # Version & build metadata
-│   │
-│   ├── rx/                  # Receiver (RX) console UI
-│   │   ├── shell.py         # RX main window
-│   │   ├── panels/          # RX panel modules
-│   │   └── backends/        # Physical & simulation backends
-│   │
-│   ├── tx/                  # Transmitter (TX) console UI
-│   │   ├── shell.py         # TX main window
-│   │   └── panels/          # TX panel modules
-│   │
-│   ├── serial/              # Serial communication layer
-│   ├── data/                # Data persistence & session management
-│   ├── logic/                # Business logic & signal processing
-│   ├── assets/              # Fonts & static resources
-│   │
-│   ├── mock_data.py         # Mock data for RX testing
-│   ├── tx_mock_data.py      # Mock data for TX testing
-│   └── codemap.md           # Code organization reference
-│
-├── OpenVLC-v3.spec         # PyInstaller spec file
-├── run_v3.py               # Application entry point
-└── requirements.txt        # Python dependencies
+├── gui_dev_v3/
+│   ├── app.py                  # Application entry points and window setup
+│   ├── app_state.py            # RX hardware state and receiver data
+│   ├── tx_app_state.py         # TX hardware state and transmission data
+│   ├── models.py               # Shared RX/session data models
+│   ├── settings_store.py       # Persistent user settings
+│   ├── theme.py                # Application theme and design tokens
+│   ├── rx/
+│   │   ├── shell.py            # RX navigation and main window
+│   │   ├── dashboard.py        # Receiver overview
+│   │   ├── receive_page.py     # Received payload view
+│   │   ├── signal_page.py      # Signal and waveform monitoring
+│   │   ├── export_page.py      # Transfer history and export tools
+│   │   └── backends/physical.py
+│   ├── tx/
+│   │   ├── shell.py            # TX navigation and main window
+│   │   ├── dashboard.py        # Transmitter overview
+│   │   ├── settings.py         # Hardware link settings
+│   │   ├── file_manager_page.py
+│   │   └── backends/physical.py
+│   ├── serial/                 # Port detection and serial sessions
+│   ├── logic/                  # BER and protocol-related application logic
+│   └── assets/                 # Fonts and static resources
+├── run_v3.py                   # Application launcher
+├── OpenVLC-v3.spec             # PyInstaller packaging configuration
+├── requirements.txt            # Runtime dependencies
+├── requirements-dev.txt        # Runtime + test dependencies
+└── requirements-build.txt      # Runtime + test + packaging dependencies
 ```
 
 ## Installation & Running from Source
 
 ### Prerequisites
-- Python 3.10+
+- Python 3.12+ (required by the pinned NumPy 2.5.1 dependency)
 - pip
 
 ### Install Dependencies
@@ -86,17 +79,24 @@ python run_v3.py --rx
 python run_v3.py --tx
 ```
 
-### Run Smoke Tests
+### Run Smoke Tests and Automated Tests
+
+The smoke test checks that the application can initialize. The automated test suite also checks hardware contracts and serial behavior.
 
 ```bash
 python run_v3.py --smoke-test
+pip install -r requirements-dev.txt
+python -m pytest tests -q
 ```
 
 ## Building Standalone Executables
 
 ### Using PyInstaller
 
+Install build and test tools, then package the application:
+
 ```bash
+pip install -r requirements-build.txt
 pyinstaller OpenVLC-v3.spec --clean
 ```
 
@@ -115,13 +115,13 @@ sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 \
 ## Architecture
 
 ### State Management
-- **RXAppState** (`app_state.py`) — Manages RX session state with physical/simulated backend switching
+- **RXAppState** (`app_state.py`) — Manages RX session state from the physical ESP32 backend
 - **TXAppState** (`tx_app_state.py`) — Manages TX session state and file transmission
 - **AppSettings** (`settings_store.py`) — Persistent user preferences
 
 ### Backends
 - **Physical Backend** — Communicates with real ESP32 hardware via serial
-- **Simulation Backend** — Generates synthetic signals for testing without hardware
+- **Hardware-only operation** — Connects to real ESP32 transmitter and receiver boards through USB serial
 
 ### UI Shells
 - **RXShell** (`rx/shell.py`) — Receiver console with signal analysis, BER calculation, and Vref control
@@ -133,7 +133,7 @@ sudo apt-get install -y libxcb-cursor0 libxkbcommon-x11-0 libxcb-xinerama0 \
 - 📊 **Real-time Signal Visualization** — Live waveform plots
 - 🔧 **Hardware Control** — Vref PWM adjustment and serial command interface
 - 📁 **File Transfer** — Application-level handling for larger files
-- 🧪 **Simulation Mode** — Test without physical hardware
+- 🔌 **Hardware-first** — Communicates with real ESP32 transmitter and receiver boards
 - ⚙️ **Persistent Settings** — Resolution, theme, and connection settings saved locally
 
 ## Development Guidelines

@@ -29,7 +29,6 @@ from gui_dev_v3.settings_store import AppSettings, RESOLUTION_PRESETS, load_sett
 from gui_dev_v3.theme import APP_QSS, apply_theme, build_qss, THEME_PRESETS, COLORS
 from gui_dev_v3.tx.shell import TXShell
 from gui_dev_v3.tx_app_state import build_default_tx_state
-from gui_dev_v3.widgets import ModeSelectCard  # noqa: F401 — kept for legacy compat
 
 
 # ── Core Infrastructure ───────────────────────────────────────────────────
@@ -78,7 +77,16 @@ class _BaseWindow(QMainWindow):
             self.setWindowTitle(f"{title} (v{VERSION} - {BUILD_DATE})")
         except ImportError:
             self.setWindowTitle(title)
-        self.setMinimumSize(QSize(1024, 700))
+        # Use Qt's logical screen geometry so the minimum size respects
+        # Windows/Linux display scaling and smaller laptop panels.
+        screen = QApplication.primaryScreen()
+        available = screen.availableGeometry() if screen else None
+        if available is not None:
+            min_width = max(640, min(1024, available.width() - 32))
+            min_height = max(480, min(700, available.height() - 48))
+        else:
+            min_width, min_height = 1024, 700
+        self.setMinimumSize(QSize(min_width, min_height))
         self.settings = load_settings()
         self._apply_display_mode()
         self._apply_theme()
@@ -111,9 +119,14 @@ class _BaseWindow(QMainWindow):
         for key, w, h in RESOLUTION_PRESETS:
             if key == preset_key:
                 self.settings.resolution = preset_key
-                # Enforce minimum size of 1024x700
-                w = max(w, 1024)
-                h = max(h, 700)
+                # Respect the current screen's available logical geometry.
+                screen = self.screen() or QApplication.primaryScreen()
+                available = screen.availableGeometry() if screen else None
+                if available is not None:
+                    w = min(w, max(self.minimumWidth(), available.width() - 24))
+                    h = min(h, max(self.minimumHeight(), available.height() - 40))
+                w = max(w, self.minimumWidth())
+                h = max(h, self.minimumHeight())
                 self.resize(w, h)
                 return
         # Fallback to default if preset not found
@@ -157,7 +170,7 @@ class _ConsoleCard(QFrame):
         super().__init__(parent)
         self.setObjectName("ConsoleCard")
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumSize(QSize(310, 180))
+        self.setMinimumSize(QSize(270, 160))
         self.setMaximumWidth(400)
 
         layout = QVBoxLayout(self)
@@ -213,7 +226,7 @@ class VLCLauncherPage(QWidget):
         # ── Center content ──────────────────────────────────────────
         center = QWidget()
         center_layout = QVBoxLayout(center)
-        center_layout.setContentsMargins(64, 0, 64, 0)
+        center_layout.setContentsMargins(32, 0, 32, 0)
         center_layout.setSpacing(0)
         center_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -250,7 +263,7 @@ class VLCLauncherPage(QWidget):
 
         # Console cards
         cards_row = QHBoxLayout()
-        cards_row.setSpacing(20)
+        cards_row.setSpacing(16)
         cards_row.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         tx_card = _ConsoleCard(

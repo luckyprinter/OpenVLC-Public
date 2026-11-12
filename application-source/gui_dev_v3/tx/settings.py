@@ -21,6 +21,7 @@ from gui_dev_v3.settings import (
     bind_slider_spin,
     bind_theme_picker,
     bind_radio_node,
+    reset_all_settings,
     SliderSpinSetting,
     FreeformSpinSetting,
     RadioNodeSetting,
@@ -28,7 +29,7 @@ from gui_dev_v3.settings import (
 )
 from gui_dev_v3.settings_store import RESOLUTION_PRESETS
 from gui_dev_v3.tx_app_state import TXAppState
-from gui_dev_v3.widgets import Card, muted_label, ModeSelectCard, primary_button
+from gui_dev_v3.widgets import Card, muted_label, primary_button
 
 # ── General & Display ──────────────────────────────────────────────────
 
@@ -98,7 +99,7 @@ class GeneralDisplayPage(QWidget):
         return self._window
 
     def _on_reset_clicked(self) -> None:
-        self._mgr.clear()
+        reset_all_settings(self._mgr, self._get_window())
         from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(self, "Settings Reset", "All settings have been reset to defaults. Please restart the application for all changes to take effect.")
 
@@ -201,16 +202,39 @@ class HardwareConnectionPage(QWidget):
             QPushButton:hover { background-color: #fbbf24; }
         """)
         def _on_force_connect():
+            from PySide6.QtWidgets import QMessageBox
+
             port = self.port_combo.currentText()
-            if port and port != "No ports found" and self._state:
-                self._state.set_mode("physical")
-                for btn in mode_group._buttons:
-                    if btn.text() == "Manual":
-                        btn.setChecked(True)
-                        break
-                self._mgr.set("connection/port", port)
-                self._state.force_connect_serial(port)
-                self._show_toast(f"Forced connection to {port}")
+            if not port or port == "No ports found" or not self._state:
+                return
+
+            answer = QMessageBox.warning(
+                self,
+                "Force Connect",
+                f"Attempt to open {port} without first identifying it as a VLC TX device?\n\n"
+                "Use this only when normal detection fails. The firmware-ready check "
+                "will still be required after the port opens.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+            for btn in mode_group._buttons:
+                if btn.text() == "Manual":
+                    btn.setChecked(True)
+                    break
+            self._mgr.set("connection/port", port)
+            connected = self._state.force_connect_serial(port)
+            if connected:
+                self._show_toast(f"Connected to {port} (forced identification bypass)")
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Connection Failed",
+                    f"Could not establish a firmware-ready connection on {port}. "
+                    "Check that the correct ESP32 is connected and try again.",
+                )
         force_btn.clicked.connect(_on_force_connect)
         
         port_layout.addWidget(QLabel("Target Port:"))
@@ -229,7 +253,7 @@ class HardwareConnectionPage(QWidget):
 
         timeout_spin = SpinSetting(5, 1, 120, "seconds")
         bind_spin(timeout_spin, mgr, "connection/timeout", 5)
-        self.opts_card.body.addWidget(SettingRow("Connection Timeout", timeout_spin))
+        self.opts_card.body.addWidget(SettingRow("Firmware Ready Timeout", timeout_spin, "Maximum time to wait for the TX firmware ready response after opening the serial port."))
         lo.addWidget(self.opts_card)
 
         self.status_card = Card("Live Status")
@@ -362,8 +386,6 @@ class TXSettingsPage(QWidget):
         lo.addWidget(live_card)
         lo.addStretch(1)
 
-        current_mode = state.mode if state else str(mgr.get("general/mode", "physical"))
-        self._update_visibility(current_mode)
 
     def _on_apply_settings(self) -> None:
         if not self._state:
@@ -379,60 +401,35 @@ class TXSettingsPage(QWidget):
         quiet = self.quiet_set.isChecked()
         dma_mode = self.dma_set.isChecked()
 
-        if self._state.mode == "physical":
-            # Use the gated helper so DMA_MODE/PREAMBLE/CARRIER are only sent
-            # to DMA-capable firmware. Sending them to tx_non_dma.ino causes
-            # 'TX_ERROR: unknown command' which disrupts the non-DMA blinking.
-            self._state.apply_link_settings_from_ui(
-                freq=freq,
-                preamble=preamble,
-                gap=gap,
-                fgap=fgap,
-                active_low=active_low,
-                idle_on=idle_on,
-                intensity=intensity,
-                quiet=quiet,
-                dma_mode=dma_mode,
-            )
+        # Apply settings through the hardware controller. DMA-specific commands
+        # are gated by the controller so non-DMA firmware is not disrupted.
+        applied = self._state.apply_link_settings_from_ui(
+            freq=freq,
+            preamble=preamble,
+            gap=gap,
+            fgap=fgap,
+            active_low=active_low,
+            idle_on=idle_on,
+            intensity=intensity,
+            quiet=quiet,
+            dma_mode=dma_mode,
+        )
+        from PySide6.QtWidgets import QMessageBox
+        if applied:
+            QMessageBox.information(self, "TX Settings", "Hardware settings were sent to the transmitter.")
         else:
-            self._state.update_simulation_params(
-                symbol_hz=freq,
-                preamble_bits=preamble,
-                post_frame_idle_ms=gap,
-                frame_gap_ms=fgap,
-                active_low=active_low,
-                idle_on=idle_on,
-                cal_intensity_pct=intensity,
-                quiet_mode=quiet
+            QMessageBox.warning(
+                self,
+                "TX Settings Not Applied",
+                "The transmitter is not connected or a serial write failed. "
+                "Check the TX connection and reapply the settings.",
             )
-
-    def _update_visibility(self, mode: str) -> None:
-        pass
 
     def _update_link_param(self, command_key: str, value: Any) -> None:
         if not self._state:
             return
-        if self._state.mode == "physical":
-            if command_key != "PREAMBLE_BITS":
-                self._state.send_firmware_command(f"{command_key}={value}\n")
-        else:
-            mapping = {
-                "FREQ": "symbol_hz",
-                "PREAMBLE_BITS": "preamble_bits",
-                "GAP": "post_frame_idle_ms",
-                "FGAP": "frame_gap_ms",
-                "ACTIVE_LOW": "active_low",
-                "IDLE_ON": "idle_on",
-                "INTENSITY": "cal_intensity_pct",
-                "QUIET": "quiet_mode",
-            }
-            param_name = mapping.get(command_key)
-            if param_name:
-                if command_key in ("ACTIVE_LOW", "IDLE_ON", "QUIET"):
-                    val_bool = (value != 0)
-                    self._state.update_simulation_params(**{param_name: val_bool})
-                else:
-                    self._state.update_simulation_params(**{param_name: value})
+        if command_key != "PREAMBLE_BITS":
+            self._state.send_firmware_command(f"{command_key}={value}\n")
 
     def refresh(self, state: TXAppState) -> None:
         if state is None:
@@ -450,68 +447,26 @@ class DiagnosticsLogsPage(QWidget):
         lo.setContentsMargins(0, 0, 0, 0)
         lo.setSpacing(12)
 
-    def _show_toast(self, msg: str) -> None:
-        from PySide6.QtWidgets import QLabel
-        from PySide6.QtCore import QTimer, Qt
-        from gui_dev_v3.theme import COLORS
-        toast = QLabel(msg, self.window())
-        toast.setObjectName("Toast")
-        toast.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        toast.setStyleSheet(
-            f"background: {COLORS['panel']}; color: {COLORS['amber']}; "
-            f"border: 1px solid {COLORS['amber']}; border-radius: 8px; "
-            f"padding: 10px 20px; font-weight: 700;"
-        )
-        toast.adjustSize()
-        toast.move(self.window().width() - toast.width() - 20, self.window().height() - toast.height() - 20)
-        toast.show()
-        QTimer.singleShot(2000, toast.deleteLater)
+        from gui_dev_v3.diagnostics import build_diagnostics_controls
+        lo.addWidget(build_diagnostics_controls(mgr, "tx"))
 
         save_card = Card("Logging Settings")
         save_tx = RadioNodeSetting(True)
         bind_radio_node(save_tx, mgr, "logging/save_transmission", True)
         save_card.body.addWidget(SettingRow("Save Transmission Logs", save_tx))
-
         level_combo = ComboSetting(["Debug", "Info", "Warning", "Error"], "Info")
         bind_combo(level_combo, mgr, "logging/level", "Info")
         save_card.body.addWidget(SettingRow("Log Level", level_combo))
-
         retention = SpinSetting(30, 1, 999, "days")
         bind_spin(retention, mgr, "logging/retention_days", 30)
         save_card.body.addWidget(SettingRow("Log Retention", retention))
         lo.addWidget(save_card)
 
-        tools_card = Card("Developer Tools")
-        tools_card.body.setSpacing(8)
-        # Arrange developer buttons in a 2-column grid for compactness
-        row1 = QHBoxLayout()
-        row1.setSpacing(8)
-        btn_debug = primary_button("Show Debug Messages")
-        btn_debug.clicked.connect(lambda: self._show_toast("Show Debug Messages: Not yet implemented"))
-        row1.addWidget(btn_debug)
-        
-        btn_serial = primary_button("Raw Serial Monitor")
-        btn_serial.clicked.connect(lambda: self._show_toast("Raw Serial Monitor: Not yet implemented"))
-        row1.addWidget(btn_serial)
-        
-        row2 = QHBoxLayout()
-        row2.setSpacing(8)
-        btn_pkt = primary_button("Packet Inspector")
-        btn_pkt.clicked.connect(lambda: self._show_toast("Packet Inspector: Not yet implemented"))
-        row2.addWidget(btn_pkt)
-        
-        btn_dump = primary_button("Export Debug Dump")
-        btn_dump.clicked.connect(lambda: self._show_toast("Export Debug Dump: Not yet implemented"))
-        row2.addWidget(btn_dump)
-        
-        tools_card.body.addLayout(row1)
-        tools_card.body.addLayout(row2)
-        lo.addWidget(tools_card)
-
-        note_card = Card("Note")
+        note_card = Card("Developer Tools")
         note_card.body.addWidget(muted_label(
-            "These tools expose raw serial I/O and low-level protocol data. "
-            "Intended for development and debugging only."
+            "Raw serial and packet inspection are intentionally not enabled in "
+            "the user diagnostics queue. Diagnostic records contain only "
+            "allowlisted technical metadata."
         ))
         lo.addWidget(note_card)
         lo.addStretch(1)

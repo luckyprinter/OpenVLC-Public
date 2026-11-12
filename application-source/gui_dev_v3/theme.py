@@ -16,10 +16,10 @@ from __future__ import annotations
 from typing import Literal
 
 ThemeMode = Literal[
-    "midnight_navy", "charcoal", "espresso", "synthwave", "arctic_light",
+    "graphite_lab", "midnight_navy", "charcoal", "espresso", "synthwave", "arctic_light",
     "dark", "light",  # legacy aliases kept for compatibility
 ]
-AccentName = Literal["blue", "cyan", "green", "violet", "amber", "rose"]
+AccentName = Literal["blue", "cyan", "green", "violet", "amber", "rose", "teal"]
 DensityMode = Literal["comfortable", "compact"]
 
 # ── Accent overrides (per-preset defaults are in the palette itself) ────────
@@ -30,6 +30,7 @@ ACCENTS: dict[str, str] = {
     "violet": "#8b5cf6",
     "amber":  "#f59e0b",
     "rose":   "#f43f5e",
+    "teal":   "#2dd4bf",
 }
 
 # ── Named preset palettes ───────────────────────────────────────────────────
@@ -64,8 +65,24 @@ THEMES: dict[str, dict[str, str]] = {
         "footer_bg":      "#0A1322",
         "status_dot_on":  "#22c55e",
         "status_dot_off": "#ef4444",
-        "status_dot_sim": "#f59e0b",
     },
+    "graphite_lab": {
+        "bg": "#0B1218", "panel": "#111E28", "panel_alt": "#192A35",
+        "border": "#2A3D48", "border_glow": "#2DD4BF30",
+        "text": "#E7F0F2", "muted": "#8BA2AC", "secondary": "#B4C5CB",
+        "accent": "#2DD4BF", "accent_glow": "#2DD4BF30",
+        "green": "#4ADE80", "amber": "#FBBF24", "yellow": "#FACC15",
+        "red": "#FB7185", "purple": "#A78BFA",
+        "pvo": "#4ADE80", "vref": "#38BDF8", "margin": "#FBBF24",
+        "fail": "#FB7185", "ook": "#2DD4BF",
+        "chart_line": "#4ADE80", "chart_grid": "#2A3D48",
+        "sidebar_active": "#173B3B", "header": "#2DD4BF",
+        "value": "#F1F7F8", "footer_bg": "#0E1921",
+        "status_dot_on": "#4ADE80", "status_dot_off": "#FB7185",
+        "fontUi": '"Inter", "Segoe UI", Arial, sans-serif',
+        "fontMono": '"JetBrains Mono", Consolas, monospace',
+    },
+
     # ── Arctic Light — clean airy light ─────────────────────────────────
     "arctic_light": {
         "bg":             "#F0F4FA",
@@ -96,7 +113,6 @@ THEMES: dict[str, dict[str, str]] = {
         "footer_bg":      "#E4ECF7",
         "status_dot_on":  "#16a34a",
         "status_dot_off": "#dc2626",
-        "status_dot_sim": "#d97706",
     },
     # ── 1. Optical Dark Lab ───────────────────────────────────
     "dark_lab": {
@@ -128,7 +144,6 @@ THEMES: dict[str, dict[str, str]] = {
         "footer_bg":      "#1E1E24",
         "status_dot_on":  "#00F5D4",
         "status_dot_off": "#EF233C",
-        "status_dot_sim": "#FCA311",
         "fontUi":         '"Inter", sans-serif',
         "fontMono":       '"JetBrains Mono", monospace',
     },
@@ -163,7 +178,6 @@ THEMES: dict[str, dict[str, str]] = {
         "footer_bg":      "#F8F9FA",
         "status_dot_on":  "#2A9D8F",
         "status_dot_off": "#E63946",
-        "status_dot_sim": "#4361EE",
         "fontUi":         '"Inter", sans-serif',
         "fontMono":       '"Fira Code", monospace',
     },
@@ -198,7 +212,6 @@ THEMES: dict[str, dict[str, str]] = {
         "footer_bg":      "#1E1E2E",
         "status_dot_on":  "#A6E3A1",
         "status_dot_off": "#F38BA8",
-        "status_dot_sim": "#CBA6F7",
         "fontUi":         '"Plus Jakarta Sans", sans-serif',
         "fontMono":       '"JetBrains Mono", monospace',
     },
@@ -233,7 +246,6 @@ THEMES: dict[str, dict[str, str]] = {
         "footer_bg":      "#282A36",
         "status_dot_on":  "#50FA7B",
         "status_dot_off": "#FF5555",
-        "status_dot_sim": "#BD93F9",
         "fontUi":         '"Inter", sans-serif',
         "fontMono":       '"Fira Code", monospace',
     },
@@ -268,7 +280,6 @@ THEMES: dict[str, dict[str, str]] = {
         "footer_bg":      "#282828",
         "status_dot_on":  "#B8BB26",
         "status_dot_off": "#CC241D",
-        "status_dot_sim": "#D79921",
         "fontUi":         '"Inter", sans-serif',
         "fontMono":       '"Space Mono", monospace',
     },
@@ -303,7 +314,6 @@ THEMES: dict[str, dict[str, str]] = {
         "footer_bg":      "#FDF6E3",
         "status_dot_on":  "#859900",
         "status_dot_off": "#DC322F",
-        "status_dot_sim": "#268BD2",
         "fontUi":         '"Inter", sans-serif',
         "fontMono":       '"JetBrains Mono", monospace',
     },
@@ -338,7 +348,6 @@ THEMES: dict[str, dict[str, str]] = {
         "footer_bg":      "#FAFAFA",
         "status_dot_on":  "#10B981",
         "status_dot_off": "#EF4444",
-        "status_dot_sim": "#111827",
         "fontUi":         '"Plus Jakarta Sans", sans-serif',
         "fontMono":       '"JetBrains Mono", monospace',
     },
@@ -373,7 +382,6 @@ THEMES: dict[str, dict[str, str]] = {
         "footer_bg":      "#09090B",
         "status_dot_on":  "#4ADE80",
         "status_dot_off": "#F87171",
-        "status_dot_sim": "#22D3EE",
         "fontUi":         '"Space Mono", monospace',
         "fontMono":       '"Space Mono", monospace',
     },
@@ -385,14 +393,22 @@ THEMES["dark"] = THEMES["midnight_navy"]
 THEMES["light"] = THEMES["arctic_light"]
 
 # ── Runtime state ───────────────────────────────────────────────────────────
-current_theme: str = "midnight_navy"
-current_accent: str = "blue"
+current_theme: str = "graphite_lab"
+current_accent: str = "teal"
 current_density: DensityMode = "comfortable"
 
 COLORS: dict[str, str] = THEMES[current_theme].copy()
 
 # ── Preset metadata for Settings UI ─────────────────────────────────────────
 THEME_PRESETS: list[dict] = [
+    {
+        "key": "graphite_lab",
+        "label": "Graphite Lab",
+        "desc": "Instrument-inspired dark workspace with teal accents",
+        "preview_bg": "#111E28",
+        "preview_accent": "#2DD4BF",
+        "preview_text": "#E7F0F2",
+    },
     {
         "key": "midnight_navy",
         "label": "Midnight Navy",
@@ -572,16 +588,16 @@ QListWidget {{
 }}
 QListWidget::item {{
     padding: {item_padding};
-    border-radius: 7px;
+    border-radius: 9px;
     color: {t['muted']};
     margin: 1px 0px;
 }}
 QListWidget::item:selected {{
     background: {t['sidebar_active']};
     color: {t['text']};
-    font-weight: 600;
-    border-left: 3px solid {t['accent']};
-    padding-left: 11px;
+    font-weight: 700;
+    border: 1px solid {t['border']};
+    padding-left: 14px;
 }}
 QListWidget::item:hover:!selected {{
     background: {t['sidebar_active']};
@@ -592,8 +608,7 @@ QListWidget::item:hover:!selected {{
 QFrame#Card {{
     background: {t['panel']};
     border: 1px solid {t['border']};
-    border-top: 1px solid {t.get('border_glow', t['border'])};
-    border-radius: 10px;
+    border-radius: 14px;
 }}
 QFrame#ChartFrame {{
     background: {t['panel']};
@@ -639,7 +654,8 @@ QLabel#Toast {{
 }}
 
 /* ── Inputs ─────────────────────────────────────────────────────── */
-QComboBox, QLineEdit {{
+QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox,
+QPlainTextEdit, QTextEdit {{
     background: {t['panel_alt']};
     border: 1px solid {t['border']};
     border-radius: 7px;
@@ -647,12 +663,19 @@ QComboBox, QLineEdit {{
     color: {t['text']};
     selection-background-color: {t['accent']};
 }}
-QComboBox:hover, QLineEdit:hover {{
+QComboBox:hover, QLineEdit:hover, QSpinBox:hover, QDoubleSpinBox:hover,
+QPlainTextEdit:hover, QTextEdit:hover {{
     border-color: {t['secondary']};
 }}
-QComboBox:focus, QLineEdit:focus {{
+QComboBox:focus, QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus,
+QPlainTextEdit:focus, QTextEdit:focus {{
     border-color: {t['accent']};
-    border-width: 1px;
+}}
+QComboBox:disabled, QLineEdit:disabled, QSpinBox:disabled,
+QDoubleSpinBox:disabled, QPlainTextEdit:disabled, QTextEdit:disabled {{
+    color: {t['muted']};
+    background: {t['panel']};
+    border-color: {t['border']};
 }}
 QComboBox::drop-down {{
     border: none;
@@ -665,6 +688,44 @@ QComboBox QAbstractItemView {{
     border: 1px solid {t['border']};
     border-radius: 6px;
     padding: 4px;
+}}
+QCheckBox, QRadioButton {{
+    spacing: 8px;
+    color: {t['text']};
+    background: transparent;
+}}
+QCheckBox:disabled, QRadioButton:disabled {{
+    color: {t['muted']};
+}}
+QCheckBox::indicator, QRadioButton::indicator {{
+    width: 16px;
+    height: 16px;
+}}
+QCheckBox::indicator:unchecked {{
+    background: {t['panel_alt']};
+    border: 1px solid {t['muted']};
+    border-radius: 3px;
+}}
+QCheckBox::indicator:checked {{
+    background: {t['accent']};
+    border: 1px solid {t['accent']};
+    border-radius: 3px;
+}}
+QRadioButton::indicator:unchecked {{
+    background: {t['panel_alt']};
+    border: 1px solid {t['muted']};
+    border-radius: 8px;
+}}
+QRadioButton::indicator:checked {{
+    background: {t['accent']};
+    border: 1px solid {t['accent']};
+    border-radius: 8px;
+}}
+QToolTip {{
+    background: {t['panel']};
+    color: {t['text']};
+    border: 1px solid {t['border']};
+    padding: 6px 8px;
 }}
 
 /* ── Buttons ────────────────────────────────────────────────────── */
@@ -772,7 +833,7 @@ QWidget#FooterBar {{
     border-top: 1px solid {t['border']};
 }}
 QWidget#HeaderBar {{
-    background: {footer_bg};
+    background: {t['panel']};
     border-bottom: 1px solid {t['border']};
 }}
 

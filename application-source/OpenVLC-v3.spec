@@ -1,5 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 import sys
+from importlib.metadata import distributions
+from pathlib import Path
+
 sys.setrecursionlimit(5000)
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
@@ -11,6 +14,53 @@ hidden_imports = collect_submodules('numpy')
 datas = []
 datas += collect_data_files('qtawesome')
 datas += collect_data_files('PySide6')
+
+# Keep the license notices for runtime dependencies alongside the packaged app.
+# Build-only tools (PyInstaller and pytest) are intentionally excluded.
+_RUNTIME_DISTRIBUTIONS = {
+    'pyside6',
+    'pyside6-addons',
+    'pyside6-essentials',
+    'shiboken6',
+    'pyserial',
+    'pyqtgraph',
+    'qtawesome',
+    'qtpy',
+    'numpy',
+}
+
+
+def collect_runtime_license_files():
+    """Collect license/notice files from installed runtime dependency wheels."""
+    collected = []
+    seen = set()
+    for dist in distributions():
+        name = (dist.metadata.get('Name') or '').lower().replace('_', '-')
+        if name not in _RUNTIME_DISTRIBUTIONS:
+            continue
+        for item in dist.files or ():
+            relative = Path(str(item))
+            filename = relative.name.lower()
+            if not any(token in filename for token in (
+                'license', 'copying', 'notice', 'copyright', 'ofl',
+            )):
+                continue
+            source = Path(dist.locate_file(item))
+            if not source.is_file():
+                continue
+            key = (name, source.resolve())
+            if key in seen:
+                continue
+            seen.add(key)
+            destination = Path('third_party_licenses') / name / relative.parent
+            collected.append((str(source), str(destination)))
+    return collected
+
+
+datas += collect_runtime_license_files()
+notices_file = Path(SPECPATH).resolve() / 'THIRD_PARTY_NOTICES.md'
+if notices_file.is_file():
+    datas.append((str(notices_file), '.'))
 
 a = Analysis(
     ['run_v3.py'],

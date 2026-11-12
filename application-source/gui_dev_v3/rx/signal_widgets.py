@@ -202,6 +202,7 @@ class CircularGauge(QWidget):
         self._label_text = label
         self._percent = value
         self._inverted = inverted
+        self._available = True
 
         self.setMinimumHeight(70)
         self.setMinimumWidth(100)
@@ -212,7 +213,14 @@ class CircularGauge(QWidget):
         self._percent = max(0.0, min(100.0, value))
         self.update()
 
+    def set_available(self, available: bool) -> None:
+        """Show an unavailable state instead of a fabricated zero reading."""
+        self._available = available
+        self.update()
+
     def _color(self) -> QColor:
+        if not self._available:
+            return QColor(_CLR_MUTED)
         pct = self._percent
         if self._inverted:
             # For noise level: low noise is good (green), high noise is bad (red)
@@ -230,6 +238,8 @@ class CircularGauge(QWidget):
             return QColor(_CLR_RED)
 
     def _subtext(self) -> str:
+        if not self._available:
+            return "Offline"
         pct = self._percent
         if self._inverted:
             if pct < 30:
@@ -284,14 +294,14 @@ class CircularGauge(QWidget):
         val_pen = QPen(val_color, pen_w)
         val_pen.setCapStyle(Qt.RoundCap)
         p.setPen(val_pen)
-        span_angle = -270 * (self._percent / 100.0)
+        span_angle = -270 * (self._percent / 100.0) if self._available else 0
         p.drawArc(*arc_rect, 225 * 16, int(span_angle * 16))
 
         # Center value text (e.g. 92%)
         val_font = _font(11, QFont.Bold)
         p.setFont(val_font)
         p.setPen(QColor(_CLR_WHITE))
-        pct_str = f"{self._percent:.0f}%"
+        pct_str = f"{self._percent:.0f}%" if self._available else "—"
         p.drawText(int(arc_x), int(arc_y), int(arc_d), int(arc_d),
                    Qt.AlignCenter, pct_str)
 
@@ -1169,47 +1179,26 @@ class MarginScaleBar(QWidget):
             p.drawLine(int(bar_x), int(mid_y),
                        int(bar_x + bar_w), int(mid_y))
 
-        # ── 2-column zone legend at the bottom ──────────────────────────
+        # ── single-column zone legend ──────────────────────────────────
+        # A vertical list remains readable in the narrow Signal-page panel.
         legend_font = _font(7, QFont.Normal)
         p.setFont(legend_font)
-
-        col1_x = bar_x
-        split_w = int(bar_w * 0.58)
-        col2_x = bar_x + split_w
-        
-        col1_text_w = split_w
-        col2_text_w = bar_w - split_w
-
-        y_row1 = 56
-        y_row2 = 72
-
-        # Row 1 Left: Red box (< 0.28 V Risk (High BER))
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#ef4444"))
-        p.drawRoundedRect(col1_x, y_row1 + 3, 6, 6, 1, 1)
-        p.setPen(QColor(_CLR_MUTED))
-        p.drawText(col1_x + 12, y_row1, col1_text_w, 12, Qt.AlignLeft | Qt.AlignVCenter, "< 0.28 V    Risk (High BER)")
-
-        # Row 2 Left: Orange box (0.28 - 0.36 V Acceptable)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#f59e0b"))
-        p.drawRoundedRect(col1_x, y_row2 + 3, 6, 6, 1, 1)
-        p.setPen(QColor(_CLR_MUTED))
-        p.drawText(col1_x + 12, y_row2, col1_text_w, 12, Qt.AlignLeft | Qt.AlignVCenter, "0.28 - 0.36 V    Acceptable")
-
-        # Row 1 Right: Green box (0.36 - 0.45 V Good)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#22c55e"))
-        p.drawRoundedRect(col2_x, y_row1 + 3, 6, 6, 1, 1)
-        p.setPen(QColor(_CLR_MUTED))
-        p.drawText(col2_x + 12, y_row1, col2_text_w, 12, Qt.AlignLeft | Qt.AlignVCenter, "0.36 - 0.45 V    Good")
-
-        # Row 2 Right: Dark Green box (> 0.45 V Excellent)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QColor("#16a34a"))
-        p.drawRoundedRect(col2_x, y_row2 + 3, 6, 6, 1, 1)
-        p.setPen(QColor(_CLR_MUTED))
-        p.drawText(col2_x + 12, y_row2, col2_text_w, 12, Qt.AlignLeft | Qt.AlignVCenter, "> 0.45 V    Excellent")
+        legend_rows = [
+            (QColor("#ef4444"), "< 0.28 V   Risk (high BER)"),
+            (QColor("#f59e0b"), "0.28 - 0.36 V   Acceptable"),
+            (QColor("#22c55e"), "0.36 - 0.45 V   Good"),
+            (QColor("#16a34a"), "> 0.45 V   Excellent"),
+        ]
+        for row, (zone_color, label) in enumerate(legend_rows):
+            y = 54 + row * 11
+            p.setPen(Qt.NoPen)
+            p.setBrush(zone_color)
+            p.drawRoundedRect(bar_x, y + 3, 6, 6, 1, 1)
+            p.setPen(QColor(_CLR_MUTED))
+            p.drawText(
+                bar_x + 12, y, max(0, bar_w - 12), 12,
+                Qt.AlignLeft | Qt.AlignVCenter, label,
+            )
 
         p.end()
 
@@ -1275,9 +1264,9 @@ class OOKWaveformWidget(QWidget):
     Symbol width: 3 px per bit, scrolling left.
     Buffer: ring buffer of MAX_SYMBOLS bits.
 
-    Data sources:
-      - Simulated: bits from 4B5B encoding of current file chunk bytes.
-      - Physical:  comparator decision PVo > Vref → 1, else 0.
+    Data source:
+      - Physical receiver comparator decisions (PVo > Vref → 1, else 0),
+        or recorded bits loaded from a completed hardware capture.
     """
 
     MAX_SYMBOLS = 600
@@ -1406,7 +1395,7 @@ class OOKWaveformWidget(QWidget):
         if self._paused or self._playback_mode:
             return
         bits = _encode_4b5b(data)
-        # Rotate by seed_offset to simulate scrolling
+        # Advance the ring-buffer view to keep the waveform scrolling
         if seed_offset > 0 and bits:
             n = len(bits)
             offset = seed_offset % n

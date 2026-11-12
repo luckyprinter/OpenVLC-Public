@@ -29,7 +29,7 @@ def _detail_row(label_text: str, default_val: str) -> tuple[QWidget, QLabel]:
     lo.addWidget(val, alignment=Qt.AlignmentFlag.AlignRight)
     return w, val
 
-# Define the symbol rate and protocol overhead matching TX Simulation Model
+# Estimate transfer duration from the configured symbol rate and protocol overhead
 SYMBOL_RATE = 15000.0  # sym/s
 PROTOCOL_OVERHEAD = 1.25  # 4B5B overhead
 PACKET_SIZE = 256  # bytes per packet

@@ -175,11 +175,6 @@ def _quality_from_signal(sig: SignalState) -> dict[str, int]:
     }
 
 
-def _is_empty(sig: SignalState) -> bool:
-    """Check if signal is in empty/offline state."""
-    return sig.pvo == 0.0 and sig.vref == 0.0
-
-
 def _separator() -> QFrame:
     """Thin horizontal line separator for diagnostics sections."""
     frame = QFrame()
@@ -245,7 +240,6 @@ class SignalMonitorPage(QWidget):
         self._pvo_hist: list[float] = []
         self._vref_hist: list[float] = []
         self._margin_hist: list[float] = []
-        self._last_ook_chunk: int = -1  # track chunk index for OOK update
 
         self._build_ui()
 
@@ -256,8 +250,6 @@ class SignalMonitorPage(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        if self._state and self._state._simulation:
-            self._last_ook_chunk = self._state._simulation._sample_counter
         if hasattr(self, "_sample_timer") and not self._sample_timer.isActive():
             self._sample_timer.start(100)
 
@@ -385,15 +377,14 @@ class SignalMonitorPage(QWidget):
         self._diag_labels: dict[str, QLabel] = {}
 
         rows = [
-            ("ADC Value (Raw)", "adc_raw"),
+            ("ADC Code (estimated)", "adc_raw"),
             ("ADC Voltage", "adc_voltage"),
             ("Comparator Output", "comparator"),
             ("Threshold (Vref)", "threshold_vref"),
             ("Photodiode Status", "photodiode"),
-            ("Ambient Light (Lux)", "ambient_light"),
-            ("Supply Voltage", "supply_voltage"),
-            ("ADC State", "adc_state"),
-            ("Auto Vref Mode", "vref_mode"),
+            ("Relative Light Estimate", "ambient_light"),
+            ("ADC Reference (nominal)", "supply_voltage"),
+            ("Vref Mode", "vref_mode"),
             ("Vref Target", "vref_target"),
             ("Vref Error", "vref_error"),
         ]
@@ -548,27 +539,13 @@ class SignalMonitorPage(QWidget):
         if self._paused:
             return
         sig = self._state.signal
-        mode = self._state.mode
-
-        if mode == "simulated" and self._state._simulation:
-            if self._last_ook_chunk <= 0:
-                self._last_ook_chunk = self._state._simulation._sample_counter
-            new_samples = self._state.get_new_simulation_samples(self._last_ook_chunk)
-            for pvo, vref, margin, bit in new_samples:
-                self._ook_widget.push_bit(bit)
-                self._pvo_hist.append(pvo)
-                self._vref_hist.append(vref)
-                self._margin_hist.append(margin)
-            if new_samples:
-                self._last_ook_chunk = self._state._simulation._sample_counter
-        else:
-            pvo = sig.pvo
-            vref = sig.vref
-            margin = sig.margin
-            self._ook_widget.set_from_pvo_vref(pvo, vref)
-            self._pvo_hist.append(pvo)
-            self._vref_hist.append(vref)
-            self._margin_hist.append(margin)
+        pvo = sig.pvo
+        vref = sig.vref
+        margin = sig.margin
+        self._ook_widget.set_from_pvo_vref(pvo, vref)
+        self._pvo_hist.append(pvo)
+        self._vref_hist.append(vref)
+        self._margin_hist.append(margin)
 
         # Cap history lists to prevent growth
         for hist in (self._pvo_hist, self._vref_hist, self._margin_hist):
@@ -584,19 +561,23 @@ class SignalMonitorPage(QWidget):
         sig = state.signal
         transfer = state.transfer
         quality = transfer.quality
-        empty = _is_empty(sig)
+        empty = not state.serial_connected
 
         # --- Top row: 4 MetricCards + 2 CircularGauges ---
         if empty:
-            self._metric_pvo.set_value("0.00 V")
-            self._metric_vref.set_value("0.00 V")
-            self._metric_margin.set_value("0.00 V")
+            self._metric_pvo.set_value("—")
+            self._metric_vref.set_value("—")
+            self._metric_margin.set_value("—")
             self._metric_state.set_value("OFFLINE")
             self._metric_state.set_value_color("#708090")
             self._metric_state.set_center_footer("No hardware")
             self._quality_top.set_percent(0)
             self._noise_top.set_percent(0)
+            self._quality_top.set_available(False)
+            self._noise_top.set_available(False)
         else:
+            self._quality_top.set_available(True)
+            self._noise_top.set_available(True)
             self._metric_pvo.set_value(
                 f"{sig.pvo:.2f} V",
                 sparkline_data=self._pvo_hist[-20:] if self._pvo_hist else None,
@@ -646,15 +627,15 @@ class SignalMonitorPage(QWidget):
             vref_target = f"{sig.pvo - sig.target_margin:.2f} V"
             vref_error = f"{sig.vref - (sig.pvo - sig.target_margin):+.2f} V"
 
-            _set_status_label(self._diag_labels["adc_raw"], str(adc_raw), "default")
+            _set_status_label(self._diag_labels["adc_raw"], f"~{adc_raw}", "default")
             _set_status_label(self._diag_labels["adc_voltage"], f"{sig.pvo:.2f} V", "default")
             _set_status_label(self._diag_labels["comparator"], comp, "default")
             _set_status_label(self._diag_labels["threshold_vref"], f"{sig.vref:.2f} V", "default")
             _set_status_label(self._diag_labels["photodiode"], photo_status, "green" if photo_status == "ACTIVE" else "red")
-            _set_status_label(self._diag_labels["ambient_light"], f"{sig.lux} lx", "default")
+            _set_status_label(self._diag_labels["ambient_light"], f"{sig.lux} (uncal.)", "default")
             _set_status_label(self._diag_labels["supply_voltage"], f"{sig.adc_vref:.2f} V", "default")
-            _set_status_label(self._diag_labels["adc_state"], "STABLE", "green")
-            _set_status_label(self._diag_labels["vref_mode"], "AUTO", "default")
+            vref_mode = "AUTO" if self._settings_mgr.get("link/vref_auto", False) else "MANUAL"
+            _set_status_label(self._diag_labels["vref_mode"], vref_mode, "default")
             _set_status_label(self._diag_labels["vref_target"], vref_target, "default")
             _set_status_label(self._diag_labels["vref_error"], vref_error, "default")
 

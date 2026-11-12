@@ -1,7 +1,7 @@
 """TX Physical Backend — real ESP32 hardware via serial.
 
 Communicates with actual VLC_TX firmware via serial.
-No mock data. No simulated values.
+Uses only values read from the physical transmitter.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import threading
-from gui_dev_v3.tx_mock_data import TXFileInfo, TXProgress, TXSettings, TXState
 from gui_dev_v3.serial.controllers import TXSerialController
 
 # Resolve beta state/log dirs with VLC_DATA_DIR env var fallback
@@ -70,12 +69,17 @@ class TXPhysicalBackend:
             on_log=self._controller_log,
         )
         self._transmission_thread: threading.Thread | None = None
+        # Auto-connect runs off the GUI thread so serial discovery cannot freeze the UI.
+        self._connect_thread: threading.Thread | None = None
+        self._connecting: bool = False
         self._latest_status: dict[str, Any] = {}
         # Preserved completion metrics — never wiped by idle polls
         self._last_completion: dict[str, Any] = {}
         self._active_file: str = "No file"
         self._log_queue: list[dict[str, str]] = []
         self._last_logged: dict[str, str] = {}
+        self._active_transfer_started: float | None = None
+        self._transfer_diag_recorded: bool = False
 
     def _controller_log(self, msg: str) -> None:
         self.log("Serial", msg)
@@ -92,16 +96,78 @@ class TXPhysicalBackend:
         file_log("TX", event, details)
 
 
+    def _record_diag(self, event: str, **fields: Any) -> None:
+        # Diagnostics must never interfere with hardware control or transfers.
+        try:
+            from gui_dev_v3.diagnostics import record_local_event
+            record_local_event("tx", event, **fields)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _diagnostic_size_bucket(size_bytes: int) -> str:
+        if size_bytes <= 0:
+            return "empty"
+        if size_bytes < 1024:
+            return "under_1kib"
+        if size_bytes < 16 * 1024:
+            return "1_to_16kib"
+        if size_bytes <= 80 * 1024:
+            return "16_to_80kib"
+        return "over_80kib"
+
+    @staticmethod
+    def _elapsed_ms(value: Any) -> int | None:
+        try:
+            parts = str(value).split(":")
+            if len(parts) != 3:
+                return None
+            minutes, seconds, millis = (int(part) for part in parts)
+            if minutes < 0 or not 0 <= seconds < 60 or not 0 <= millis < 1000:
+                return None
+            return (minutes * 60 + seconds) * 1000 + millis
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _safe_nonnegative_int(value: Any) -> int:
+        """Parse optional controller metrics without letting diagnostics disrupt TX."""
+        try:
+            return max(0, int(value or 0))
+        except (TypeError, ValueError, OverflowError):
+            return 0
+
     def scan_ports(self) -> list[str]:
-        return _list_usb_serial_ports()
+        started = time.monotonic()
+        ports = _list_usb_serial_ports()
+        self._record_diag("serial_scan", role="tx", ports_seen=len(ports),
+                          duration_ms=int((time.monotonic() - started) * 1000))
+        return ports
 
     def detect_firmware(self, port: str) -> dict[str, str] | None:
+        started = time.monotonic()
         info = _send_identify(port, "VLC_TX")
+        self._record_diag(
+            "serial_probe", role="tx",
+            result="success" if info else "timeout",
+            baud_rate=115200,
+            duration_ms=int((time.monotonic() - started) * 1000),
+        )
         if info:
             self._firmware_info = info
         return info
 
     def auto_connect(self) -> bool:
+        from gui_dev_v3.serial.detection import serial_scan_lock
+        try:
+            with serial_scan_lock():
+                return self._auto_connect_locked()
+        except TimeoutError:
+            self.log("Scan Busy", "Another VLC console is still scanning serial devices")
+            return False
+
+    def _auto_connect_locked(self) -> bool:
+        """Perform discovery and persistent connection while holding the shared lock."""
         ports = self.scan_ports()
         if ports:
             self.log("Scan", f"Found {len(ports)} ports: {', '.join(ports)}")
@@ -110,11 +176,24 @@ class TXPhysicalBackend:
             info = self.detect_firmware(port)
             if info and info.get("device") == "VLC_TX":
                 self._port = port
+                if not self._open_serial():
+                    self._record_diag("serial_probe", role="tx", result="busy",
+                                      baud_rate=115200, duration_ms=0)
+                    self.log("Error [C02]", f"PySerial failed to open {port}; continuing scan")
+                    self._port = None
+                    continue
+                if not self._wait_for_firmware_ready():
+                    self._controller.disconnect()
+                    self.log("Error [C03]", f"TX firmware did not acknowledge readiness on {port}")
+                    self._port = None
+                    continue
                 self._connected = True
                 fw = info.get("firmware", "tx_unknown")
+                family = "tx_non_dma" if ("non_dma" in fw or "nondma" in fw) else ("tx_dma" if "dma" in fw else "unknown")
+                self._record_diag("serial_connected", role="tx", baud_rate=115200,
+                                  firmware_family=family)
                 fw_label = "Non-DMA" if ("non_dma" in fw or "nondma" in fw) else ("DMA" if "dma" in fw else "TX")
                 self.log("Connected", f"Auto-connected to {port} | Firmware: {fw_label} ({fw})")
-                self._open_serial()
                 self.apply_link_settings()
                 return True
         if ports:
@@ -122,6 +201,15 @@ class TXPhysicalBackend:
         return False
 
     def connect(self, port: str, force: bool = False) -> bool:
+        from gui_dev_v3.serial.detection import serial_scan_lock
+        try:
+            with serial_scan_lock():
+                return self._connect_locked(port, force=force)
+        except TimeoutError:
+            self.log("Scan Busy", "Another VLC console is still scanning serial devices")
+            return False
+
+    def _connect_locked(self, port: str, force: bool = False) -> bool:
         if not force:
             self.log("Connect", f"Detecting firmware on {port}...")
             info = self.detect_firmware(port)
@@ -133,34 +221,72 @@ class TXPhysicalBackend:
             info = {"device": "VLC_TX", "firmware": "tx_forced", "board": "Unknown"}
             self._firmware_info = info
             
+        self._port = port
+        if not self._open_serial():
+            self._record_diag("serial_probe", role="tx", result="busy",
+                              baud_rate=115200, duration_ms=0)
+            self._port = None
+            self._connected = False
+            self.log("Error [C02]", f"PySerial failed to open {port}")
+            return False
+        if not self._wait_for_firmware_ready():
+            self._controller.disconnect()
+            self._port = None
+            self._connected = False
+            self.log("Error [C03]", f"TX firmware did not acknowledge readiness on {port}")
+            return False
+
+        self._connected = True
+        fw = (self._firmware_info or {}).get("firmware", "")
+        family = "tx_non_dma" if ("non_dma" in fw or "nondma" in fw) else ("tx_dma" if "dma" in fw else "unknown")
+        self._record_diag("serial_connected", role="tx", baud_rate=115200,
+                          firmware_family=family)
         from PySide6.QtCore import QTimer
         self._timer = QTimer()
         self._timer.timeout.connect(self.refresh)
         self._timer.start(100)
-        self._port = port
-        self._connected = True
-        self._open_serial()
-        if not self._controller.is_connected:
-            self.log("Error [C02]", f"PySerial failed to open {port}")
-        else:
-            fw = (self._firmware_info or {}).get("firmware", "tx_unknown")
-            fw_label = "Non-DMA" if ("non_dma" in fw or "nondma" in fw) else ("DMA" if "dma" in fw else "TX")
-            force_str = " (Force Connect)" if force else ""
-            self.log("Connected", f"Opened {port} | Firmware: {fw_label}{force_str}")
-            self.apply_link_settings()
+
+        fw = (self._firmware_info or {}).get("firmware", "tx_unknown")
+        fw_label = "Non-DMA" if ("non_dma" in fw or "nondma" in fw) else ("DMA" if "dma" in fw else "TX")
+        force_str = " (Force Connect)" if force else ""
+        self.log("Connected", f"Opened {port} | Firmware: {fw_label}{force_str}")
+        self.apply_link_settings()
         return True
 
-    def _open_serial(self) -> None:
+    def _open_serial(self) -> bool:
         """Open persistent serial connection via controller."""
         if not self._port:
-            return
-        self._controller.connect(self._port, expected_role="VLC_TX")
+            return False
+        return self._controller.connect(self._port, expected_role="VLC_TX")
+
+    def _wait_for_firmware_ready(self, timeout: float | None = None) -> bool:
+        """Confirm the TX command loop responds after the persistent port opens.
+
+        The user-configured connection timeout controls this USB-serial
+        readiness wait; it is not an optical synchronization delay.
+        """
+        if timeout is None:
+            from gui_dev_v3.settings import SettingsManager
+            try:
+                timeout = float(SettingsManager("tx").get("connection/timeout", 5))
+            except (TypeError, ValueError):
+                timeout = 5.0
+        timeout = max(1.0, min(timeout, 120.0))
+        start_counter = self._controller.line_counter
+        if not self._controller.send_line(""):
+            return False
+        return self._controller.wait_for_line_containing(
+            "TX Ready", timeout=timeout, start_counter=start_counter
+        )
 
     def _close_serial(self) -> None:
         self._controller.disconnect()
 
     def disconnect(self) -> None:
+        was_connected = self._connected
         self._close_serial()
+        if was_connected:
+            self._record_diag("serial_disconnected", role="tx", reason_code="user_disconnect")
         self._port = None
         self._connected = False
         self._firmware_info = None
@@ -188,7 +314,32 @@ class TXPhysicalBackend:
                 "total_chunks": payload.get("total_chunks", 0),
                 "chunk":        payload.get("chunk", 0),
             }
-        
+            if not self._transfer_diag_recorded:
+                size_bytes = self._safe_nonnegative_int(payload.get("size", 0))
+                duration_ms = self._elapsed_ms(payload.get("elapsed_time"))
+                if duration_ms is None and self._active_transfer_started is not None:
+                    duration_ms = int((time.monotonic() - self._active_transfer_started) * 1000)
+                self._record_diag(
+                    "transfer_completed", role="tx",
+                    size_bucket=self._diagnostic_size_bucket(size_bytes),
+                    duration_ms=max(0, duration_ms or 0),
+                    chunk_count=self._safe_nonnegative_int(payload.get("total_chunks", 0)),
+                )
+                self._transfer_diag_recorded = True
+        elif stage in {"Send failed", "CRC Failure", "CRC mismatch", "Transfer timeout"}:
+            if not self._transfer_diag_recorded:
+                size_bytes = int(payload.get("size", 0) or 0)
+                duration_ms = self._elapsed_ms(payload.get("elapsed_time"))
+                if duration_ms is None and self._active_transfer_started is not None:
+                    duration_ms = int((time.monotonic() - self._active_transfer_started) * 1000)
+                reason = "crc_mismatch" if "CRC" in stage else ("transfer_timeout" if "timeout" in stage.lower() else "unknown")
+                self._record_diag(
+                    "transfer_failed", role="tx", reason_code=reason,
+                    size_bucket=self._diagnostic_size_bucket(size_bytes),
+                    duration_ms=max(0, duration_ms or 0), retry_count=0,
+                )
+                self._transfer_diag_recorded = True
+
         self._latest_status.update(payload)
         
     def start_transmission(self, filepath: str) -> None:
@@ -197,6 +348,8 @@ class TXPhysicalBackend:
             
         path = Path(filepath)
         self._active_file = path.name
+        self._active_transfer_started = time.monotonic()
+        self._transfer_diag_recorded = False
         
         # Run in background to prevent GUI freeze
         self._transmission_thread = threading.Thread(
@@ -259,20 +412,42 @@ class TXPhysicalBackend:
             mode = mgr.get("connection/mode", "Auto Detect (Recommended)")
             auto_conn = mgr.get("connection/auto_connect", True)
             
-            if auto_conn:
+            if auto_conn and not self._connecting:
+                # Throttle scans and run discovery in the background. Serial
+                # probing can take several seconds per port and must not block
+                # the GUI event loop.
                 now = time.time()
                 if not hasattr(self, "_last_scan_time"):
                     self._last_scan_time = 0
-                scan_interval = mgr.get("connection/scan_interval", 3)
-                
+                try:
+                    scan_interval = max(1.0, float(mgr.get("connection/scan_interval", 3)))
+                except (TypeError, ValueError):
+                    scan_interval = 3.0
+
                 if (now - self._last_scan_time) > scan_interval:
                     self._last_scan_time = now
-                    if mode == "Manual":
-                        target_port = mgr.get("connection/port", "")
-                        if target_port:
-                            self.connect(target_port)
-                    else:
-                        self.auto_connect()
+                    target_port = (
+                        str(mgr.get("connection/port", "") or "")
+                        if mode == "Manual" else ""
+                    )
+                    self._connecting = True
+
+                    def _bg_connect() -> None:
+                        try:
+                            if mode == "Manual":
+                                if target_port:
+                                    self.connect(target_port)
+                            else:
+                                self.auto_connect()
+                        finally:
+                            self._connecting = False
+
+                    self._connect_thread = threading.Thread(
+                        target=_bg_connect,
+                        daemon=True,
+                        name="tx-serial-auto-connect",
+                    )
+                    self._connect_thread.start()
 
         if not self._connected or not self._controller.is_connected:
             if self._connected:
@@ -305,7 +480,7 @@ class TXPhysicalBackend:
             encoding="4B5B",
             modulation="NRZ / OOK",
             symbol_rate="15,000 sym/s",
-            led_pin=25,
+            led_pin=5,
             tx_power="100 %",
             pre_emphasis="Disabled",
             status_text=f"Transmitting: {stage} - {detail}" if stage in ("Preparing", "Preloading", "Sending", "Streaming DMA", "Preparing DMA") else f"{stage}: {detail}",
@@ -355,7 +530,7 @@ class TXPhysicalBackend:
             encoding="4B5B",
             modulation="NRZ / OOK",
             symbol_rate="15,000 sym/s",
-            led_pin=25,
+            led_pin=5,
             tx_power="100 %",
             pre_emphasis="Disabled",
             status_text="Offline — no hardware",
@@ -424,7 +599,7 @@ def _parse_tx_record(record: dict[str, Any]) -> dict[str, Any]:
     status = str(record.get("status", "pending")).lower()
     mode = str(settings.get("mode", "4B5B"))
     symbol_rate = f"{int(settings.get('symbol_hz', 15000)):,} sym/s"
-    led_pin = int(settings.get("led_pin", 25))
+    led_pin = int(settings.get("led_pin", 5))
     tx_power = 100
 
     if status == "complete":
@@ -525,6 +700,7 @@ def _send_identify(port: str, expected_device: str) -> dict[str, str] | None:
         ser.timeout = 0.5
         ser.dtr = False
         ser.rts = False
+        ser.exclusive = True
         ser.open()
         with ser:
             time.sleep(0.2)

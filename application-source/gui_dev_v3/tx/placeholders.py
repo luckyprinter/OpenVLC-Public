@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QMessageBox,
     QFileDialog
 )
@@ -38,60 +39,35 @@ class TransmitPage(QWidget):
         self._batch_active = False
         self._current_queue_index = -1
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(16)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(14)
 
-        # Left Column - Queue
-        left_col = QVBoxLayout()
+        # The active queue and its controls form the primary workspace row.
+        top_row = QHBoxLayout()
+        top_row.setSpacing(14)
+
         queue_card = Card("Transmission Queue")
-        
         self.queue_table = QTableWidget(0, 3)
         self.queue_table.setHorizontalHeaderLabels(["Filename", "Size", "Status"])
         self.queue_table.verticalHeader().setDefaultSectionSize(32)
         qhdr = self.queue_table.horizontalHeader()
-        qhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)          # Filename
-        qhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)            # Size
-        qhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)            # Status
-        self.queue_table.setColumnWidth(1, 70)
-        self.queue_table.setColumnWidth(2, 90)
-        self.queue_table.setFixedHeight(220)
+        qhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        qhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        qhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        qhdr.setMinimumSectionSize(64)
+        self.queue_table.setMinimumHeight(150)
+        self.queue_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.queue_table.verticalHeader().setVisible(False)
         self.queue_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.queue_table.setAlternatingRowColors(True)
         self.queue_table.setShowGrid(False)
         self.queue_table.setSortingEnabled(True)
-        
-        queue_card.body.addWidget(self.queue_table)
-        left_col.addWidget(queue_card)
-        
-        # Session History Card
-        history_card = Card("Session History")
-        self.history_table = QTableWidget(0, 4)
-        self.history_table.setHorizontalHeaderLabels(["Time", "File", "Throughput", "Outcome"])
-        self.history_table.verticalHeader().setDefaultSectionSize(32)
-        hhdr = self.history_table.horizontalHeader()
-        hhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)       # Time
-        hhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)     # File
-        hhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)       # Throughput
-        hhdr.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)       # Outcome
-        self.history_table.setColumnWidth(0, 80)
-        self.history_table.setColumnWidth(2, 110)
-        self.history_table.setColumnWidth(3, 80)
-        self.history_table.verticalHeader().setVisible(False)
-        self.history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.history_table.setAlternatingRowColors(True)
-        self.history_table.setShowGrid(False)
-        self.history_table.setFixedHeight(180)
-        self.history_table.setSortingEnabled(True)
-        
-        history_card.body.addWidget(self.history_table)
-        left_col.addWidget(history_card)
-        
-        layout.addLayout(left_col, 6)
+        queue_card.body.addWidget(self.queue_table, 1)
+        top_row.addWidget(queue_card, 6)
 
-        # Right Column - Controls
         right_col = QVBoxLayout()
+        right_col.setSpacing(14)
         ctrl_card = Card("Queue Controls")
         self.start_btn = primary_button("Start Batch Transmission")
         self.start_btn.setMinimumHeight(40)
@@ -102,21 +78,46 @@ class TransmitPage(QWidget):
         self.clear_btn.clicked.connect(self._on_clear_queue)
         ctrl_card.body.addWidget(self.clear_btn)
         right_col.addWidget(ctrl_card)
-        
+
         config_card = Card("Batch Configuration")
         config_card.body.addWidget(_detail_row("Batch Mode", "Sequential"))
         config_card.body.addWidget(_detail_row("Retry Policy", "Max 3 retries"))
         config_card.body.addWidget(_detail_row("Delay Between Files", "2.0 seconds"))
         right_col.addWidget(config_card)
-        
         right_col.addStretch(1)
-        layout.addLayout(right_col, 4)
+        top_row.addLayout(right_col, 4)
+        layout.addLayout(top_row, 3)
+
+        # History spans the full workspace width for readable column headings.
+        history_card = Card("Session History")
+        self.history_table = QTableWidget(0, 4)
+        self.history_table.setHorizontalHeaderLabels(["Time", "File", "Throughput", "Outcome"])
+        self.history_table.verticalHeader().setDefaultSectionSize(32)
+        hhdr = self.history_table.horizontalHeader()
+        hhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hhdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        hhdr.setMinimumSectionSize(64)
+        self.history_table.setMinimumHeight(110)
+        self.history_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.history_table.verticalHeader().setVisible(False)
+        self.history_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.history_table.setAlternatingRowColors(True)
+        self.history_table.setShowGrid(False)
+        self.history_table.setSortingEnabled(True)
+        history_card.body.addWidget(self.history_table, 1)
+        layout.addWidget(history_card, 2)
 
         if self.state:
             self.refresh(self.state)
 
     def _on_start_batch(self) -> None:
         if not self.state:
+            return
+
+        if not self._batch_active and not self.state.serial_connected:
+            QMessageBox.warning(self, "TX Hardware Disconnected", "Connect the transmitter before starting a batch.")
             return
 
         if self._batch_active:
@@ -128,10 +129,7 @@ class TransmitPage(QWidget):
             self.start_btn.style().unpolish(self.start_btn)
             self.start_btn.style().polish(self.start_btn)
             
-            # Cancel active simulation if running
-            if self.state.mode == "simulated" and self.state._simulation:
-                self.state._simulation.stop()
-                self.state.refresh()
+            # Stop scheduling queued items. An active hardware transfer is not aborted.
             return
 
         # Start the batch
@@ -212,6 +210,9 @@ class TransmitPage(QWidget):
         self.history_table.setSortingEnabled(True)
         self.history_table.blockSignals(False)
 
+        queued_items = any(item["status"] == "Queued" for item in state.transmission_queue)
+        self.start_btn.setEnabled(self._batch_active or (state.serial_connected and queued_items))
+
         # 3. Batch State Machine Processing
         if self._batch_active:
             if self._current_queue_index == -1:
@@ -290,16 +291,16 @@ class LogsPage(QWidget):
         self.logs_table.setHorizontalHeaderLabels(["Timestamp", "Filename", "Outcome", "Chunks Sent", "Data Rate", "Duration"])
         self.logs_table.verticalHeader().setDefaultSectionSize(32)
         lhdr = self.logs_table.horizontalHeader()
-        lhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)            # Timestamp
+        # Let content-sized columns use their real labels/values instead of
+        # fixed pixel widths. This keeps the filename column usable on compact
+        # laptop windows and at higher display scaling factors.
+        lhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents) # Timestamp
         lhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)          # Filename
-        lhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)            # Outcome
+        lhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents) # Outcome
         lhdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents) # Chunks Sent
-        lhdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)            # Data Rate
-        lhdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)            # Duration
-        self.logs_table.setColumnWidth(0, 90)   # Timestamp (HH:MM:SS)
-        self.logs_table.setColumnWidth(2, 150)  # Outcome  (SUCCESS / FAILED + badges)
-        self.logs_table.setColumnWidth(4, 120)  # Data Rate (e.g. "12345 bps")
-        self.logs_table.setColumnWidth(5, 100)  # Duration (HH:MM:SS)
+        lhdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents) # Data Rate
+        lhdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents) # Duration
+        lhdr.setMinimumSectionSize(64)
         self.logs_table.verticalHeader().setVisible(False)
         self.logs_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.logs_table.setAlternatingRowColors(True)

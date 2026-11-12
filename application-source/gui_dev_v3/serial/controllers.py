@@ -94,8 +94,8 @@ class TXSerialController(SerialSession):
         active_low: bool = True,
         idle_on: bool = True,
         quiet: bool = True,
-    ) -> None:
-        """Send link-layer configuration to firmware.
+    ) -> bool:
+        """Send link-layer configuration and report whether every write succeeded.
 
         DMA_MODE, PREAMBLE, and CARRIER are only sent when the firmware is
         confirmed DMA-capable (tx_dma.ino); they would cause TX_ERROR on
@@ -125,7 +125,13 @@ class TXSerialController(SerialSession):
 
         commands.append("CONFIG?")
         for cmd in commands:
-            self.send_line(cmd)
+            if not self.send_line(cmd):
+                self.status(
+                    "Settings apply failed",
+                    f"Serial write failed at {cmd}",
+                    state="error",
+                )
+                return False
 
         mode_label = "DMA" if (self.dma_capable and dma_mode) else "Stream"
         self.status(
@@ -133,6 +139,7 @@ class TXSerialController(SerialSession):
             f"4B5B · {freq} Hz · {mode_label} · FGAP {fgap} ms",
             state="ready",
         )
+        return True
 
     # ── LED control ─────────────────────────────────────────────────────────
 
@@ -163,6 +170,11 @@ class TXSerialController(SerialSession):
         mgr = SettingsManager("tx")
         user_wants_dma = bool(mgr.get("link/dma_mode", False))
         use_dma = user_wants_dma and self.dma_capable
+
+        # Normalize these once before either the single-file or batched path.
+        # The batching branch must use the same validated values as _send_stream().
+        chunk_size = max(16, min(int(chunk_bytes), 1024))
+        round_count = max(1, int(rounds))
 
         if not use_dma and len(data) > MAX_STREAM_FILE_BYTES:
             import math
@@ -205,8 +217,6 @@ class TXSerialController(SerialSession):
             return True
 
         name_bytes = path.name.encode("utf-8", errors="replace")[:MAX_NAME_BYTES]
-        chunk_size  = max(16, min(int(chunk_bytes), 1024))
-        round_count = max(1, int(rounds))
         tid         = random.randint(1, 65535)
         file_crc    = crc16_ccitt(data)
 

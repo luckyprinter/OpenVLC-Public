@@ -28,12 +28,13 @@ from gui_dev_v3.settings import (
     FreeformDoubleSpinSetting,
     RadioNodeSetting,
     bind_radio_node,
+    reset_all_settings,
     bind_double_spin,
     ThemePickerGrid,
 )
 from gui_dev_v3.settings_store import RESOLUTION_PRESETS
 from gui_dev_v3.theme import COLORS
-from gui_dev_v3.widgets import Card, muted_label, ModeSelectCard, primary_button
+from gui_dev_v3.widgets import Card, muted_label, primary_button
 
 
 # ── General & Display ──────────────────────────────────────────────────
@@ -136,7 +137,7 @@ class GeneralDisplayPage(QWidget):
         return self._window
 
     def _on_reset_clicked(self) -> None:
-        self._mgr.clear()
+        reset_all_settings(self._mgr, self._get_window())
         from PySide6.QtWidgets import QMessageBox
         QMessageBox.information(self, "Settings Reset", "All settings have been reset to defaults. Please restart the application for all changes to take effect.")
 
@@ -244,16 +245,39 @@ class ConnectionChannelPage(QWidget):
             QPushButton:hover { background-color: #fbbf24; }
         """)
         def _on_force_connect():
+            from PySide6.QtWidgets import QMessageBox
+
             port = self.port_combo.currentText()
-            if port and port != "No ports found" and self._state:
-                self._state.set_mode("physical")
-                for btn in mode_select._buttons:
-                    if btn.text() == "Manual":
-                        btn.setChecked(True)
-                        break
-                self._mgr.set("connection/port", port)
-                self._state.force_connect_serial(port)
-                self._show_toast(f"Forced connection to {port}")
+            if not port or port == "No ports found" or not self._state:
+                return
+
+            answer = QMessageBox.warning(
+                self,
+                "Force Connect",
+                f"Attempt to open {port} without first identifying it as a VLC RX device?\n\n"
+                "Use this only when normal detection fails. The firmware-ready check "
+                "will still be required after the port opens.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+
+            for btn in mode_select._buttons:
+                if btn.text() == "Manual":
+                    btn.setChecked(True)
+                    break
+            self._mgr.set("connection/port", port)
+            connected = self._state.force_connect_serial(port)
+            if connected:
+                self._show_toast(f"Connected to {port} (forced identification bypass)")
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Connection Failed",
+                    f"Could not establish a firmware-ready connection on {port}. "
+                    "Check that the correct ESP32 is connected and try again.",
+                )
         force_btn.clicked.connect(_on_force_connect)
         
         port_layout.addWidget(QLabel("Target Port:"))
@@ -272,7 +296,7 @@ class ConnectionChannelPage(QWidget):
 
         timeout_spin = SpinSetting(5, 1, 120, "seconds")
         bind_spin(timeout_spin, mgr, "connection/timeout", 5)
-        self.conn_card.body.addWidget(SettingRow("Connection Timeout", timeout_spin))
+        self.conn_card.body.addWidget(SettingRow("Firmware Ready Timeout", timeout_spin, "Maximum time to wait for the RX firmware ready response after opening the serial port."))
         
         # Live status inside Connection Settings
         self._port_label = muted_label("Port: —")
@@ -379,24 +403,39 @@ class ConnectionChannelPage(QWidget):
         rep = self.rep_set.isChecked()
         inv = self.inv_set.isChecked()
 
-        self._state.send_firmware_command(f"FREQ={freq}\n")
-        self._state.send_firmware_command(f"PREAMBLE={preamble}\n")
-        self._state.send_firmware_command(f"PHASE={phase}\n")
-        self._state.send_firmware_command(f"MAJ={1 if maj else 0}\n")
-        self._state.send_firmware_command(f"REPORT={1 if rep else 0}\n")
-        self._state.send_firmware_command(f"INVERT={1 if inv else 0}\n")
-        self._state.send_firmware_command(f"VREF_MARGIN={vref_margin}\n")
-        self._state.send_firmware_command(f"VREF_PWM_FS={vref_pwm}\n")
-        self._state.send_firmware_command(f"VREF_SETTLE_MS={vref_settle}\n")
-        self._state.send_firmware_command("VREF_MODE=AUTO\n" if vref_auto else "VREF_MODE=MANUAL\n")
-        # VREF_SET must be sent LAST because the firmware blocks/delays to let the RC filter settle.
-        # Sending it earlier causes the ESP32's 64-byte UART buffer to overflow with the remaining commands.
-        self._state.send_firmware_command(f"VREF_SET={vref_set}\n")
-        
-        if vref_auto:
-            self._state.send_firmware_command("VREF_CAL\n")
-            
-        self._show_toast("Hardware settings applied to receiver")
+        # Keep the established command order. In particular, VREF_SET stays
+        # last among configuration commands because firmware may block while
+        # the reference filter settles. Stop immediately if the serial write
+        # fails so we never report a successful apply after a partial send.
+        commands = [
+            f"FREQ={freq}\n",
+            f"PREAMBLE={preamble}\n",
+            f"PHASE={phase}\n",
+            f"MAJ={1 if maj else 0}\n",
+            f"REPORT={1 if rep else 0}\n",
+            f"INVERT={1 if inv else 0}\n",
+            f"VREF_MARGIN={vref_margin}\n",
+            f"VREF_PWM_FS={vref_pwm}\n",
+            f"VREF_SETTLE_MS={vref_settle}\n",
+            "VREF_MODE=AUTO\n" if vref_auto else "VREF_MODE=MANUAL\n",
+            f"VREF_SET={vref_set}\n",
+        ]
+        for command in commands:
+            if not self._state.send_firmware_command(command):
+                self._show_toast(
+                    f"Could not apply settings: serial write failed at {command.strip()}. "
+                    "Check the RX connection and reapply."
+                )
+                return
+
+        if vref_auto and not self._state.send_firmware_command("VREF_CAL\n"):
+            self._show_toast(
+                "Settings were sent, but VREF_CAL could not be sent. "
+                "Check the RX connection and retry calibration."
+            )
+            return
+
+        self._show_toast("Hardware settings sent to receiver")
 
     def refresh(self, state: RXAppState) -> None:
         if state is None:
@@ -442,109 +481,42 @@ class DiagnosticsLogsPage(QWidget):
         lo.setContentsMargins(0, 0, 0, 0)
         lo.setSpacing(12)
 
-    def _show_toast(self, msg: str) -> None:
-        from PySide6.QtWidgets import QLabel
-        from PySide6.QtCore import QTimer, Qt
-        from gui_dev_v3.theme import COLORS
-        toast = QLabel(msg, self.window())
-        toast.setObjectName("Toast")
-        toast.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        toast.setStyleSheet(
-            f"background: {COLORS['panel']}; color: {COLORS['amber']}; "
-            f"border: 1px solid {COLORS['amber']}; border-radius: 8px; "
-            f"padding: 10px 20px; font-weight: 700;"
-        )
-        toast.adjustSize()
-        toast.move(self.window().width() - toast.width() - 20, self.window().height() - toast.height() - 20)
-        toast.show()
-        QTimer.singleShot(2000, toast.deleteLater)
+        from gui_dev_v3.diagnostics import build_diagnostics_controls
+        lo.addWidget(build_diagnostics_controls(mgr, "rx"))
 
-        # 1. Firmware Card (Removed)
-
-        # 2. Signal Monitoring Card
         refresh_card = Card("Signal Monitoring")
         rate_spin = SpinSetting(100, 10, 9999, "ms")
         bind_spin(rate_spin, mgr, "signal/refresh_rate", 100)
         refresh_card.body.addWidget(SettingRow("Signal Refresh Rate", rate_spin))
-
         buffer_spin = SpinSetting(1000, 100, 99999, "samples")
         bind_spin(buffer_spin, mgr, "signal/history_buffer", 1000)
         refresh_card.body.addWidget(SettingRow("History Buffer", buffer_spin))
-
-        rt_graph = RadioNodeSetting(True)
-        bind_radio_node(rt_graph, mgr, "signal/enable_graphs", True)
-        refresh_card.body.addWidget(SettingRow("Enable Real-Time Graphs", rt_graph))
-
-        margin_track = RadioNodeSetting(True)
-        bind_radio_node(margin_track, mgr, "signal/enable_margin", True)
-        refresh_card.body.addWidget(SettingRow("Enable Margin Tracking", margin_track))
-
-        pvo_track = RadioNodeSetting(True)
-        bind_radio_node(pvo_track, mgr, "signal/enable_pvo", True)
-        refresh_card.body.addWidget(SettingRow("Enable PVo Tracking", pvo_track))
-
-        vref_track = RadioNodeSetting(True)
-        bind_radio_node(vref_track, mgr, "signal/enable_vref", True)
-        refresh_card.body.addWidget(SettingRow("Enable Vref Tracking", vref_track))
+        for label, key in [
+            ("Enable Real-Time Graphs", "signal/enable_graphs"),
+            ("Enable Margin Tracking", "signal/enable_margin"),
+            ("Enable PVo Tracking", "signal/enable_pvo"),
+            ("Enable Vref Tracking", "signal/enable_vref"),
+        ]:
+            toggle = RadioNodeSetting(True)
+            bind_radio_node(toggle, mgr, key, True)
+            refresh_card.body.addWidget(SettingRow(label, toggle))
         lo.addWidget(refresh_card)
 
-        # 3. Logging Card
         save_card = Card("Logging Settings")
-        save_rx = RadioNodeSetting(True)
-        bind_radio_node(save_rx, mgr, "logging/save_receive", True)
-        save_card.body.addWidget(SettingRow("Save Receive Logs", save_rx))
-
-        save_err = RadioNodeSetting(True)
-        bind_radio_node(save_err, mgr, "logging/save_errors", True)
-        save_card.body.addWidget(SettingRow("Save Error Logs", save_err))
-
+        for label, key in [
+            ("Save Receive Logs", "logging/save_receive"),
+            ("Save Error Logs", "logging/save_errors"),
+        ]:
+            toggle = RadioNodeSetting(True)
+            bind_radio_node(toggle, mgr, key, True)
+            save_card.body.addWidget(SettingRow(label, toggle))
         max_size = SpinSetting(10, 1, 999, "MB")
         bind_spin(max_size, mgr, "logging/max_size_mb", 10)
         save_card.body.addWidget(SettingRow("Maximum Log Size", max_size))
-
         retention = SpinSetting(30, 1, 999, "days")
         bind_spin(retention, mgr, "logging/retention_days", 30)
         save_card.body.addWidget(SettingRow("Log Retention", retention))
         lo.addWidget(save_card)
-
-        # 4. Developer Card
-        tools_card = Card("Developer Tools")
-        tools_card.body.setSpacing(8)
-        # Arrange developer buttons in a 2-column grid for compactness
-        dev_row1 = QHBoxLayout()
-        dev_row1.setSpacing(8)
-        btn_raw = primary_button("Raw Packet Viewer")
-        btn_raw.clicked.connect(lambda: self._show_toast("Raw Packet Viewer: Not yet implemented"))
-        dev_row1.addWidget(btn_raw)
-        
-        btn_ber = primary_button("BER Debugger")
-        btn_ber.clicked.connect(lambda: self._show_toast("BER Debugger: Not yet implemented"))
-        dev_row1.addWidget(btn_ber)
-        
-        dev_row2 = QHBoxLayout()
-        dev_row2.setSpacing(8)
-        
-        btn_crc = primary_button("CRC Debugger")
-        btn_crc.clicked.connect(lambda: self._show_toast("CRC Debugger: Not yet implemented"))
-        dev_row2.addWidget(btn_crc)
-        
-        btn_ser = primary_button("Serial Console")
-        btn_ser.clicked.connect(lambda: self._show_toast("Serial Console: Not yet implemented"))
-        dev_row2.addWidget(btn_ser)
-        
-        dev_row3 = QHBoxLayout()
-        dev_row3.setSpacing(8)
-        
-        btn_perf = primary_button("Performance Metrics")
-        btn_perf.clicked.connect(lambda: self._show_toast("Performance Metrics: Not yet implemented"))
-        dev_row3.addWidget(btn_perf)
-        
-        dev_row3.addStretch(1)
-        tools_card.body.addLayout(dev_row1)
-        tools_card.body.addLayout(dev_row2)
-        tools_card.body.addLayout(dev_row3)
-        lo.addWidget(tools_card)
-
         lo.addStretch(1)
 
 

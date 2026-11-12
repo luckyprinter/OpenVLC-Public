@@ -68,6 +68,8 @@ class SerialSession:
         self.on_status  = on_status or (lambda payload: None)
         self.serial_obj: Any = None
         self._lock      = threading.Lock()
+        # Serialize writes and prevent disconnect from closing a port mid-write.
+        self._write_lock = threading.Lock()
         self._is_connected = False
         # Bounded deque — old entries dropped automatically at maxlen.
         self._last_lines: deque[str] = deque(maxlen=_MAX_LOG_LINES)
@@ -115,6 +117,8 @@ class SerialSession:
             import serial  # type: ignore[import-untyped]
 
             self.disconnect()
+            if self._reader_thread is not None and self._reader_thread.is_alive():
+                raise RuntimeError("Previous serial reader did not stop; refusing overlapping connection")
             ser = serial.Serial()
             ser.port = device
             ser.baudrate = baud
@@ -122,6 +126,9 @@ class SerialSession:
             # Prevent Windows from resetting the ESP32 and dropping the handle
             ser.dtr = False
             ser.rts = False
+            # POSIX pySerial uses an exclusive OS lock; Windows serial handles
+            # are exclusive at the driver level.
+            ser.exclusive = True
             ser.open()
             self.serial_obj = ser
             self.is_connected = True
@@ -144,12 +151,25 @@ class SerialSession:
 
     def disconnect(self) -> None:
         self._running = False
-        if self.serial_obj and self.serial_obj.is_open:
-            try:
-                self.serial_obj.close()
-            except Exception:
-                pass
-        self.serial_obj = None
+        # Wait for an in-flight write before closing the underlying handle.
+        with self._write_lock:
+            ser = self.serial_obj
+            self.serial_obj = None
+            if ser is not None and getattr(ser, "is_open", False):
+                try:
+                    ser.close()
+                except Exception:
+                    pass
+
+        # A reader from the previous connection must stop before a new port
+        # can be installed, otherwise reconnects can create two readers on the
+        # same new serial object.
+        reader = self._reader_thread
+        if reader is not None and reader.is_alive() and reader is not threading.current_thread():
+            reader.join(timeout=1.0)
+        if reader is None or not reader.is_alive():
+            self._reader_thread = None
+
         self.is_connected = False
         self.log("Disconnected")
         self.status("Disconnected", "", state="idle")
@@ -158,18 +178,24 @@ class SerialSession:
     # ── I/O ─────────────────────────────────────────────────────────────────
 
     def send_line(self, line: str) -> bool:
-        if not self.is_connected or self.serial_obj is None:
-            self.log("Not connected")
-            return False
-        try:
-            data = (line + "\n").encode("utf-8")
-            self.serial_obj.write(data)
-            self.log(f">> {line}")
-            return True
-        except Exception as exc:
-            self.log(f"Send error: {exc}")
+        error: Exception | None = None
+        with self._write_lock:
+            ser = self.serial_obj
+            if not self.is_connected or ser is None:
+                self.log("Not connected")
+                return False
+            try:
+                data = (line + "\n").encode("utf-8")
+                ser.write(data)
+            except Exception as exc:
+                error = exc
+
+        if error is not None:
+            self.log(f"Send error: {error}")
             self.disconnect()  # Handle hot unplug during send
             return False
+        self.log(f">> {line}")
+        return True
 
     @property
     def line_counter(self) -> int:
@@ -212,13 +238,28 @@ class SerialSession:
                         self._append_line(line)
                         self.handle_line(line)
             except serial.SerialException as exc:
-                self.log(f"Serial disconnected unexpectedly: {exc}")
-                self.status("Connection Lost", str(exc), state="error")
-                self.is_connected = False
+                if self._running:
+                    self._mark_reader_failed(exc)
                 break
             except Exception as exc:
-                self.log(f"Reader error: {exc}")
+                if self._running:
+                    self._mark_reader_failed(exc)
                 break
+
+    def _mark_reader_failed(self, exc: Exception) -> None:
+        """Invalidate and release a TX serial handle after an unexpected read failure."""
+        self._running = False
+        with self._write_lock:
+            ser = self.serial_obj
+            self.serial_obj = None
+            if ser is not None and getattr(ser, "is_open", False):
+                try:
+                    ser.close()
+                except Exception:
+                    pass
+        self.is_connected = False
+        self.log(f"Serial disconnected unexpectedly: {type(exc).__name__}")
+        self.status("Connection Lost", type(exc).__name__, state="error")
 
     # ── Hooks for subclasses ─────────────────────────────────────────────────
 

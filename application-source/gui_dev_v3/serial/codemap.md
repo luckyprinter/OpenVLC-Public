@@ -1,41 +1,48 @@
 # serial/ — Serial Communication Module
 
 ## Responsibility
-Low-level serial communication with ESP32 VLC firmware. Provides session management (connect/disconnect/read/write with background reader thread), port detection and firmware role inference, and higher-level TX/RX serial controllers that implement the VLC Beta protocol commands (STREAM_BEGIN, STREAM_DATA, LQ?, VREF_SET, etc.). Code was ported from `vlc_migration`.
+The serial package handles USB serial communication between the Python desktop applications and the ESP32 boards. It discovers ports, identifies TX/RX firmware, manages persistent serial sessions, sends firmware commands, reads responses, and supports the file-transfer protocol.
 
-## Design
-- **`SerialSession`** (base class in `session.py`):
-  - Thread-based reader loop (`_reader_loop`) that reads lines from serial in a daemon thread
-  - `send_line()` with UTF-8 encoding + `\n` termination
-  - `wait_for_line_containing()` with timeout and start_index for response matching
-  - `write_status()` persists state JSON to filesystem
-  - `crc16_ccitt()` utility for file integrity checks
-  - Callback-based: `on_log(line)` and `on_status(payload)` for integration
-- **`TXSerialController`** (in `controllers.py`):
-  - Extends `SerialSession` with TX-specific commands: `apply_4b5b_settings()`, `bulb_on/off/idle()`, `send_file()` (streaming with chunked STREAM_DATA protocol, ACK waiting, CRC validation)
-  - `send_file()` handles the full optical TX lifecycle: STREAM_CLEAR → STREAM_BEGIN → STREAM_DATA blocks → STREAM_START → wait for TX_STREAM_DONE
-- **`RXSerialController`** (in `controllers.py`):
-  - Extends `SerialSession` with RX-specific commands: `request_config()` (LQ? + VREF_GET), `lock_vref()`, `set_vref_mv()`, `start_receive()`, `stop_receive()`, `dump_chunk()`
-- **Detection** (`detection.py`):
-  - `list_serial_ports()` returns `list[SerialPortInfo]` via pyserial
-  - `probe_serial_port(device)` sends `\n` and reads up to 5 lines to infer firmware role ("rx"/"tx"/"unknown"/"error")
+## Files
 
-## Flow
-```
-Controller.connect(device)
-  → pyserial.Serial() at 115200 baud
-  → start reader thread (daemon)
-  → write_status("connected")
-Controller.send_line("STREAM_BEGIN:...")
-  → serial write + \n
-  → background thread reads response
-  → wait_for_line_containing() polls last_lines list
-Controller.disconnect()
-  → stop reader thread, close serial
-  → write_status("idle")
+- **`detection.py`** — lists serial ports, probes them with a blank-line ping, identifies TX versus RX firmware, and selects the correct baud rate (TX 115200, RX 460800).
+- **`session.py`** — shared serial-session foundation. Opens/closes a port, configures safe DTR/RTS states, requests exclusive access where supported, starts a background reader, stores received lines, sends newline-terminated commands, waits for firmware responses, and provides CRC-16/CCITT.
+- **`controllers.py`** — higher-level command and transfer logic. `TXSerialController` applies TX settings and performs the file preload/start/acknowledgement flow. `RXSerialController` contains receiver command and response helpers used by serial-based integrations.
+- **`codemap.md`** — this package map.
+
+## Connection flow
+
+The physical backends first scan and identify a candidate port. The firmware answers a blank line with `TX Ready` or `RX Ready`. The backend then opens a persistent serial handle and performs a second ready ping on that handle.
+
+- TX uses `TXSerialController`, which inherits from `SerialSession`. Its reader thread receives `TX Ready`, and the backend waits for that response before applying settings.
+- RX currently manages its persistent serial reader in `rx/backends/physical.py`. It waits for `RX Ready` before applying settings.
+
+This second ping confirms that the persistent serial connection reaches the firmware command loop. It is not an optical synchronization handshake and does not alter the optical preamble, symbol rate, or frame timing.
+
+## TX file-transfer sequence
+
+```text
+STREAM_CLEAR
+    ↓ acknowledgement
+STREAM_BEGIN:<metadata>
+    ↓ TX_STREAM_BEGIN_OK
+STREAM_DATA:<offset>:<hex-data>  (one or more blocks)
+    ↓ TX_STREAM_DATA_OK per block
+STREAM_START
+    ↓ optical transfer runs on TX ESP32
+TX_STREAM_DONE
 ```
 
-## Integration
-- **Depends on**: `serial/__init__.py` re-exports all public API.
-- **Depended by**: Physical backends (`rx/backends/physical.py`, `tx/backends/physical.py`) perform firmware detection and serial I/O; `app.py` and shell pages may use controllers for direct hardware interaction.
-- **External**: pyserial (required for actual hardware, graceful fallback when absent).
+The Python application preloads bytes over USB serial. The TX ESP32 performs time-sensitive 4B5B NRZ/OOK optical signaling. The receiver ESP32 independently detects and decodes the optical signal.
+
+## Threading
+
+The serial reader runs in a background thread so incoming firmware messages can be collected without blocking the Qt GUI. TX file sending also runs in a background thread. Disconnect/reconnect logic stops and joins the previous reader before reusing a connection.
+
+## Important distinction
+
+The unified launcher can host both TX and RX consoles in one process, and separate instances can also be launched. In either arrangement, each backend performs its own board-readiness check; there is no coordinated TX-to-RX readiness gate or cross-process readiness channel. The operator must still ensure the RX is ready before starting an optical test.
+
+## Testing boundary
+
+Mock serial tests verify host-side command handling, response parsing, connection lifecycle, and safe port configuration. They do not emulate the USB-UART chip, physical DTR/RTS wiring, ESP32 timing, or the optical channel. Real hardware testing remains necessary.

@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import json
 import os
-import time
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QFont
@@ -40,49 +39,8 @@ HISTORY_PATH = HISTORY_DIR / "transfer_history.json"
 
 
 def _default_history() -> list[dict]:
-    """Default seeds matching typical VLC transfers."""
-    return [
-        {
-            "tid": 1,
-            "filename": "lorem_ipsum.txt",
-            "status": "Complete",
-            "time_label": "2026-06-20 14:22:15",
-            "size_bytes": 1024,
-            "total_chunks": 64,
-            "received_chunks": 64,
-            "ber": 0.0,
-        },
-        {
-            "tid": 2,
-            "filename": "openvlc_schematic.pdf",
-            "status": "Complete",
-            "time_label": "2026-06-20 15:05:42",
-            "size_bytes": 45120,
-            "total_chunks": 360,
-            "received_chunks": 360,
-            "ber": 0.0,
-        },
-        {
-            "tid": 3,
-            "filename": "firmware_v12.bin",
-            "status": "CRC Failed",
-            "time_label": "2026-06-21 09:30:11",
-            "size_bytes": 16384,
-            "total_chunks": 128,
-            "received_chunks": 124,
-            "ber": 0.031,
-        },
-        {
-            "tid": 4,
-            "filename": "sensor_stream.csv",
-            "status": "Incomplete",
-            "time_label": "2026-06-21 10:14:50",
-            "size_bytes": 2048,
-            "total_chunks": 16,
-            "received_chunks": 9,
-            "ber": 0.12,
-        },
-    ]
+    """Return an empty history; never seed the application with fabricated transfers."""
+    return []
 
 
 class SessionInspectorCard(Card):
@@ -222,7 +180,7 @@ class SessionInspectorCard(Card):
     def show_empty(self) -> None:
         self.stacked.setCurrentIndex(0)
 
-    def show_capture(self, capture: SessionCapture, entry: dict, is_mock: bool = False) -> None:
+    def show_capture(self, capture: SessionCapture, entry: dict) -> None:
         self.stacked.setCurrentIndex(1)
 
         # Clear existing info group items
@@ -252,12 +210,6 @@ class SessionInspectorCard(Card):
         self.info_group.body.addWidget(DetailRow("Throughput", f"{capture.throughput_kbps:.2f} kbps"))
         self.info_group.body.addWidget(DetailRow("Bit Error Rate (BER)", f"{capture.ber:.4%}"))
         self.info_group.body.addWidget(DetailRow("CRC Status", capture.crc_status, value_color=status_color))
-
-        if is_mock:
-            note_label = QLabel("* Waveform review displaying simulated/synthesized data (no session capture file found on disk).")
-            note_label.setWordWrap(True)
-            note_label.setStyleSheet("font-size: 10px; color: #E5A93C; font-style: italic;")
-            self.info_group.body.addWidget(note_label)
 
         # Update Waveforms
         self.ook_waveform.set_playback_mode(True, capture.ook_bits)
@@ -584,107 +536,9 @@ class ExportPage(QWidget):
         tid = entry.get("tid", 0)
         capture = load_session_capture(tid)
         if capture is not None:
-            self.inspector_card.show_capture(capture, entry, is_mock=False)
+            self.inspector_card.show_capture(capture, entry)
         else:
-            mock_capture = self._generate_mock_capture(entry)
-            self.inspector_card.show_capture(mock_capture, entry, is_mock=True)
-
-    def _generate_mock_capture(self, entry: dict) -> SessionCapture:
-        import math
-        import random
-        from datetime import datetime
-        
-        tid = entry.get("tid", 0)
-        filename = entry.get("filename", "unknown.txt")
-        time_label = entry.get("time_label", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        ber = entry.get("ber", 0.0)
-        status = entry.get("status", "Complete")
-        crc_status = "PASS" if status == "Complete" else "FAIL"
-
-        # Generate a simulated sequence of time & samples
-        analog_time = [i * 0.05 for i in range(200)]
-        pvo_samples = []
-        vref_samples = []
-        margin_samples = []
-        ook_bits = []
-
-        # Seed random with tid to ensure deterministic output for layout tests
-        random.seed(tid)
-
-        for i, t in enumerate(analog_time):
-            vref = 1.65 + 0.03 * math.sin(t * 1.5)
-            vref_samples.append(vref)
-
-            if t < 1.2:
-                # Idle channel noise
-                pvo = vref + random.uniform(-0.15, 0.15)
-                bit = random.choice([0, 1])
-                margin = 0.0
-            elif t < 2.0:
-                # Preamble 10101010
-                bit = 1 if (int(t * 10) % 2 == 0) else 0
-                pvo = 2.4 + random.uniform(-0.04, 0.04) if bit == 1 else 0.9 + random.uniform(-0.04, 0.04)
-                margin = abs(pvo - vref)
-            elif t < 8.5:
-                # Data payload
-                bit = 1 if (random.random() > ber) else 0
-                if (int(t * 8) % 2 == 0):
-                    bit = 1 - bit
-                pvo = 2.5 + random.uniform(-0.05, 0.05) if bit == 1 else 0.8 + random.uniform(-0.05, 0.05)
-                margin = abs(pvo - vref)
-            else:
-                # Post-transfer idle
-                pvo = vref + random.uniform(-0.05, 0.05)
-                bit = 0
-                margin = 0.0
-
-            pvo_samples.append(pvo)
-            margin_samples.append(margin)
-            if i % 2 == 0:
-                ook_bits.append(bit)
-
-        protocol_events = [
-            {"time": 0.0, "event": "INIT", "details": f"Initializing transfer session TID {tid:04d}"},
-            {"time": 1.2, "event": "LOCKED", "details": "Optical carrier synchronization locked"},
-            {"time": 2.0, "event": "START", "details": f"Started decoding payload: {filename}"},
-        ]
-        
-        if status == "Complete":
-            protocol_events.extend([
-                {"time": 8.4, "event": "COMPLETED", "details": f"Transfer successful. Size: {entry.get('size_bytes', 0)} Bytes"},
-                {"time": 8.5, "event": "CRC_PASS", "details": f"CRC16 validation PASSED"},
-            ])
-        elif status == "CRC Failed":
-            protocol_events.extend([
-                {"time": 8.0, "event": "ERROR", "details": f"CRC validation failed. BER: {ber:.2%}"},
-                {"time": 8.2, "event": "CRC_FAIL", "details": "CRC mismatch detected in block 14"},
-            ])
-        elif status == "Incomplete":
-            protocol_events.extend([
-                {"time": 7.5, "event": "STALLED", "details": "Carrier lost, waiting for packet"},
-                {"time": 9.0, "event": "TIMEOUT", "details": "Transfer timed out after 9.0 seconds"},
-            ])
-        else:
-            protocol_events.append(
-                {"time": 5.0, "event": "STALL", "details": "Transfer stalled"}
-            )
-
-        random.seed(None)
-
-        return SessionCapture(
-            tid=tid,
-            timestamp=time_label,
-            filename=filename,
-            ber=ber,
-            crc_status=crc_status,
-            throughput_kbps=3.42,
-            analog_time=analog_time,
-            pvo_samples=pvo_samples,
-            vref_samples=vref_samples,
-            margin_samples=margin_samples,
-            ook_bits=ook_bits,
-            protocol_events=protocol_events,
-        )
+            self.inspector_card.show_empty()
 
     def _on_browse_folder(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Select Export Directory", self._folder_edit.text())
@@ -727,35 +581,22 @@ class ExportPage(QWidget):
         return None
 
     def _on_open_file(self) -> None:
-        entry = self._get_selected_entry()
-        if not entry:
+        if not self._get_selected_entry():
             return
-        
-        # Simulate opening a received file
-        filename = entry.get("filename", "")
-        QMessageBox.information(
-            self, "Open File",
-            f"Simulating opening received payload file:\n\n"
-            f"Name: {filename}\n"
-            f"TID: {entry.get('tid', 0):04d}\n"
-            f"Size: {entry.get('size_bytes', 0)} Bytes\n\n"
-            f"Payload would open in default text/binary editor."
+        QMessageBox.warning(
+            self,
+            "File Unavailable",
+            "This history record contains transfer metadata only. The received payload file is not stored with the history record, so it cannot be opened from here.",
         )
 
     def _on_save_as(self) -> None:
-        entry = self._get_selected_entry()
-        if not entry:
+        if not self._get_selected_entry():
             return
-        
-        filename = entry.get("filename", "saved_file.bin")
-        path, _ = QFileDialog.getSaveFileName(self, "Save File As", filename, "All Files (*)")
-        if path:
-            # Simulate writing the payload file
-            try:
-                Path(path).write_text(f"Decoded Visible Light Communication payload for TID {entry.get('tid')}.\nFilename: {filename}", encoding="utf-8")
-                QMessageBox.information(self, "Save File", "File saved successfully!")
-            except OSError as e:
-                QMessageBox.warning(self, "Save File Failed", f"Could not write file:\n{e}")
+        QMessageBox.warning(
+            self,
+            "Export Unavailable",
+            "The original received payload bytes are not available in this history record. No placeholder file was written.",
+        )
 
     def _on_backup_db(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Backup Database to File", "vlc_database_backup.json", "JSON Files (*.json)")
@@ -772,11 +613,9 @@ class ExportPage(QWidget):
                 except Exception:
                     pass
 
-            # Simulate writing backup with responsiveness check
+            # Write the real history and experiment metadata to the selected backup file.
             QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             try:
-                # Short delay to show responsiveness
-                time.sleep(0.3)
                 QApplication.processEvents()
                 Path(path).write_text(json.dumps(backup_data, indent=2), encoding="utf-8")
                 QApplication.restoreOverrideCursor()

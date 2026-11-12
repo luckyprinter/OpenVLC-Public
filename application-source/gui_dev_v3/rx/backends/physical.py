@@ -8,7 +8,7 @@ Communicates with actual VLC_RX firmware at 460800 baud (RX) or 115200 baud (TX)
 - _poll_lq() drains the line queue instead of calling reset_input_buffer() which
   would destroy async firmware messages before they are processed
 - Falls back to vlc_beta bridge files when serial unavailable but process is fresh
-- No mock data, no simulated values
+- Reports only measurements and transfer data received from physical hardware
 """
 
 from __future__ import annotations
@@ -43,6 +43,18 @@ STATUS_FRESHNESS_SEC = 30.0
 BAUD_RATES = (460800, 115200)
 RX_BAUD = 460800
 LQ_POLL_CMD = b"LQ?\n"
+
+
+def _diagnostic_size_bucket(size_bytes: int) -> str:
+    if size_bytes <= 0:
+        return "empty"
+    if size_bytes < 1024:
+        return "under_1kib"
+    if size_bytes < 16 * 1024:
+        return "1_to_16kib"
+    if size_bytes <= 80 * 1024:
+        return "16_to_80kib"
+    return "over_80kib"
 
 
 def crc16_ccitt(data: bytes, crc: int = 0xFFFF) -> int:
@@ -93,6 +105,11 @@ class RXPhysicalBackend:
         self._last_lq_line: str | None = None  # most recent LQ line seen by reader
         self._reader_thread: threading.Thread | None = None
         self._reader_stop: threading.Event = threading.Event()
+        # Prevent concurrent GUI/calibration writes from interleaving and
+        # prevent cleanup from closing the port during a write.
+        self._write_lock = threading.Lock()
+        # Set only after the persistent RX command loop answers the ready ping.
+        self._ready_event: threading.Event = threading.Event()
         # Active transfer tracking
         self._active_tid: int | None = None
         self._active_total_chunks: int = 0
@@ -109,6 +126,8 @@ class RXPhysicalBackend:
         self._pwm_autocal_converged: bool = False  # True once within tolerance
         self._pwm_autocal_last_step: float = 0.0   # time of last PWM step
         self._pwm_autocal_last_pwm: int = -1        # last known PWM duty from firmware
+        self._pwm_autocal_iterations: int = 0
+        self._active_started_monotonic: float | None = None
         # Batch reconstruction state for large files
         self._batch_transfers: dict[str, dict] = {}
 
@@ -124,13 +143,32 @@ class RXPhysicalBackend:
 
     # ── Port detection ──
 
+    def _record_diag(self, event: str, **fields: Any) -> None:
+        # Diagnostics must never interfere with hardware control or transfers.
+        try:
+            from gui_dev_v3.diagnostics import record_local_event
+            record_local_event("rx", event, **fields)
+        except Exception:
+            pass
+
     def scan_ports(self) -> list[str]:
-        return _list_usb_serial_ports()
+        started = time.monotonic()
+        ports = _list_usb_serial_ports()
+        self._record_diag("serial_scan", role="rx", ports_seen=len(ports),
+                          duration_ms=int((time.monotonic() - started) * 1000))
+        return ports
 
     def detect_firmware(self, port: str) -> dict[str, str] | None:
         """Try IDENTIFY at all known baud rates."""
         for baud in BAUD_RATES:
+            started = time.monotonic()
             info = _send_identify(port, "VLC_RX", baud)
+            self._record_diag(
+                "serial_probe", role="rx",
+                result="success" if info else "timeout",
+                baud_rate=baud,
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
             if info:
                 self._firmware_info = info
                 return info
@@ -140,6 +178,16 @@ class RXPhysicalBackend:
 
     def auto_connect(self) -> bool:
         """Auto-detect: scan → IDENTIFY → open persistent serial."""
+        from gui_dev_v3.serial.detection import serial_scan_lock
+        try:
+            with serial_scan_lock():
+                return self._auto_connect_locked()
+        except TimeoutError:
+            self.log("Scan Busy", "Another VLC console is still scanning serial devices")
+            return False
+
+    def _auto_connect_locked(self) -> bool:
+        """Perform discovery and persistent connection while holding the shared lock."""
         ports = self.scan_ports()
         if ports:
             self.log("Scan", f"Found {len(ports)} ports: {', '.join(ports)}")
@@ -148,9 +196,16 @@ class RXPhysicalBackend:
             info = self.detect_firmware(port)
             if info and info.get("device") == "VLC_RX":
                 self._port = port
+                if not self._open_serial():
+                    self._record_diag("serial_probe", role="rx", result="busy",
+                                      baud_rate=RX_BAUD, duration_ms=0)
+                    self.log("Error [C02]", f"PySerial failed to open {port}; continuing scan")
+                    self._port = None
+                    continue
                 self._connected = True
+                self._record_diag("serial_connected", role="rx", baud_rate=RX_BAUD,
+                                  firmware_family="rx")
                 self.log("Connected", f"Auto-connected to {port} (VLC_RX)")
-                self._open_serial()
                 self.apply_link_settings()
                 return True
         if ports:
@@ -158,6 +213,15 @@ class RXPhysicalBackend:
         return False
 
     def connect(self, port: str, force: bool = False) -> bool:
+        from gui_dev_v3.serial.detection import serial_scan_lock
+        try:
+            with serial_scan_lock():
+                return self._connect_locked(port, force=force)
+        except TimeoutError:
+            self.log("Scan Busy", "Another VLC console is still scanning serial devices")
+            return False
+
+    def _connect_locked(self, port: str, force: bool = False) -> bool:
         """Connect to a specific port after firmware detection."""
         if not force:
             self.log("Connect", f"Detecting firmware on {port}...")
@@ -171,17 +235,26 @@ class RXPhysicalBackend:
             self._firmware_info = info
 
         self._port = port
-        self._connected = True
-        self._open_serial()
-        if not self._ser or not self._ser.is_open:
+        if not self._open_serial():
+            self._record_diag("serial_probe", role="rx", result="busy",
+                              baud_rate=RX_BAUD, duration_ms=0)
+            self._port = None
+            self._connected = False
             self.log("Error [C02]", f"PySerial failed to open {port}")
-        else:
-            self.log("Connected", f"Opened {port} successfully")
-            self.apply_link_settings()
+            return False
+
+        self._connected = True
+        self._record_diag("serial_connected", role="rx", baud_rate=RX_BAUD,
+                          firmware_family="rx")
+        self.log("Connected", f"Opened {port} successfully")
+        self.apply_link_settings()
         return True
 
     def disconnect(self) -> None:
+        was_connected = self._connected
         self._close_serial()
+        if was_connected:
+            self._record_diag("serial_disconnected", role="rx", reason_code="user_disconnect")
         self._port = None
         self._connected = False
         self._firmware_info = None
@@ -202,43 +275,78 @@ class RXPhysicalBackend:
     def board_type(self) -> str:
         return self._firmware_info.get("board", "") if self._firmware_info else ""
 
-    def _open_serial(self) -> None:
+    def _open_serial(self) -> bool:
         """Open persistent serial connection at RX baud rate and start reader thread."""
         self._close_serial()
         if not self._port:
-            return
+            return False
         try:
             import serial
-            self._ser = serial.Serial(
-                self._port,
-                RX_BAUD,
-                timeout=0.5,
-                write_timeout=0.5,
-            )
+            # Configure modem-control lines before opening. Some ESP32 USB-UART
+            # adapters wire DTR/RTS to reset/boot circuitry; opening with the
+            # driver's default line state can unexpectedly reset the board.
+            ser = serial.Serial()
+            ser.port = self._port
+            ser.baudrate = RX_BAUD
+            ser.timeout = 0.5
+            ser.write_timeout = 0.5
+            ser.dtr = False
+            ser.rts = False
+            ser.exclusive = True
+            ser.open()
+            self._ser = ser
             # Brief settle — do NOT reset_input_buffer here as the firmware may
             # already be sending data we want to capture
             time.sleep(0.2)
-            # Start background reader
+            if not self._ser.is_open:
+                self._ser = None
+                return False
+            # Start the reader before pinging so the readiness response is not lost.
+            self._ready_event.clear()
             self._reader_stop.clear()
             self._reader_thread = threading.Thread(
                 target=self._serial_reader_loop, daemon=True, name="rx-serial-reader"
             )
             self._reader_thread.start()
-        except Exception:
-            self._ser = None
+
+            # The firmware answers a blank line only after setup() has completed
+            # and loop() is processing serial commands. This replaces reliance
+            # on a fixed startup sleep as the readiness signal.
+            with self._write_lock:
+                ser.write(b"\n")
+                ser.flush()
+            from gui_dev_v3.settings import SettingsManager
+            try:
+                ready_timeout = float(SettingsManager("rx").get("connection/timeout", 5))
+            except (TypeError, ValueError):
+                ready_timeout = 5.0
+            ready_timeout = max(1.0, min(ready_timeout, 120.0))
+            if not self._ready_event.wait(timeout=ready_timeout):
+                self.log("Readiness Timeout", f"RX firmware did not answer ready ping on {self._port} within {ready_timeout:g}s")
+                self._close_serial()
+                return False
+            return True
+        except Exception as exc:
+            # If opening succeeded but the readiness ping failed, stop the
+            # reader and release the port before reporting connection failure.
+            self._close_serial()
+            self.log("Serial Open Failed", f"{self._port}: {type(exc).__name__}: {exc}")
+            return False
 
     def _serial_reader_loop(self) -> None:
-        """Background thread: read every line from serial and put into _line_queue.
+        """Read firmware output until stopped or the serial link fails.
 
-        This is the equivalent of vlc_beta's poll_serial() — it drains the UART
-        buffer continuously so no async firmware messages (RX_FILE_HEX, SYNC events,
-        transfer notices) are ever lost to reset_input_buffer() calls.
+        A read exception or a port that has closed unexpectedly is treated as
+        a lost connection. The backend clears its live connection state and
+        closes the stale handle so the normal auto-connect loop can retry.
         """
         while not self._reader_stop.is_set():
             ser = self._ser
-            if ser is None or not ser.is_open:
-                time.sleep(0.05)
-                continue
+            if ser is None:
+                break
+            if not ser.is_open:
+                self._mark_serial_lost(ser, ConnectionError("Serial port closed"))
+                break
             try:
                 line_bytes = ser.readline()
                 if line_bytes:
@@ -246,8 +354,28 @@ class RXPhysicalBackend:
                     if line:
                         # Dispatch file-data lines immediately in this thread
                         self._dispatch_line(line)
+            except Exception as exc:
+                if self._reader_stop.is_set():
+                    break
+                self._mark_serial_lost(ser, exc)
+                break
+
+    def _mark_serial_lost(self, ser: Any, exc: Exception) -> None:
+        """Invalidate and release an unexpectedly failed RX serial connection."""
+        if self._reader_stop.is_set():
+            return
+        self._reader_stop.set()
+        with self._write_lock:
+            if self._ser is ser:
+                self._ser = None
+                self._connected = False
+                self._port = None
+            try:
+                ser.close()
             except Exception:
-                time.sleep(0.05)
+                pass
+        self._record_diag("serial_disconnected", role="rx", reason_code="serial_error")
+        self.log("Serial Disconnected", f"RX serial reader stopped ({type(exc).__name__})")
 
     def _dispatch_line(self, line: str) -> None:
         """Dispatch a firmware line to the appropriate handler.
@@ -255,6 +383,10 @@ class RXPhysicalBackend:
         LQ lines are cached for _poll_lq(). File-data lines are handled immediately.
         All lines are also pushed to _line_queue for the refresh() caller.
         """
+        if line.strip() == "RX Ready":
+            self._ready_event.set()
+            return
+
         # Strip noise prefix that can appear at the start of lines (e.g. after reset)
         for marker in (
             "RX_FILE_HEX:", "RX_TRANSFER_NOTICE:", "RX_RAM_STORE:",
@@ -322,6 +454,7 @@ class RXPhysicalBackend:
                         batch_info = f" [Batch Part {part_index}/{part_count}]"
 
                 self._active_tid = tid
+                self._active_started_monotonic = time.monotonic()
                 self._active_total_chunks = total_chunks
                 self._active_received_chunks = 0
                 self._active_filename = filename
@@ -395,6 +528,7 @@ class RXPhysicalBackend:
                     batch = self._batch_transfers.setdefault(group_id, {
                         "parts": {},
                         "created": time.time(),
+                        "started_monotonic": time.monotonic(),
                         "name": orig_name,
                         "full_crc": full_crc,
                         "part_count": part_count
@@ -407,6 +541,10 @@ class RXPhysicalBackend:
                     })
                     
                     if len(batch["parts"]) == part_count:
+                        # Measure the complete batch, not only the final part.
+                        batch_started = batch.get("started_monotonic")
+                        if isinstance(batch_started, (int, float)):
+                            self._active_started_monotonic = batch_started
                         # Reconstruct the full file
                         file_bytes = b"".join(batch["parts"][i] for i in range(1, part_count + 1))
                         filename = orig_name
@@ -482,8 +620,22 @@ class RXPhysicalBackend:
                 quality=quality,
                 chunks=chunks,
             )
+            duration_ms = int((time.monotonic() - self._active_started_monotonic) * 1000) if self._active_started_monotonic is not None else 0
+            if crc_ok:
+                self._record_diag(
+                    "transfer_completed", role="rx",
+                    size_bucket=_diagnostic_size_bucket(len(file_bytes)),
+                    duration_ms=duration_ms, chunk_count=n_chunks, crc_ok=True,
+                )
+            else:
+                self._record_diag(
+                    "transfer_failed", role="rx", reason_code="crc_mismatch",
+                    size_bucket=_diagnostic_size_bucket(len(file_bytes)),
+                    duration_ms=duration_ms, retry_count=0,
+                )
             # Clear active transfer
             self._active_tid = None
+            self._active_started_monotonic = None
         except Exception as e:
             self._log_queue.append({"time": now, "event": "RX File Error", "details": str(e)[:120]})
 
@@ -517,6 +669,12 @@ class RXPhysicalBackend:
                         crc_status="FAIL",
                         recovery_rate=0.0,
                     )
+                    duration_ms = int((time.monotonic() - self._active_started_monotonic) * 1000) if self._active_started_monotonic is not None else 0
+                    self._record_diag(
+                        "transfer_failed", role="rx", reason_code="crc_mismatch",
+                        size_bucket=_diagnostic_size_bucket(self._active_total_size),
+                        duration_ms=duration_ms, retry_count=0,
+                    )
                     self._last_completed_transfer = TransferRecord(
                         tid=tid,
                         filename=self._active_filename or f"rx_{tid}.bin",
@@ -529,6 +687,7 @@ class RXPhysicalBackend:
                         chunks=[],
                     )
                     self._active_tid = None
+                    self._active_started_monotonic = None
         except Exception as e:
             self._log_queue.append({"time": now, "event": "RX CRC Fail Error", "details": str(e)[:120]})
 
@@ -538,23 +697,26 @@ class RXPhysicalBackend:
         if self._reader_thread is not None and self._reader_thread.is_alive():
             self._reader_thread.join(timeout=1.0)
         self._reader_thread = None
-        if self._ser is not None:
-            try:
-                self._ser.close()
-            except Exception:
-                pass
-            self._ser = None
+        with self._write_lock:
+            if self._ser is not None:
+                try:
+                    self._ser.close()
+                except Exception:
+                    pass
+                self._ser = None
 
     def send_command(self, cmd: str) -> bool:
-        """Write cmd string over serial."""
-        if not self._connected or not self._ser:
-            return False
-        try:
-            self._ser.write(cmd.encode("utf-8"))
-            self._ser.flush()
-            return True
-        except Exception:
-            return False
+        """Write a complete command without interleaving concurrent writers."""
+        with self._write_lock:
+            ser = self._ser
+            if not self._connected or ser is None:
+                return False
+            try:
+                ser.write(cmd.encode("utf-8"))
+                ser.flush()
+                return True
+            except Exception:
+                return False
 
     def apply_link_settings(self) -> None:
         """Apply saved settings to physical RX firmware."""
@@ -619,8 +781,8 @@ class RXPhysicalBackend:
         if self._ser is None:
             return None
         try:
-            self._ser.write(LQ_POLL_CMD)
-            self._ser.flush()
+            if not self.send_command(LQ_POLL_CMD.decode("ascii")):
+                return None
             # Wait briefly for reader thread to catch the response
             deadline = time.time() + 0.6
             while time.time() < deadline:
@@ -850,6 +1012,7 @@ class RXPhysicalBackend:
         if target_mv != self._pwm_autocal_target_mv:
             self._pwm_autocal_target_mv = target_mv
             self._pwm_autocal_converged = False
+            self._pwm_autocal_iterations = 0
 
         if self._pwm_autocal_converged:
             return  # Already at target — nothing to do
@@ -860,6 +1023,12 @@ class RXPhysicalBackend:
         if abs(error_mv) <= TOLERANCE_MV:
             # Converged!
             self._pwm_autocal_converged = True
+            self._record_diag(
+                "calibration_completed", result="success",
+                iterations=self._pwm_autocal_iterations,
+                target_vref_mv=target_mv, measured_vref_mv=measured_mv,
+                pwm_percent=int(float(lq_data.get("VREF_PWM_PERCENT", self._pwm_autocal_last_pwm if self._pwm_autocal_last_pwm >= 0 else 0))),
+            )
             self.log(
                 "Vref Calibrated",
                 f"Target {target_mv}mV reached (measured {measured_mv}mV, error {error_mv:+d}mV) — PWM locked"
@@ -892,6 +1061,12 @@ class RXPhysicalBackend:
         if new_pct == current_pct:
             # Already at hardware limit, can't go further
             self._pwm_autocal_converged = True
+            self._record_diag(
+                "calibration_completed", result="failure",
+                iterations=self._pwm_autocal_iterations,
+                target_vref_mv=target_mv, measured_vref_mv=measured_mv,
+                pwm_percent=int(current_pct),
+            )
             self.log(
                 "Vref Cal Limit",
                 f"PWM at limit ({current_pct:.1f}%). Measured {measured_mv}mV, target {target_mv}mV"
@@ -900,6 +1075,7 @@ class RXPhysicalBackend:
 
         self._pwm_autocal_last_pwm = new_pct
         self._pwm_autocal_last_step = now
+        self._pwm_autocal_iterations += 1
         self.send_command(f"VREF_PWM={new_pct:.1f}\n")
         self.log(
             "Vref Cal Step",
@@ -1185,6 +1361,7 @@ def _send_identify(port: str, expected_device: str, baud: int = 115200) -> dict[
         ser.timeout = 0.5
         ser.dtr = False
         ser.rts = False
+        ser.exclusive = True
         ser.open()
         with ser:
             time.sleep(0.2)

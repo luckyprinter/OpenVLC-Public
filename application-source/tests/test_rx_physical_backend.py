@@ -310,3 +310,31 @@ def test_firmware_crc_failure_discards_active_batch_group(monkeypatch):
     assert backend._active_started_monotonic is None
     assert backend._last_completed_transfer.status == TransferStatus.CRC_FAILED
     assert backend._last_completed_transfer.quality.strict_ber is None
+
+
+def test_file_payload_length_mismatch_is_rejected_and_active_state_cleared(
+    tmp_path, monkeypatch
+):
+    from gui_dev_v3.rx.backends.physical import crc16_ccitt
+
+    monkeypatch.setattr(logger, "file_log", lambda *_args, **_kwargs: None)
+    backend = RXPhysicalBackend()
+    backend._record_diag = lambda *_args, **_kwargs: None
+    backend._save_dir = tmp_path
+    backend._active_tid = 90
+    backend._active_filename = "truncated.bin"
+    backend._active_total_size = 10
+    payload = b"abc"
+    name_hex = "truncated.bin".encode().hex()
+    line = (
+        f"RX_FILE_HEX:90:DATA:10:1:{crc16_ccitt(payload):04X}:"
+        f"{name_hex}:{payload.hex()}"
+    )
+
+    backend._handle_file_hex(line)
+
+    assert backend._last_completed_transfer is None
+    assert backend._active_tid is None
+    assert backend._active_filename == ""
+    assert backend._active_total_size == 0
+    assert not list(tmp_path.iterdir())

@@ -605,7 +605,7 @@ class TXDashboardPage(QWidget):
         work_row = QHBoxLayout()
         work_row.setSpacing(14)
         self._file_details = FileDetailsWidget()
-        self._file_details.setMinimumHeight(180)
+        self._file_details.setMinimumHeight(210)
         self._file_details.select_btn.clicked.connect(self._on_select_file_clicked)
         self._file_details.start_btn.clicked.connect(self._on_start_clicked)
         self._session = CurrentSessionWidget()

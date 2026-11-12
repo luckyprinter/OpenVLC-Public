@@ -92,8 +92,10 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
         # dashboard enters its compact layout. Validate their geometry only
         # when the UI says they should be visible.
         pipeline = getattr(page, "_pipeline", None)
-        if not getattr(page, "_compact_layout", False):
-            if pipeline is None or pipeline.height() < 112:
+        if pipeline is None:
+            raise RuntimeError(f"TX pipeline panel is missing at {width}x{height}")
+        if pipeline.isVisible():
+            if pipeline.height() < 112:
                 raise RuntimeError(f"TX pipeline panel is too short at {width}x{height}")
             for stage_name in ("stage_file", "stage_chunk", "stage_enc", "stage_mod", "stage_esp", "stage_optical"):
                 stage = getattr(pipeline, stage_name, None)

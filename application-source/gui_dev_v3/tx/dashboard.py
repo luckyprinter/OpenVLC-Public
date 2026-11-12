@@ -139,24 +139,24 @@ class DeviceStatusWidget(QFrame):
     def refresh(self, state: TXAppState) -> None:
         connected = state.serial_connected
         if connected:
-                self.box_connection.setValue("Hardware Connected", COLORS["green"])
-                physical = getattr(state, "_physical", None)
-                firmware_info = getattr(physical, "_firmware_info", None) if physical else None
-                firmware_name = (firmware_info or {}).get("firmware", "")
-                if firmware_name and firmware_name not in ("tx_unknown", "tx_forced"):
-                    firmware_label = firmware_name
-                elif firmware_name == "tx_forced":
-                    firmware_label = "Force-connected · version unknown"
-                else:
-                    firmware_label = "Detected · version not reported"
-                self.box_firmware.setValue(firmware_label, COLORS["value"])
-                self.box_protocol.setValue("4B5B / NRZ-OOK", COLORS["value"])
-                self.box_usb.setValue(f"{state.port or 'Port unknown'} (115200 baud)", COLORS["green"])
+            self.box_connection.setValue("Hardware Connected", COLORS["green"])
+            physical = getattr(state, "_physical", None)
+            firmware_info = getattr(physical, "_firmware_info", None) if physical else None
+            firmware_name = (firmware_info or {}).get("firmware", "")
+            if firmware_name and firmware_name not in ("tx_unknown", "tx_forced"):
+                firmware_label = firmware_name
+            elif firmware_name == "tx_forced":
+                firmware_label = "Force-connected · version unknown"
             else:
-                self.box_connection.setValue("Disconnected", COLORS["red"])
-                self.box_firmware.setValue("—", COLORS["muted"])
-                self.box_protocol.setValue("4B5B / NRZ-OOK", COLORS["value"])
-                self.box_usb.setValue("Inactive", COLORS["muted"])
+                firmware_label = "Detected · version not reported"
+            self.box_firmware.setValue(firmware_label, COLORS["value"])
+            self.box_protocol.setValue("4B5B / NRZ-OOK", COLORS["value"])
+            self.box_usb.setValue(f"{state.port or 'Port unknown'} (115200 baud)", COLORS["green"])
+        else:
+            self.box_connection.setValue("Disconnected", COLORS["red"])
+            self.box_firmware.setValue("—", COLORS["muted"])
+            self.box_protocol.setValue("4B5B / NRZ-OOK", COLORS["value"])
+            self.box_usb.setValue("Inactive", COLORS["muted"])
 
 
 # ── Section 2: TRANSMISSION PIPELINE ─────────────────────────────────

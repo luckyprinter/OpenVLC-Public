@@ -111,6 +111,23 @@ class RXAppState:
         self._refresh()
         self.notify()
 
+    def apply_method2_result(self, tid: int, strict_ber: float | None) -> None:
+        """Persist a reference-file BER result on the matching completed capture."""
+        from dataclasses import replace
+
+        with self._lock:
+            capture = self.current_capture
+            if capture is None or capture.tid != int(tid):
+                return
+            method = "method2_reference_file"
+            if capture.ber == strict_ber and capture.ber_method == method:
+                return
+            updated = replace(capture, ber=strict_ber, ber_method=method)
+            self.current_capture = updated
+
+        from gui_dev_v3.data import save_session_capture
+        save_session_capture(updated)
+
     def send_firmware_command(self, cmd: str) -> bool:
         """Send command to physical firmware if active."""
         with self._lock:

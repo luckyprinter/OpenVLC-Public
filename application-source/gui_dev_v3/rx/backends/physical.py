@@ -1319,7 +1319,7 @@ def _list_usb_serial_ports() -> list[str]:
     """
     try:
         import serial.tools.list_ports
-        usb_ports: list[str] = ["/tmp/esp32_tx", "/tmp/esp32_rx"]
+        usb_ports: list[str] = []
         other_ports: list[str] = []
         for port in serial.tools.list_ports.comports():
             dev = port.device or ""

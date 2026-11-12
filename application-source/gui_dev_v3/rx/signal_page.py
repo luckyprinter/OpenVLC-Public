@@ -607,13 +607,13 @@ class SignalMonitorPage(QWidget):
         sig = state.signal
         transfer = state.transfer
         quality = transfer.quality
-        empty = _is_empty(sig)
+        empty = not state.serial_connected or _is_empty(sig)
 
         # --- Top row: 4 MetricCards + 2 CircularGauges ---
         if empty:
-            self._metric_pvo.set_value("0.00 V")
-            self._metric_vref.set_value("0.00 V")
-            self._metric_margin.set_value("0.00 V")
+            self._metric_pvo.set_value("—")
+            self._metric_vref.set_value("—")
+            self._metric_margin.set_value("—")
             self._metric_state.set_value("OFFLINE")
             self._metric_state.set_value_color("#708090")
             self._metric_state.set_center_footer("No hardware")

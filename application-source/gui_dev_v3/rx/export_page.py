@@ -568,7 +568,7 @@ class ExportPage(QWidget):
             # BER
             ber = entry.get("ber")
             ber_is_measured = (
-                entry.get("ber_method") == "method2"
+                entry.get("ber_method") in {"method2", "method2_reference_file"}
                 and isinstance(ber, (int, float))
             )
             ber_txt = f"{ber:.4%}" if ber_is_measured else "N/A"
@@ -582,26 +582,44 @@ class ExportPage(QWidget):
         self._on_selection_changed()
 
     def refresh(self, state: RXAppState) -> None:
-        """Called periodically on dashboard refresh timer. Syncs new completed transfers."""
+        """Sync real transfer history and update it when Method 2 is later measured."""
         transfer = state.transfer
-        if transfer.tid > 0 and transfer.status != "Pending":
-            # Check if this TID is already in the history
-            exists = any(item.get("tid") == transfer.tid for item in self._history_data)
-            if not exists:
-                comparison = state.get_method2_comparison()
-                ber = comparison.get("strict_ber") if comparison else None
-                entry = {
-                    "tid": transfer.tid,
-                    "filename": transfer.filename,
-                    "status": transfer.status.value,
-                    "time_label": transfer.time_label,
-                    "size_bytes": transfer.size_bytes,
-                    "total_chunks": transfer.total_chunks,
-                    "received_chunks": transfer.received_chunks,
-                    "ber": ber if ber is not None else "N/A",
-                    "ber_method": "method2_reference_file" if comparison is not None else None,
-                }
-                self._history_data.insert(0, entry)
+        if transfer.tid <= 0 or transfer.status == "Pending":
+            return
+
+        comparison = state.get_method2_comparison()
+        ber = comparison.get("strict_ber") if comparison else None
+        entry = next(
+            (item for item in self._history_data if item.get("tid") == transfer.tid),
+            None,
+        )
+        if entry is None:
+            entry = {
+                "tid": transfer.tid,
+                "filename": transfer.filename,
+                "status": transfer.status.value,
+                "time_label": transfer.time_label,
+                "size_bytes": transfer.size_bytes,
+                "total_chunks": transfer.total_chunks,
+                "received_chunks": transfer.received_chunks,
+                "ber": ber if ber is not None else "N/A",
+                "ber_method": "method2_reference_file" if comparison is not None else None,
+            }
+            self._history_data.insert(0, entry)
+            self._save_history()
+            self._populate_table()
+            return
+
+        # The transfer can enter history before the user selects its reference
+        # file. Update the same record when the later Method 2 comparison exists.
+        if comparison is not None:
+            new_ber = ber if ber is not None else "N/A"
+            if (
+                entry.get("ber") != new_ber
+                or entry.get("ber_method") != "method2_reference_file"
+            ):
+                entry["ber"] = new_ber
+                entry["ber_method"] = "method2_reference_file"
                 self._save_history()
                 self._populate_table()
 

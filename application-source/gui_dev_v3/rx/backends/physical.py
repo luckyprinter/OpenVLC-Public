@@ -7,7 +7,6 @@ Communicates with actual VLC_RX firmware at 460800 baud (RX) or 115200 baud (TX)
 - Dispatches RX_FILE_HEX, RX_TRANSFER_NOTICE, RX_RAM_STORE, LQ, VREF_* to handlers
 - _poll_lq() drains the line queue instead of calling reset_input_buffer() which
   would destroy async firmware messages before they are processed
-- Falls back to vlc_beta bridge files when serial unavailable but process is fresh
 - No mock data, no simulated values
 """
 
@@ -20,24 +19,10 @@ import re
 import threading
 import time
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
-from gui_dev_v3.data.records import load_real_transfer_history
-from gui_dev_v3.data.session import build_empty_session, build_session_from_status
-from gui_dev_v3.data.status import read_status
+from gui_dev_v3.data.session import build_empty_session
 from gui_dev_v3.models import SessionState, SignalState, TransferRecord, TransferStatus
-
-# Resolve beta state dir with VLC_DATA_DIR env var fallback
-def _resolve_beta_state_dir() -> Path:
-    import os
-    env = os.getenv("VLC_DATA_DIR")
-    if env:
-        return Path(env).expanduser() / "state"
-    return Path(__file__).resolve().parents[4] / "vlc_beta" / "state"
-
-BETA_STATE_DIR = _resolve_beta_state_dir()
-STATUS_FRESHNESS_SEC = 30.0
 
 # RX firmware runs at 460800, TX at 115200 — try both for IDENTIFY
 BAUD_RATES = (460800, 115200)
@@ -796,13 +781,7 @@ class RXPhysicalBackend:
         return None
 
     def refresh(self) -> RXPhysicalSnapshot:
-        """Read current state from live serial or vlc_beta bridge.
-
-        Priority:
-          1. Live serial: send LQ?, parse signal data
-          2. vlc_beta bridge: fresh status files (serial not available)
-          3. Empty offline state
-        """
+        """Read current state from the live ESP32 serial connection."""
         if not self._connected:
             from gui_dev_v3.settings import SettingsManager
             mgr = SettingsManager("rx")
@@ -836,30 +815,6 @@ class RXPhysicalBackend:
                     self._connect_thread.start()
 
         if not self._connected:
-            # Fallback: vlc_beta bridge files
-            rx_status = read_status("rx")
-            sig_status = read_status("signal")
-            if _is_fresh(rx_status) or _is_fresh(sig_status):
-                session, transfers = self._build_from_status(rx_status, sig_status)
-                latest = transfers[0] if transfers else session.latest_transfer
-                log = self._build_log(rx_status, sig_status)
-                
-                if self._log_queue:
-                    log.extend(self._log_queue)
-                    self._log_queue.clear()
-
-                return RXPhysicalSnapshot(
-                    session=session,
-                    transfer=latest,
-                    activity_log=log,
-                    serial_connected=bool(rx_status) or bool(sig_status),
-                    device_port=self._port or "",
-                    firmware_version=self._firmware_info.get("firmware", "") if self._firmware_info else "",
-                    board_type=self._firmware_info.get("board", "") if self._firmware_info else "",
-                    ports_scanned=len(self.scan_ports()),
-                    firmware_found=True,
-                )
-            
             log = list(self._log_queue)
             self._log_queue.clear()
             return self._empty_snapshot(log)
@@ -945,31 +900,6 @@ class RXPhysicalBackend:
                 
                 self._last_lq_data = lq_data
                 return self._build_from_lq(lq_data)
-
-        # Fallback: vlc_beta bridge files
-        rx_status = read_status("rx")
-        sig_status = read_status("signal")
-
-        if _is_fresh(rx_status) or _is_fresh(sig_status):
-            session, transfers = self._build_from_status(rx_status, sig_status)
-            latest = transfers[0] if transfers else session.latest_transfer
-            log = self._build_log(rx_status, sig_status)
-            
-            if self._log_queue:
-                log.extend(self._log_queue)
-                self._log_queue.clear()
-
-            return RXPhysicalSnapshot(
-                session=session,
-                transfer=latest,
-                activity_log=log,
-                serial_connected=bool(rx_status) or bool(sig_status),
-                device_port=self._port or "",
-                firmware_version=self._firmware_info.get("firmware", "") if self._firmware_info else "",
-                board_type=self._firmware_info.get("board", "") if self._firmware_info else "",
-                ports_scanned=len(self.scan_ports()),
-                firmware_found=self._connected,
-            )
 
         # Check if serial connection looks alive
         if self._ser and not self._ser.closed:
@@ -1194,43 +1124,6 @@ class RXPhysicalBackend:
             firmware_found=True,
         )
 
-    def _build_from_status(self, rx_status: dict | None,
-                           sig_status: dict | None) -> tuple[SessionState, list[TransferRecord]]:
-        """Build state from vlc_beta bridge files."""
-        transfers = load_real_transfer_history()
-        latest = transfers[0] if transfers else None
-        session = build_session_from_status("rx", latest)
-        signal = session.signal
-
-        if sig_status:
-            pvo = float(sig_status.get("pvo_v") or signal.pvo or 0.0)
-            vref = float(sig_status.get("vref_v") or signal.vref or 0.0)
-            margin = float(sig_status.get("margin_v") or signal.margin or 0.0)
-            signal = SignalState(
-                label=str(sig_status.get("quality_label") or signal.label),
-                pvo=round(pvo, 3),
-                vref=round(vref, 3),
-                margin=round(margin, 3),
-                target_margin=float(sig_status.get("margin_best_v") or 0.365),
-                adc_vref=3.300,
-                lux=int(pvo * 150) if pvo > 0 else 0,
-                data_rate=float(sig_status.get("rate_bps", 0)) / 1000.0,
-                ber=0.0,
-                strict_ber=0.0,
-                crc_status="PASS" if sig_status.get("state") in ("success", "active") else "Unknown",
-                time_elapsed="--",
-            )
-            session = SessionState(
-                role=session.role,
-                connected_device=session.connected_device,
-                current_file=session.current_file,
-                progress_percent=session.progress_percent,
-                signal=signal,
-                latest_transfer=session.latest_transfer,
-            )
-
-        return session, transfers
-
     def _build_stale(self) -> RXPhysicalSnapshot:
         """Serial open but no fresh data yet."""
         now = time.strftime("%H:%M:%S")
@@ -1298,14 +1191,6 @@ class RXPhysicalBackend:
 
 
 # ── Helpers ──
-
-def _is_fresh(status: dict | None, max_age: float = STATUS_FRESHNESS_SEC) -> bool:
-    if not status:
-        return False
-    updated = status.get("updated_at")
-    if updated is not None:
-        return (time.time() - float(updated)) < max_age
-    return False
 
 
 def _list_usb_serial_ports() -> list[str]:

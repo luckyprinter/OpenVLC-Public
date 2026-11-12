@@ -674,8 +674,16 @@ class SignalMonitorPage(QWidget):
             _set_status_label(self._diag_labels["comparator"], comp, "default")
             _set_status_label(self._diag_labels["threshold_vref"], f"{sig.vref:.2f} V", "default")
             _set_status_label(self._diag_labels["photodiode"], photo_status, "green" if photo_status == "ACTIVE" else "red")
-            _set_status_label(self._diag_labels["ambient_light"], f"{sig.lux} (uncal.)", "default")
-            _set_status_label(self._diag_labels["supply_voltage"], f"{sig.adc_vref:.2f} V", "default")
+            _set_status_label(
+                self._diag_labels["ambient_light"],
+                f"{sig.lux} (uncal.)" if sig.lux is not None else "Not measured",
+                "default",
+            )
+            _set_status_label(
+                self._diag_labels["supply_voltage"],
+                f"{sig.adc_vref:.2f} V" if sig.adc_vref is not None else "—",
+                "default",
+            )
             vref_mode = "AUTO" if self._settings_mgr.get("link/vref_auto", False) else "MANUAL"
             _set_status_label(self._diag_labels["vref_mode"], vref_mode, "default")
             _set_status_label(self._diag_labels["vref_target"], vref_target, "default")
@@ -753,7 +761,7 @@ class SignalMonitorPage(QWidget):
                 ("Retry Count", "0"),
                 ("Packet Loss", f"{packet_loss:.2f} %"),
                 ("Elapsed Time", transfer.time_label or "\u2014"),
-                ("Data Rate", f"{sig.data_rate:.2f} kbps"),
+                ("Data Rate", f"{sig.data_rate:.2f} kbps" if sig.data_rate is not None else "—"),
             ]
             self._transfer_progress.set_percent(pct)
             self._progress_text_label.setText(f"Progress: {pct}%")

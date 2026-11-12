@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QTabWidget,
     QPlainTextEdit,
+    QSizePolicy,
 )
 
 from gui_dev_v3.app_state import RXAppState
@@ -313,11 +314,14 @@ class ExportPage(QWidget):
         self._load_history()
         # Page layout
         lo = QVBoxLayout(self)
+        self._main_layout = lo
         lo.setContentsMargins(20, 16, 20, 20)
         lo.setSpacing(12)
+        self._compact_layout = False
 
         # Create horizontal splitter
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setChildrenCollapsible(True)
         self.splitter.setStyleSheet("""
             QSplitter::handle {
                 image: none;
@@ -400,6 +404,15 @@ class ExportPage(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(32)
         self.table.setSortingEnabled(True)
         self.table.setMinimumHeight(220)
+        self.table.setMinimumWidth(0)
+        self._history_empty_state = QLabel(
+            "No transfer history yet. Completed or failed sessions will appear here."
+        )
+        self._history_empty_state.setWordWrap(True)
+        self._history_empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._history_empty_state.setMinimumHeight(56)
+        self._history_empty_state.setObjectName("Muted")
+        self.history_card.body.addWidget(self._history_empty_state)
         self.history_card.body.addWidget(self.table)
 
         # Actions below the table
@@ -449,6 +462,10 @@ class ExportPage(QWidget):
         # Right Column Widget: Session Inspector
         self.inspector_card = SessionInspectorCard()
         self.splitter.addWidget(self.inspector_card)
+        for index in range(self.splitter.count()):
+            child = self.splitter.widget(index)
+            child.setMinimumWidth(0)
+            child.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
 
         # Set splitter ratio/sizes (e.g., 55% left, 45% right)
         self.splitter.setSizes([620, 580])
@@ -457,6 +474,25 @@ class ExportPage(QWidget):
 
         # Build initial table rows
         self._populate_table()
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Stack history and session inspection on compact workspaces."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        self.splitter.setOrientation(
+            Qt.Orientation.Vertical if compact else Qt.Orientation.Horizontal
+        )
+        self.splitter.setChildrenCollapsible(compact)
+        self._main_layout.setContentsMargins(
+            12 if compact else 20,
+            12 if compact else 16,
+            12 if compact else 20,
+            12 if compact else 20,
+        )
+        self.splitter.setSizes([420, 360] if compact else [620, 580])
 
     def _ghost_btn(self, text: str, icon_name: str) -> QPushButton:
         import qtawesome as qta
@@ -500,6 +536,7 @@ class ExportPage(QWidget):
             pass
 
     def _populate_table(self) -> None:
+        self._history_empty_state.setVisible(not self._history_data)
         self.table.setRowCount(len(self._history_data))
         for row, entry in enumerate(self._history_data):
             # TID

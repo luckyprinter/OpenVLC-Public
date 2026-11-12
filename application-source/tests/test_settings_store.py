@@ -109,3 +109,40 @@ def test_reset_clears_console_and_shared_display_settings(
     assert cleared_scopes == ["tx"]
     assert window.settings == settings_store.AppSettings()
     assert settings_store.load_settings() == settings_store.AppSettings()
+
+
+
+@pytest.mark.parametrize("payload", ["{ invalid json", "[]", "null", "42", '"settings"'])
+def test_automatic_save_preserves_malformed_settings_file(
+    settings_paths: Path, payload: str
+) -> None:
+    settings_paths.parent.mkdir(parents=True)
+    settings_paths.write_text(payload, encoding="utf-8")
+    original = settings_paths.read_bytes()
+
+    saved = settings_store.save_settings(
+        settings_store.AppSettings(theme="charcoal")
+    )
+
+    assert saved is False
+    assert settings_paths.read_bytes() == original
+    assert list(settings_paths.parent.glob("*.corrupt-*.bak")) == []
+
+
+def test_explicit_recovery_backs_up_corrupt_settings_before_replacing(
+    settings_paths: Path,
+) -> None:
+    settings_paths.parent.mkdir(parents=True)
+    original = b"{ damaged settings"
+    settings_paths.write_bytes(original)
+
+    saved = settings_store.save_settings(
+        settings_store.AppSettings(),
+        allow_corrupt_recovery=True,
+    )
+
+    backups = list(settings_paths.parent.glob("settings.json.corrupt-*.bak"))
+    assert saved is True
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == original
+    assert settings_store.load_settings() == settings_store.AppSettings()

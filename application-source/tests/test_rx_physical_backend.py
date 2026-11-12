@@ -116,3 +116,38 @@ def test_cached_status_is_not_reported_as_live_serial_connection(monkeypatch):
     assert snapshot.transfer is transfer
     assert snapshot.serial_connected is False
     assert snapshot.firmware_found is False
+
+
+def test_incomplete_batch_part_clears_live_progress_but_keeps_bounded_group(tmp_path, monkeypatch):
+    import time
+    from gui_dev_v3.rx.backends.physical import crc16_ccitt
+
+    monkeypatch.setattr(logger, "file_log", lambda *_args, **_kwargs: None)
+    backend = RXPhysicalBackend()
+    backend._record_diag = lambda *_args, **_kwargs: None
+    backend._save_dir = tmp_path
+    backend._active_tid = 31
+    backend._active_filename = "part-1.bin"
+    backend._active_total_size = 1
+    backend._active_total_chunks = 1
+    backend._active_received_chunks = 1
+    backend._active_started_monotonic = time.monotonic()
+
+    fragment = b"\xAA"
+    batch_name = "VLCB1~group-2~1~2~1234~complete.bin"
+    name_hex = batch_name.encode("utf-8").hex()
+    line = (
+        f"RX_FILE_HEX:31:DATA:1:1:{crc16_ccitt(fragment):04X}:"
+        f"{name_hex}:{fragment.hex()}"
+    )
+
+    backend._handle_file_hex(line)
+
+    assert backend._batch_assembler.pending_count == 1
+    assert backend._active_tid is None
+    assert backend._active_filename == ""
+    assert backend._active_total_size == 0
+    assert backend._active_total_chunks == 0
+    assert backend._active_received_chunks == 0
+    assert backend._active_started_monotonic is None
+    assert not list(tmp_path.iterdir())

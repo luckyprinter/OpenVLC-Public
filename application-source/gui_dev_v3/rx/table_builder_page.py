@@ -315,6 +315,11 @@ class TableBuilderPage(QWidget):
             return
         self._compact_layout = compact
         self._narrow_layout = narrow
+        # SetNoConstraint on the inner layouts keeps the page from deriving a
+        # useful minimum size from its stacked children. Give the scroll area
+        # an explicit content height so narrow layouts can scroll instead of
+        # compressing the cards into unusable strips.
+        self.setMinimumHeight(900 if narrow else 0)
 
         # Give stacked cards enough vertical room for their list controls.
         # Without this, the outer scroll area can squeeze the three cards down

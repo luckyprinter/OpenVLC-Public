@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 import sys
 
@@ -82,6 +83,51 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
                         )
 
 
+def _capture_nested_views(window, app, mode: str, page_name: str, shell, width: int, height: int) -> None:
+    """Capture important inner tabs/settings sections that a page screenshot misses."""
+    if mode == "rx" and page_name == "study_data":
+        page = shell._page_widgets.get("study_data")
+        tabs = getattr(page, "tabs", None)
+        if tabs is None:
+            raise RuntimeError("RX Study & Data page is missing its inner tabs")
+        for index in range(tabs.count()):
+            tabs.setCurrentIndex(index)
+            app.processEvents()
+            tab_widget = tabs.widget(index)
+            content = tab_widget.widget() if hasattr(tab_widget, "widget") else tab_widget
+            if content is not None and hasattr(content, "_compact_layout"):
+                expected_compact = content.width() < 900 or content.height() < 620
+                if content._compact_layout != expected_compact:
+                    raise RuntimeError(
+                        f"RX Study & Data {tabs.tabText(index)} did not reflow at "
+                        f"{width}x{height}: content={content.width()}x{content.height()}"
+                    )
+            slug = re.sub(r"[^a-z0-9]+", "_", tabs.tabText(index).lower()).strip("_")
+            target = OUTPUT_DIR / f"rx_study_data_{slug}_{width}x{height}.png"
+            if not window.grab().save(str(target), "PNG"):
+                raise RuntimeError(f"Could not save screenshot: {target}")
+            print(f"Captured {target}", flush=True)
+
+    if page_name == "settings":
+        page = shell._page_widgets.get("settings")
+        if hasattr(page, "widget"):
+            page = page.widget()
+        nav = getattr(page, "_nav_list", None)
+        if nav is None:
+            return
+        for index in range(nav.count()):
+            item = nav.item(index)
+            if item is None or item.isHidden():
+                continue
+            nav.setCurrentRow(index)
+            app.processEvents()
+            slug = re.sub(r"[^a-z0-9]+", "_", item.text().lower()).strip("_")
+            target = OUTPUT_DIR / f"{mode}_settings_{slug}_{width}x{height}.png"
+            if not window.grab().save(str(target), "PNG"):
+                raise RuntimeError(f"Could not save screenshot: {target}")
+            print(f"Captured {target}", flush=True)
+
+
 def main() -> int:
     app = QApplication.instance() or QApplication([])
     app.setStyle("Fusion")
@@ -132,6 +178,7 @@ def main() -> int:
                 if not window.grab().save(str(target), "PNG"):
                     raise RuntimeError(f"Could not save screenshot: {target}")
                 print(f"Captured {target}", flush=True)
+                _capture_nested_views(window, app, mode, page_name, shell, width, height)
 
         window.return_to_launcher()
         window.close()

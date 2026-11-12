@@ -283,6 +283,18 @@ def test_tx_file_manager_stacks_details_on_compact_display(qapp):
 
 def test_rx_receive_actions_stack_on_compact_display(qapp):
     page = ReceivePage()
+    state = RXAppState()
+    page.refresh(state)
+    assert not page.lock_btn.isEnabled()
+    page._on_lock_vref()
+    assert not page._vref_locked
+
+    state.serial_connected = True
+    page.refresh(state)
+    assert page.lock_btn.isEnabled()
+    page._on_lock_vref()
+    assert page._vref_locked
+
     page.resize(680, 500)
     page.show()
     qapp.processEvents()

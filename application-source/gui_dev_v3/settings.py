@@ -625,7 +625,6 @@ class ThemePickerGrid(QWidget):
         self._current = current
         self._cards: list[_SwatchCard] = []
 
-        from PySide6.QtWidgets import QApplication
         from PySide6.QtWidgets import QGridLayout
         self._grid = QGridLayout(self)
         self._grid.setContentsMargins(0, 6, 0, 6)
@@ -647,12 +646,11 @@ class ThemePickerGrid(QWidget):
             preset for preset in THEME_PRESETS
             if preset["key"] in curated_keys or preset["key"] == current
         ]
-        cols = 3
         for i, preset in enumerate(primary_presets):
             card = _SwatchCard(preset, active=(preset["key"] == current))
             card.clicked.connect(self._on_card_clicked)
             self._cards.append(card)
-            self._grid.addWidget(card, i // cols, i % cols)
+            self._grid.addWidget(card, i // self._column_count, i % self._column_count)
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         """Reflow theme choices instead of clipping them on narrow windows."""

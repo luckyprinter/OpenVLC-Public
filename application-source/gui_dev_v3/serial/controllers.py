@@ -209,6 +209,7 @@ class TXSerialController(SerialSession):
                 f"{len(data):,} B split into {part_count} parts",
                 state="active",
             )
+            batch_started = time.monotonic()
 
             for part_index, offset in enumerate(range(0, len(data), part_size), start=1):
                 part = data[offset:offset + part_size]
@@ -224,7 +225,8 @@ class TXSerialController(SerialSession):
                     state="active",
                 )
                 success = self._send_stream(
-                    path, part, part_name_bytes, chunk_size, part_tid, part_crc, round_count
+                    path, part, part_name_bytes, chunk_size, part_tid, part_crc,
+                    round_count, batch_part=True,
                 )
                 if not success:
                     return False
@@ -239,7 +241,26 @@ class TXSerialController(SerialSession):
                     )
                     time.sleep(delay_s)
 
-            self.status("Batch complete", f"All {part_count} parts sent", state="ready")
+            elapsed_total = max(0.001, time.monotonic() - batch_started)
+            data_rate = f"{(len(data) * 8 / elapsed_total):.0f} bps"
+            elapsed_minutes, elapsed_seconds = divmod(int(elapsed_total), 60)
+            elapsed_ms = int((elapsed_total - int(elapsed_total)) * 1000)
+            elapsed_label = (
+                f"{elapsed_minutes:02d}:{elapsed_seconds:02d}:{elapsed_ms:03d}"
+            )
+            self.status(
+                "Batch complete",
+                f"All {part_count} parts sent for {path.name}",
+                percent=100,
+                state="ready",
+                file_name=path.name,
+                size=len(data),
+                tid=part_tid,
+                chunk=part_count,
+                total_chunks=part_count,
+                elapsed_time=elapsed_label,
+                data_rate=data_rate,
+            )
             return True
 
         name_bytes = path.name.encode("utf-8")
@@ -375,6 +396,8 @@ class TXSerialController(SerialSession):
         tid: int,
         file_crc: int,
         round_count: int,
+        *,
+        batch_part: bool = False,
     ) -> bool:
         """Stop-and-wait STREAM transmission (works on both tx_dma and tx_non_dma)."""
         total_start_time = time.monotonic()
@@ -490,7 +513,8 @@ class TXSerialController(SerialSession):
         elapsed_str = f"{m:02d}:{s:02d}:{ms:03d}"
 
         self.status(
-            "Send complete", path.name,
+            "Batch part done" if batch_part else "Send complete",
+            path.name,
             percent=100, state="ready",
             file_name=path.name, size=len(data), tid=tid,
             elapsed_time=elapsed_str,

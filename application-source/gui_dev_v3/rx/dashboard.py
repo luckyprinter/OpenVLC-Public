@@ -202,7 +202,9 @@ class _SignalMonitorPanel(Card):
         sig = state.signal
         self.pvo_row.setValue(f"{sig.pvo:.3f} V")
         self.vref_row.setValue(f"{sig.vref:.3f} V")
-        self.adc_vref_row.setValue(f"{sig.adc_vref:.3f} V")
+        self.adc_vref_row.setValue(
+            f"{sig.adc_vref:.3f} V" if sig.adc_vref is not None else "—"
+        )
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("rx")
         vref_auto = mgr.get("link/vref_auto", False)

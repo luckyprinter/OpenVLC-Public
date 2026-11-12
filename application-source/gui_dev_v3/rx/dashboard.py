@@ -236,38 +236,39 @@ class _SignalWaveformPanel(Card):
         self._waveform.add_sample(sig.pvo, sig.vref, sig.margin)
 
 
-class _BitDecodePanel(Card):
-    """Bit Decode Panel showing symbol decode and synchronization status."""
-    
+class _ReceiverStatePanel(Card):
+    """Show connection/transfer state without claiming decoder synchronization."""
+
     def __init__(self, state: RXAppState, parent: QWidget | None = None) -> None:
-        super().__init__("Bit Decode", parent)
-        self.sync_state_row = StatusRow("Sync State")
-        self.symbol_error_row = MetricRow("Method 2 BER")
-        self.manchester_row = StatusRow("Encoding")
-        
-        self.body.addWidget(self.sync_state_row)
-        self.body.addWidget(self.symbol_error_row)
-        self.body.addWidget(self.manchester_row)
+        super().__init__("Receiver State", parent)
+        self.connection_row = StatusRow("Connection")
+        self.ber_row = MetricRow("Method 2 BER")
+        self.protocol_row = StatusRow("Protocol")
+
+        self.body.addWidget(self.connection_row)
+        self.body.addWidget(self.ber_row)
+        self.body.addWidget(self.protocol_row)
         self.body.addStretch(1)
-        
+
     def refresh(self, state: RXAppState) -> None:
-        transfer = state.transfer
-        stage = str(state.session.latest_transfer.status.value) if state.session.latest_transfer else "idle"
-        is_active = state.is_receiving or "incomplete" in stage.lower()
-        
-        if is_active:
-            self.sync_state_row.setStatus("LOCKED", COLORS["green"])
-            comparison = state.get_method2_comparison()
-            strict_ber = comparison.get("strict_ber") if comparison else None
-            self.symbol_error_row.setValue(
-                f"{strict_ber * 100:.4f} %"
-                if strict_ber is not None else "Awaiting reference"
-            )
-            self.manchester_row.setStatus("4B5B OOK", COLORS["value"])
+        if not state.serial_connected:
+            self.connection_row.setStatus("DISCONNECTED", COLORS["red"])
+            self.protocol_row.setStatus("—", COLORS["muted"])
+        elif state.is_receiving:
+            self.connection_row.setStatus("RECEIVING", COLORS["green"])
+            self.protocol_row.setStatus("4B5B / OOK", COLORS["value"])
         else:
-            self.sync_state_row.setStatus("SEARCHING", COLORS["muted"])
-            self.symbol_error_row.setValue("—")
-            self.manchester_row.setStatus("—", COLORS["muted"])
+            self.connection_row.setStatus("READY", COLORS["green"])
+            self.protocol_row.setStatus("4B5B / OOK", COLORS["value"])
+
+        comparison = state.get_method2_comparison()
+        strict_ber = comparison.get("strict_ber") if comparison else None
+        if strict_ber is not None:
+            self.ber_row.setValue(f"{strict_ber * 100:.4f} %")
+        elif state.transfer.tid > 0:
+            self.ber_row.setValue("Awaiting reference")
+        else:
+            self.ber_row.setValue("—")
 
 
 class _FileInfoPanel(Card):
@@ -357,9 +358,9 @@ class RXDashboardPage(QWidget):
         detail_grid.setContentsMargins(0, 0, 0, 0)
         detail_grid.setSpacing(14)
         self._file_info = _FileInfoPanel(state)
-        self._bit_decode = _BitDecodePanel(state)
+        self._receiver_state = _ReceiverStatePanel(state)
         detail_grid.addWidget(self._file_info, 3)
-        detail_grid.addWidget(self._bit_decode, 2)
+        detail_grid.addWidget(self._receiver_state, 2)
 
         self._activity_log = _ActivityLogPanel(state)
         splitter = QSplitter(Qt.Orientation.Vertical)
@@ -386,7 +387,7 @@ class RXDashboardPage(QWidget):
 
         self._perf.setVisible(not compact)
         self._signal_mon.setVisible(not compact)
-        self._bit_decode.setVisible(not compact)
+        self._receiver_state.setVisible(not compact)
         # Keep the file/progress panel tall on ordinary laptop displays;
         # recent activity is secondary and has its own dedicated logs view.
         self._activity_log.setVisible(show_activity)
@@ -408,6 +409,6 @@ class RXDashboardPage(QWidget):
         self._reception.refresh(self._state)
         self._perf.refresh(self._state)
         self._signal_mon.refresh(self._state)
-        self._bit_decode.refresh(self._state)
+        self._receiver_state.refresh(self._state)
         self._file_info.refresh(self._state)
         self._activity_log.refresh(self._state)

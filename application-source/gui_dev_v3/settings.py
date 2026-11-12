@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import math
-from PySide6.QtCore import Qt, QSettings, Signal
+from PySide6.QtCore import Qt, QSettings, Signal, QSize
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
     QHBoxLayout,
-    QLabel,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -196,7 +195,7 @@ class SpinSetting(QSpinBox):
         self.setValue(value)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
 
 
@@ -211,7 +210,7 @@ class FreeformSpinSetting(QSpinBox):
         self._rec_max = rec_max
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.setValue(value)
         
@@ -239,7 +238,7 @@ class FreeformDoubleSpinSetting(QDoubleSpinBox):
         self.setDecimals(decimals)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.setValue(value)
         
@@ -301,7 +300,7 @@ class DoubleSpinSetting(QDoubleSpinBox):
         self.setDecimals(decimals)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
 
 
@@ -351,7 +350,7 @@ class SliderSpinSetting(QDoubleSpinBox):
         self.setValue(value)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
 
 def bind_double_spin(setting: FreeformDoubleSpinSetting | DoubleSpinSetting, mgr: SettingsManager, key: str, default: float = 0.0) -> None:
@@ -436,6 +435,7 @@ class SettingsContainer(QWidget):
         super().__init__(parent)
         self._sections = sections
         self._developer_index = developer_index
+        self._page_wrappers: list[QWidget] = []
 
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -445,6 +445,7 @@ class SettingsContainer(QWidget):
         nav_panel = QWidget()
         nav_panel.setObjectName("Card")
         nav_panel.setFixedWidth(200)
+        self._nav_panel = nav_panel
         nav_lo = QVBoxLayout(nav_panel)
         nav_lo.setContentsMargins(8, 16, 8, 8)
         nav_lo.setSpacing(2)
@@ -455,7 +456,13 @@ class SettingsContainer(QWidget):
         nav_lo.addSpacing(8)
 
         self._nav_list = QListWidget()
-        self._nav_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._nav_list.setObjectName("SettingsNavigation")
+        self._nav_list.setAccessibleName("Settings sections")
+        self._nav_list.setAccessibleDescription("Choose a settings category.")
+        self._nav_list.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._nav_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self._nav_list.setWordWrap(True)
+        self._nav_list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self._nav_list.setSpacing(1)
         self._nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._nav_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -478,6 +485,11 @@ class SettingsContainer(QWidget):
         # Build nav items and pages
         for idx, (label, page) in enumerate(sections):
             item = QListWidgetItem(label)
+            item.setToolTip(label)
+            item.setData(Qt.ItemDataRole.AccessibleTextRole, label)
+            item.setData(Qt.ItemDataRole.AccessibleDescriptionRole, f"Open {label} settings.")
+            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            item.setSizeHint(QSize(0, 42))
             self._nav_list.addItem(item)
             # Wrap page in a padded container so all sub-pages have consistent
             # breathing room at the top and sides — fixes the "bald top" issue.
@@ -486,6 +498,7 @@ class SettingsContainer(QWidget):
             wrapper_lo.setContentsMargins(24, 20, 24, 24)
             wrapper_lo.setSpacing(0)
             wrapper_lo.addWidget(page)
+            self._page_wrappers.append(wrapper)
             wrapper_lo.addStretch(1)
             # Wrap in scroll area
             scroll = QScrollArea()
@@ -502,6 +515,23 @@ class SettingsContainer(QWidget):
         self._nav_list.currentRowChanged.connect(self._on_nav_changed)
         if sections:
             self._nav_list.setCurrentRow(0)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Reduce settings-page gutters on compact laptop work areas."""
+        super().resizeEvent(event)
+        compact = self.width() < 900
+        self._nav_panel.setFixedWidth(220 if compact else 200)
+        # Long category labels need a second line at high scaling; a fixed
+        # 42px row clips them even though word wrapping is enabled.
+        for index in range(self._nav_list.count()):
+            item = self._nav_list.item(index)
+            if item is not None:
+                item.setSizeHint(QSize(0, 56 if compact else 42))
+        margins = (10, 12, 10, 12) if compact else (24, 20, 24, 24)
+        for wrapper in self._page_wrappers:
+            layout = wrapper.layout()
+            if layout is not None:
+                layout.setContentsMargins(*margins)
 
     def _on_nav_changed(self, index: int) -> None:
         if 0 <= index < self._stack.count():
@@ -549,6 +579,9 @@ class _SwatchCard(QWidget):
         self._active = active
         self._preset = preset
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName(preset["label"])
+        self.setAccessibleDescription(f"Select the {preset['label']} theme.")
         self.setFixedHeight(40)
         self.setMinimumWidth(120)
         self._build()
@@ -588,6 +621,7 @@ class _SwatchCard(QWidget):
         self.setStyleSheet(
             f"QWidget#ThemeSwatch {{ border: {border_width} solid {border_color}; "
             f"border-radius: 6px; background: {bg}; }}"
+            f"QWidget#ThemeSwatch:focus {{ border: 2px solid {self._preset['preview_accent']}; }}"
         )
 
     def set_active(self, active: bool) -> None:
@@ -597,6 +631,13 @@ class _SwatchCard(QWidget):
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         self.clicked.emit(self._key)
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.clicked.emit(self._key)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 class ThemePickerGrid(QWidget):
@@ -613,11 +654,11 @@ class ThemePickerGrid(QWidget):
         self._current = current
         self._cards: list[_SwatchCard] = []
 
-        from PySide6.QtWidgets import QApplication
         from PySide6.QtWidgets import QGridLayout
-        grid = QGridLayout(self)
-        grid.setContentsMargins(0, 6, 0, 6)
-        grid.setSpacing(6)
+        self._grid = QGridLayout(self)
+        self._grid.setContentsMargins(0, 6, 0, 6)
+        self._grid.setSpacing(6)
+        self._column_count = 3
 
         # Keep the default picker focused on five curated presets. Older
         # presets remain supported in theme.py so existing saved preferences
@@ -634,12 +675,22 @@ class ThemePickerGrid(QWidget):
             preset for preset in THEME_PRESETS
             if preset["key"] in curated_keys or preset["key"] == current
         ]
-        cols = 3
         for i, preset in enumerate(primary_presets):
             card = _SwatchCard(preset, active=(preset["key"] == current))
             card.clicked.connect(self._on_card_clicked)
             self._cards.append(card)
-            grid.addWidget(card, i // cols, i % cols)
+            self._grid.addWidget(card, i // self._column_count, i % self._column_count)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Reflow theme choices instead of clipping them on narrow windows."""
+        super().resizeEvent(event)
+        columns = 1 if self.width() < 320 else 2 if self.width() < 560 else 3
+        if columns == self._column_count:
+            return
+        self._column_count = columns
+        for index, card in enumerate(self._cards):
+            self._grid.removeWidget(card)
+            self._grid.addWidget(card, index // columns, index % columns)
 
     def _on_card_clicked(self, key: str) -> None:
         if key == self._current:

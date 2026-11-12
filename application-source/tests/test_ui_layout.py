@@ -443,7 +443,7 @@ def test_table_builder_exports_blank_template_without_fabricated_measurements(qa
 
     assert "no synthetic test data" in page._preview_notice.text()
     assert page._preview_table.rowCount() > 0
-    assert page._preview_table.columnCount() == 3
+    assert page._preview_table.columnCount() == len(page._get_column_labels())
     for row in range(page._preview_table.rowCount()):
         for column in range(page._preview_table.columnCount()):
             item = page._preview_table.item(row, column)

@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QSize, Signal, QTimer
-from PySide6.QtGui import QAction, QFont, QFontDatabase
+from PySide6.QtGui import QAction, QFontDatabase
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -49,13 +49,16 @@ def load_bundled_fonts() -> None:
     # Inter as the application default when the bundled font is available so
     # Windows does not silently fall back to a monospaced system font.
     app = QApplication.instance()
-    ui_family = next(
-        (family for family in loaded_families if family.lower().startswith("inter")),
-        None,
-    )
-    if app is not None and ui_family:
-        app_font = app.font()
-        app_font.setFamily(ui_family)
+    if app is not None:
+        # Start from the platform's normal UI font (Segoe UI on Windows,
+        # a proportional sans-serif on Linux), never a fixed-width fallback.
+        app_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
+        ui_family = next(
+            (family for family in loaded_families if family.lower().startswith("inter")),
+            None,
+        )
+        if ui_family:
+            app_font.setFamily(ui_family)
         app.setFont(app_font)
 
 

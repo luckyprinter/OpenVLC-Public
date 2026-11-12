@@ -28,7 +28,7 @@ class SerialLineBuffer:
 
         incoming = data
         if self._discarding:
-            newline = incoming.find(b"\\n")
+            newline = incoming.find(b"\n")
             if newline < 0:
                 return []
             incoming = incoming[newline + 1:]
@@ -37,7 +37,7 @@ class SerialLineBuffer:
         self._buffer.extend(incoming)
         lines: list[str] = []
         while True:
-            newline = self._buffer.find(b"\\n")
+            newline = self._buffer.find(b"\n")
             if newline < 0:
                 break
             raw = bytes(self._buffer[:newline])
@@ -45,7 +45,7 @@ class SerialLineBuffer:
             if len(raw) > self.max_line_bytes:
                 self.overflow_count += 1
                 continue
-            line = raw.rstrip(b"\\r").decode("utf-8", errors="replace").strip()
+            line = raw.rstrip(b"\r").decode("utf-8", errors="replace").strip()
             if line:
                 lines.append(line)
 

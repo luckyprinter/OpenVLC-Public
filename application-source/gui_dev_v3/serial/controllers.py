@@ -21,6 +21,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .detection import BAUDRATE_RX
+from .transfer_plan import MAX_BATCH_PARTS, MAX_STREAM_CHUNKS, plan_stream_parts
 from .session import (
     MAX_STREAM_FILE_BYTES,
     MAX_NAME_BYTES,
@@ -150,14 +152,7 @@ class TXSerialController(SerialSession):
     # ── File transmission ────────────────────────────────────────────────────
 
     def send_file(self, path: Path, chunk_bytes: int = 256, rounds: int = 1) -> bool:
-        """Transmit a file via STREAM (non-DMA) or DMA sliding-window protocol.
-
-        DMA mode is selected when:
-          1. The user setting `link/dma_mode` is True, AND
-          2. The firmware is DMA-capable (tx_dma.ino).
-
-        Non-DMA (tx_non_dma.ino) always uses the stop-and-wait STREAM protocol.
-        """
+        """Transmit a file using bounded STREAM parts or the firmware-gated DMA path."""
         if not self.is_connected or self.serial_obj is None:
             self.status("Not connected", "Connect TX before sending", state="error")
             return False
@@ -165,65 +160,69 @@ class TXSerialController(SerialSession):
             self.status("File missing", str(path), state="error")
             return False
 
-        data = path.read_bytes()
+        file_size = path.stat().st_size
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("tx")
         user_wants_dma = bool(mgr.get("link/dma_mode", False))
         use_dma = user_wants_dma and self.dma_capable
 
-        # Normalize these once before either the single-file or batched path.
-        # The batching branch must use the same validated values as _send_stream().
         chunk_size = max(16, min(int(chunk_bytes), 1024))
         round_count = max(1, int(rounds))
 
-        if not use_dma and len(data) > MAX_STREAM_FILE_BYTES:
-            import math
-            group_id = random.randint(1, 65535)
-            full_crc = crc16_ccitt(data)
-            part_count = math.ceil(len(data) / MAX_STREAM_FILE_BYTES)
-            
-            self.status(
-                "Batching large file",
-                f"{len(data):,} B split into {part_count} parts",
-                state="active",
+        if not use_dma:
+            part_size, part_count = plan_stream_parts(
+                file_size, chunk_size,
+                max_file_bytes=MAX_STREAM_FILE_BYTES,
+                max_chunks=MAX_STREAM_CHUNKS,
             )
-            
-            for part_index, offset in enumerate(range(0, len(data), MAX_STREAM_FILE_BYTES), start=1):
-                part = data[offset:offset + MAX_STREAM_FILE_BYTES]
-                part_tid = random.randint(1, 65535)
-                part_crc = crc16_ccitt(part)
-                # Format: VLCB1~group_id~part_index~part_count~full_crc~original_name
-                prefix = f"VLCB1~{group_id:04X}~{part_index:03d}~{part_count:03d}~{full_crc:04X}~"
-                part_name = prefix + path.name
-                part_name_bytes = part_name.encode("utf-8", errors="replace")[:MAX_NAME_BYTES]
-                
-                self.status(
-                    "Sending batch part",
-                    f"Part {part_index}/{part_count}...",
-                    state="active",
-                )
-                success = self._send_stream(path, part, part_name_bytes, chunk_size, part_tid, part_crc, round_count)
-                if not success:
-                    return False
-                
-                # Delay for RX to process batch part
-                if part_index < part_count:
-                    import time as _time
-                    delay_s = max(6.0, min(14.0, 3.0 + (len(part) / 20_000.0)))
-                    self.status("Batch delay", f"Waiting {delay_s:.1f}s for RX buffer...", state="active")
-                    _time.sleep(delay_s)
-                    
-            self.status("Batch complete", f"All {part_count} parts sent", state="ready")
-            return True
+            if part_count > MAX_BATCH_PARTS:
+                self.status("File too large", f"At this chunk size, the receiver supports at most {MAX_BATCH_PARTS} parts.", state="error")
+                return False
+            if part_count > 1:
+                full_crc = 0xFFFF
+                with path.open("rb") as source:
+                    while True:
+                        block = source.read(64 * 1024)
+                        if not block:
+                            break
+                        full_crc = crc16_ccitt(block, initial_crc=full_crc)
 
+                group_id = random.randint(1, 65535)
+                self.status("Batching large file", f"{file_size:,} B split into {part_count} parts", state="active")
+                with path.open("rb") as source:
+                    for part_index in range(1, part_count + 1):
+                        expected_size = min(part_size, file_size - source.tell())
+                        part = source.read(expected_size)
+                        if len(part) != expected_size:
+                            self.status("Send failed", f"Source changed while reading part {part_index}/{part_count}", state="error")
+                            return False
+
+                        part_tid = random.randint(1, 65535)
+                        part_crc = crc16_ccitt(part)
+                        prefix = f"VLCB1~{group_id:04X}~{part_index:03d}~{part_count:03d}~{full_crc:04X}~"
+                        encoded_name = (prefix + path.name).encode("utf-8", errors="replace")
+                        part_name_bytes = encoded_name[:MAX_NAME_BYTES].decode("utf-8", errors="ignore").encode("utf-8")
+                        self.status("Sending batch part", f"Part {part_index}/{part_count} · {len(part):,} B", state="active")
+                        if not self._send_stream(path, part, part_name_bytes, chunk_size, part_tid, part_crc, round_count):
+                            return False
+
+                        if part_index < part_count:
+                            serial_bytes = (len(part) * 2) + 256
+                            serial_seconds = (serial_bytes * 10) / max(1, BAUDRATE_RX)
+                            delay_s = max(6.0, min(14.0, 2.0 + serial_seconds * 1.25))
+                            self.status("Batch delay", f"Waiting {delay_s:.1f}s for RX serial output...", state="active")
+                            time.sleep(delay_s)
+
+                self.status("Batch complete", f"All {part_count} parts sent", state="ready")
+                return True
+
+        data = path.read_bytes()
         name_bytes = path.name.encode("utf-8", errors="replace")[:MAX_NAME_BYTES]
-        tid         = random.randint(1, 65535)
-        file_crc    = crc16_ccitt(data)
-
+        tid = random.randint(1, 65535)
+        file_crc = crc16_ccitt(data)
         if use_dma:
             return self._send_dma(path, data, name_bytes, chunk_size, tid, file_crc)
-        else:
-            return self._send_stream(path, data, name_bytes, chunk_size, tid, file_crc, round_count)
+        return self._send_stream(path, data, name_bytes, chunk_size, tid, file_crc, round_count)
 
     # ── DMA protocol (tx_dma.ino) ────────────────────────────────────────────
 

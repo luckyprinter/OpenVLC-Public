@@ -93,6 +93,22 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
             if stage is None or stage.height() < 38 or desc is None or desc.height() < 12:
                 raise RuntimeError(f"TX pipeline stage {stage_name} is clipped at {width}x{height}")
 
+    if mode == "rx" and page_name == "dashboard":
+        page = shell._page_widgets.get("dashboard")
+        file_panel = getattr(page, "_file_info", None)
+        if file_panel is None or file_panel.height() < 180:
+            raise RuntimeError(f"RX received-file panel is too short at {width}x{height}")
+        for row_name in ("filename_row", "filesize_row", "received_size_row", "pct_row", "progress_bar"):
+            row = getattr(file_panel, row_name, None)
+            if row is None or not row.isVisible():
+                raise RuntimeError(f"RX received-file row {row_name} is missing at {width}x{height}")
+            bottom = row.mapTo(file_panel, QPoint(0, row.height())).y()
+            if bottom > file_panel.height() - 4:
+                raise RuntimeError(
+                    f"RX received-file row {row_name} is clipped at {width}x{height}: "
+                    f"bottom={bottom}, card_height={file_panel.height()}"
+                )
+
     if mode == "tx":
         page = shell._page_widgets.get(page_name)
         table_names = {

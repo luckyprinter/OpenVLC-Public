@@ -43,7 +43,7 @@ def _read_all() -> tuple[list[dict[str, Any]], bool]:
         return [], False
     try:
         data = json.loads(STORE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return [], True
     required = {"id", "name", "type", "created_at", "notes"}
     allowed = required | {"record_count"}
@@ -74,8 +74,17 @@ def _save_all(items: list[dict[str, Any]]) -> None:
         )
     STORE_DIR.mkdir(parents=True, exist_ok=True)
     temporary = STORE_PATH.with_suffix(".tmp")
-    temporary.write_text(json.dumps(items, indent=2), encoding="utf-8")
-    temporary.replace(STORE_PATH)
+    try:
+        temporary.write_text(json.dumps(items, indent=2), encoding="utf-8")
+        temporary.replace(STORE_PATH)
+    except OSError as exc:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ExperimentStoreError(
+            f"Could not save experiment data; existing records were preserved: {exc}"
+        ) from exc
 
 
 def list_experiments() -> list[Experiment]:

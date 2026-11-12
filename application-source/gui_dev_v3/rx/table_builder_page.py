@@ -16,6 +16,8 @@ from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
     QHBoxLayout,
+    QLayout,
+    QBoxLayout,
     QHeaderView,
     QLabel,
     QLineEdit,
@@ -98,12 +100,20 @@ class TableBuilderPage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._compact_layout = False
+        self._narrow_layout = False
+        self.setMinimumWidth(0)
         self._stack = QVBoxLayout(self)
+        self._stack.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         self._stack.setContentsMargins(0, 0, 0, 0)
         self._stack.setSpacing(0)
 
         self._builder_view = self._build_builder_view()
         self._preview_view = self._build_preview_view()
+        self._builder_view.setMinimumWidth(0)
+        self._preview_view.setMinimumWidth(0)
+        if self._preview_view.layout() is not None:
+            self._preview_view.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
 
         self._stack.addWidget(self._builder_view)
         self._stack.addWidget(self._preview_view)
@@ -120,6 +130,9 @@ class TableBuilderPage(QWidget):
     def _build_builder_view(self) -> QWidget:
         outer = QWidget()
         layout = QVBoxLayout(outer)
+        self._builder_layout = layout
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        outer.setMinimumWidth(0)
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(20)
 
@@ -129,7 +142,8 @@ class TableBuilderPage(QWidget):
         layout.addWidget(title)
 
         # Top row: Table Name + Rows + Template
-        top_row = QHBoxLayout()
+        top_row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._builder_top_row = top_row
         top_row.setSpacing(20)
         layout.addLayout(top_row)
 
@@ -137,7 +151,7 @@ class TableBuilderPage(QWidget):
         name_label.setObjectName("Muted")
         top_row.addWidget(name_label)
         self._name_input = QLineEdit("Distance Test Results")
-        self._name_input.setMinimumWidth(240)
+        self._name_input.setMinimumWidth(0)
         top_row.addWidget(self._name_input)
 
         rows_label = QLabel("Rows")
@@ -153,7 +167,7 @@ class TableBuilderPage(QWidget):
         template_label.setObjectName("Muted")
         top_row.addWidget(template_label)
         self._template_combo = QComboBox()
-        self._template_combo.setMinimumWidth(200)
+        self._template_combo.setMinimumWidth(0)
         self._template_combo.addItem("Custom (No Template)")
         for tname in VLC_PAPER_TEMPLATES.keys():
             self._template_combo.addItem(tname)
@@ -163,12 +177,15 @@ class TableBuilderPage(QWidget):
         top_row.addStretch(1)
 
         # Three-column body
-        three_col = QHBoxLayout()
+        three_col = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._three_col_layout = three_col
         three_col.setSpacing(16)
         layout.addLayout(three_col, 1)
 
         # ── Left: Available Columns (category tree) ──
         left_card = Card("Available Columns")
+        self._available_card = left_card
+        left_card.setMinimumWidth(0)
         three_col.addWidget(left_card, 1)
 
         # Search for available columns
@@ -178,13 +195,15 @@ class TableBuilderPage(QWidget):
         left_card.body.addWidget(self._avail_search)
 
         self._avail_list = QListWidget()
+        self._avail_list.setMinimumWidth(0)
         self._avail_list.setAlternatingRowColors(False)
         self._avail_list.setSpacing(1)
         self._avail_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         left_card.body.addWidget(self._avail_list, 1)
 
         # ── Arrow buttons ──
-        arrow_col = QVBoxLayout()
+        arrow_col = QBoxLayout(QBoxLayout.Direction.TopToBottom)
+        self._arrow_layout = arrow_col
         arrow_col.setAlignment(Qt.AlignmentFlag.AlignCenter)
         arrow_col.setSpacing(8)
         three_col.addLayout(arrow_col)
@@ -201,9 +220,12 @@ class TableBuilderPage(QWidget):
 
         # ── Center: Selected Columns ──
         center_card = Card("Selected Columns (Drag to Reorder)")
+        self._selected_card = center_card
+        center_card.setMinimumWidth(0)
         three_col.addWidget(center_card, 1)
 
         self._selected_list = QListWidget()
+        self._selected_list.setMinimumWidth(0)
         self._selected_list.setAlternatingRowColors(False)
         self._selected_list.setSpacing(2)
         self._selected_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
@@ -218,9 +240,12 @@ class TableBuilderPage(QWidget):
 
         # ── Right: Manual Input Columns (draggable reorder) ──
         right_card = Card("Manual Input Columns (Drag to Reorder)")
+        self._manual_card = right_card
+        right_card.setMinimumWidth(0)
         three_col.addWidget(right_card, 1)
 
         self._manual_list = QListWidget()
+        self._manual_list.setMinimumWidth(0)
         self._manual_list.setAlternatingRowColors(False)
         self._manual_list.setSpacing(2)
         self._manual_list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
@@ -247,7 +272,7 @@ class TableBuilderPage(QWidget):
         btn_row.setSpacing(16)
         layout.addLayout(btn_row)
 
-        preview_btn = QPushButton("  \U0001f50d  Preview Table")
+        preview_btn = QPushButton("Preview Blank Template")
         preview_btn.setMinimumHeight(38)
         preview_btn.setStyleSheet(
             f"background: {COLORS.get('purple', '#7c3aed')}; color: white; "
@@ -256,7 +281,7 @@ class TableBuilderPage(QWidget):
         preview_btn.clicked.connect(self._on_preview)
         btn_row.addWidget(preview_btn)
 
-        generate_btn = QPushButton("  \u2699  Generate Table")
+        generate_btn = QPushButton("Create Blank Table")
         generate_btn.setMinimumHeight(38)
         generate_btn.setObjectName("Primary")
         generate_btn.clicked.connect(self._on_generate)
@@ -278,6 +303,54 @@ class TableBuilderPage(QWidget):
         self._manual_list.model().rowsMoved.connect(self._on_manual_list_changed)
 
         return outer
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Stack table-builder columns and form controls on compact screens."""
+        super().resizeEvent(event)
+        narrow = self.width() < 1000
+        compact = narrow or self.height() < 620
+        if compact == self._compact_layout and narrow == self._narrow_layout:
+            return
+        self._compact_layout = compact
+        self._narrow_layout = narrow
+        # SetNoConstraint on the inner layouts keeps the page from deriving a
+        # useful minimum size from its stacked children. Give the scroll area
+        # an explicit content height so narrow layouts can scroll instead of
+        # compressing the cards into unusable strips.
+        self.setMinimumHeight(900 if narrow else 0)
+
+        # Give stacked cards enough vertical room for their list controls.
+        # Without this, the outer scroll area can squeeze the three cards down
+        # to header-height slivers, leaving their contents effectively hidden.
+        card_min_height = 220 if narrow else 0
+        for card in (self._available_card, self._selected_card, self._manual_card):
+            card.setMinimumHeight(card_min_height)
+
+        # A short but wide laptop window still has room for the three-column
+        # picker. Reduce spacing there instead of stacking every card and
+        # creating multiple competing vertical scroll regions.
+        self._builder_layout.setContentsMargins(
+            12 if compact else 32,
+            12 if compact else 28,
+            12 if compact else 32,
+            12 if compact else 28,
+        )
+        self._builder_layout.setSpacing(12 if compact else 20)
+        self._builder_top_row.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if narrow else QBoxLayout.Direction.LeftToRight
+        )
+        self._builder_top_row.setSpacing(8 if narrow else (12 if compact else 20))
+        self._three_col_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if narrow else QBoxLayout.Direction.LeftToRight
+        )
+        self._three_col_layout.setSpacing(12 if compact else 16)
+        self._arrow_layout.setDirection(
+            QBoxLayout.Direction.LeftToRight
+            if narrow else QBoxLayout.Direction.TopToBottom
+        )
+        self._arrow_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
     def _build_available_list(self) -> None:
         self._avail_list.clear()
@@ -433,6 +506,14 @@ class TableBuilderPage(QWidget):
 
         title_row.addStretch(1)
 
+        self._preview_notice = QLabel(
+            "Template only — cells are intentionally blank. Enter actual measurements "
+            "before exporting; no synthetic test data is generated."
+        )
+        self._preview_notice.setObjectName("Muted")
+        self._preview_notice.setWordWrap(True)
+        layout.addWidget(self._preview_notice)
+
         back_btn = QPushButton("  \u2190  Back to Builder")
         back_btn.clicked.connect(self._show_builder)
         back_btn.setMinimumHeight(32)
@@ -495,7 +576,7 @@ class TableBuilderPage(QWidget):
         self._preview_view.show()
 
     def _on_preview(self) -> None:
-        """Preview the selected table structure with blank measurement cells."""
+        """Preview a blank table template using the selected columns."""
         if not self._selected_keys:
             return
         self._generate_table_data(preview=True)
@@ -546,33 +627,39 @@ class TableBuilderPage(QWidget):
         return labels
 
     def _generate_table_data(self, preview: bool = True) -> None:
-        """Build an editable table structure without inventing experimental results."""
+        """Create a blank table template; never fabricate experimental measurements."""
+        keys = self._get_column_keys()
         labels = self._get_column_labels()
         n_rows = self._rows_spin.value()
 
+        # A trial number is a row identifier, not a measured value. All
+        # experimental fields remain empty until the user supplies real data.
+        rows = [
+            [str(row + 1) if key == "trial_col" else "" for key in keys]
+            for row in range(n_rows)
+        ]
+
         self._preview_title.setText(
-            f"TABLE PREVIEW — {self._name_input.text()} (ENTER MEASURED VALUES)"
+            f"TABLE TEMPLATE PREVIEW — {self._name_input.text()}"
+        )
+        self._preview_notice.setText(
+            "Template only — cells are intentionally blank. Enter actual measurements "
+            "before exporting; no synthetic test data is generated."
         )
 
         column_count = len(labels)
         self._preview_table.setColumnCount(column_count)
         self._preview_table.setHorizontalHeaderLabels(labels)
         self._preview_table.setRowCount(n_rows)
-        self._preview_table.setEditTriggers(
-            QTableWidget.EditTrigger.DoubleClicked
-            | QTableWidget.EditTrigger.EditKeyPressed
-            | QTableWidget.EditTrigger.AnyKeyPressed
-        )
-        self._preview_table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        for row in range(n_rows):
-            for column in range(column_count):
-                item = QTableWidgetItem("")
+        for row_index, row_data in enumerate(rows):
+            for column_index, value in enumerate(row_data):
+                item = QTableWidgetItem(value)
                 item.setTextAlignment(
-                    Qt.AlignmentFlag.AlignRight if column > 0
-                    else Qt.AlignmentFlag.AlignLeft
+                    Qt.AlignmentFlag.AlignRight
+                    if column_index > 0 else Qt.AlignmentFlag.AlignLeft
                 )
-                self._preview_table.setItem(row, column, item)
+                self._preview_table.setItem(row_index, column_index, item)
 
         header = self._preview_table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)

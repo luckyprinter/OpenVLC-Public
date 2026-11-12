@@ -177,7 +177,6 @@ class TXAppState:
     def apply_link_settings_from_ui(self, freq: int, preamble: int, gap: int, fgap: int, active_low: bool, idle_on: bool, intensity: int, quiet: bool, dma_mode: bool) -> bool:
         """Apply TX link settings and report whether all serial writes succeeded."""
         with self._lock:
-            mode = self.mode
             physical = self._physical
         if physical is None:
             return False

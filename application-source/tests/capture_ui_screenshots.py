@@ -30,6 +30,20 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
         file_panel = getattr(page, "_file_details", None)
         body = getattr(file_panel, "body", None)
         if body is not None:
+            # The primary file controls must retain their full height and a
+            # small bottom inset at compact laptop resolutions.
+            layout = body
+            layout.activate()
+            for control_name in ("select_btn", "start_btn"):
+                control = getattr(file_panel, control_name, None)
+                if control is None or not control.isVisible():
+                    raise RuntimeError(f"TX dashboard is missing visible {control_name} at {width}x{height}")
+                bottom = control.mapTo(file_panel, QPoint(0, control.height())).y()
+                if control.height() < 28 or bottom > file_panel.height() - 4:
+                    raise RuntimeError(
+                        f"TX dashboard {control_name} is clipped or compressed at {width}x{height}: "
+                        f"height={control.height()}, bottom={bottom}, card_height={file_panel.height()}"
+                    )
             # Card.body is already a QVBoxLayout; activate it before measuring.
             layout = body
             layout.activate()

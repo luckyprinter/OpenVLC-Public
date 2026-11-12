@@ -335,14 +335,16 @@ def test_rx_experiments_stack_form_and_saved_records_on_compact_display(qapp, mo
     assert not page._empty_state.isHidden()
     assert page._table.isHidden()
     assert page._table.rowCount() == 0
-    page.resize(680, 500)
+    # The 1024x700 target must stack the form and saved-records table.
+    page.resize(1024, 700)
     page.show()
     qapp.processEvents()
 
     assert page._compact_layout
     assert page._body_layout.direction() == QBoxLayout.Direction.TopToBottom
 
-    page.resize(1100, 700)
+    # Only a genuinely roomy work area should restore the side-by-side layout.
+    page.resize(1200, 760)
     qapp.processEvents()
     assert not page._compact_layout, f"actual page size: {page.width()}x{page.height()}"
     assert page._body_layout.direction() == QBoxLayout.Direction.LeftToRight

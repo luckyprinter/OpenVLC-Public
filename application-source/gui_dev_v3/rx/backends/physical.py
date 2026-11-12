@@ -821,8 +821,10 @@ class RXPhysicalBackend:
         """Read live serial telemetry, then recent cached status, then offline state.
 
         Cached status is useful for continuity but is never treated as a live
-        serial connection.
+        serial connection. Incomplete batch groups expire during normal polling
+        even when no further fragments arrive.
         """
+        self._prune_expired_batches()
         if not self._connected:
             from gui_dev_v3.settings import SettingsManager
             mgr = SettingsManager("rx")

@@ -338,3 +338,44 @@ def test_file_payload_length_mismatch_is_rejected_and_active_state_cleared(
     assert backend._active_filename == ""
     assert backend._active_total_size == 0
     assert not list(tmp_path.iterdir())
+
+
+def test_batch_group_is_discarded_when_payload_length_fails_before_metadata_parse(
+    tmp_path, monkeypatch
+):
+    from gui_dev_v3.logic.batch_assembler import BatchAssembler
+    from gui_dev_v3.rx.backends.physical import crc16_ccitt
+
+    monkeypatch.setattr(logger, "file_log", lambda *_args, **_kwargs: None)
+    backend = RXPhysicalBackend()
+    backend._record_diag = lambda *_args, **_kwargs: None
+    backend._save_dir = tmp_path
+    backend._batch_assembler = BatchAssembler()
+    backend._batch_assembler.add_part(
+        group_id="length-mismatch",
+        part_index=1,
+        part_count=2,
+        full_crc=0x1234,
+        filename="bad.bin",
+        part_data=b"first",
+        part_crc_ok=True,
+        part_chunks=1,
+        tid=82,
+    )
+    wrapped = "VLCB1~length-mismatch~2~2~1234~bad.bin"
+    name_hex = wrapped.encode().hex()
+    backend._handle_transfer_notice(
+        f"RX_TRANSFER_NOTICE:82:10:1:1234:{name_hex}"
+    )
+    payload = b"part"
+    line = (
+        f"RX_FILE_HEX:82:DATA:10:1:{crc16_ccitt(payload):04X}:"
+        f"{name_hex}:{payload.hex()}"
+    )
+
+    backend._handle_file_hex(line)
+
+    assert backend._batch_assembler.pending_count == 0
+    assert backend._active_batch_group_id is None
+    assert backend._active_tid is None
+    assert not list(tmp_path.iterdir())

@@ -246,6 +246,7 @@ class SignalMonitorPage(QWidget):
         self._vref_hist: list[float] = []
         self._margin_hist: list[float] = []
         self._last_ook_chunk: int = -1  # track chunk index for OOK update
+        self._compact_layout = False
 
         self._build_ui()
 
@@ -253,6 +254,29 @@ class SignalMonitorPage(QWidget):
         self._sample_timer = QTimer(self)
         self._sample_timer.timeout.connect(self._sample_waveform)
         self._sample_timer.start(100)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Reflow signal diagnostics into a scrollable single-column workspace."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+
+        columns = 2 if compact else 6
+        for index, widget in enumerate(self._metric_widgets):
+            self._metric_grid.removeWidget(widget)
+            self._metric_grid.addWidget(widget, index // columns, index % columns)
+
+        orientation = Qt.Orientation.Vertical if compact else Qt.Orientation.Horizontal
+        self._middle_splitter.setOrientation(orientation)
+        self._bottom_splitter.setOrientation(orientation)
+        if compact:
+            self._middle_splitter.setSizes([320, 240, 200])
+            self._bottom_splitter.setSizes([300, 260])
+        else:
+            self._middle_splitter.setSizes([460, 300, 300])
+            self._bottom_splitter.setSizes([450, 450])
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -314,6 +338,7 @@ class SignalMonitorPage(QWidget):
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setSpacing(6)
+        self._metric_grid = grid
 
         self._metric_pvo = MetricCard("PVo (TIA Out)", color="#22c55e")
         self._metric_vref = MetricCard("Vref (Threshold)", color="#3b82f6")
@@ -322,13 +347,14 @@ class SignalMonitorPage(QWidget):
         self._quality_top = CircularGauge("Signal Quality")
         self._noise_top = CircularGauge("Noise Level", inverted=True)
 
-        for w in [
+        self._metric_widgets = [
             self._metric_pvo, self._metric_vref, self._metric_margin,
             self._metric_state, self._quality_top, self._noise_top,
-        ]:
+        ]
+        for w in self._metric_widgets:
             w.setObjectName("Card")
 
-        # Single row: all 6 widgets
+        # Single row on wide displays; compact layouts use two columns.
         grid.addWidget(self._metric_pvo, 0, 0)
         grid.addWidget(self._metric_vref, 0, 1)
         grid.addWidget(self._metric_margin, 0, 2)

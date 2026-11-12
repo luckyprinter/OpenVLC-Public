@@ -1254,9 +1254,9 @@ class OOKWaveformWidget(QWidget):
     Symbol width: 3 px per bit, scrolling left.
     Buffer: ring buffer of MAX_SYMBOLS bits.
 
-    Data sources:
-      - Simulated: bits from 4B5B encoding of current file chunk bytes.
-      - Physical:  comparator decision PVo > Vref → 1, else 0.
+    Data source:
+      - Physical receiver comparator decisions (PVo > Vref → 1, else 0),
+        or recorded bits loaded from a completed hardware capture.
     """
 
     MAX_SYMBOLS = 600
@@ -1385,7 +1385,7 @@ class OOKWaveformWidget(QWidget):
         if self._paused or self._playback_mode:
             return
         bits = _encode_4b5b(data)
-        # Rotate by seed_offset to simulate scrolling
+        # Advance the ring-buffer view to keep the waveform scrolling
         if seed_offset > 0 and bits:
             n = len(bits)
             offset = seed_offset % n

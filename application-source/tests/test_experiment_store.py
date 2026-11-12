@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from gui_dev_v3.rx import experiment_store as store
@@ -75,7 +77,7 @@ def test_legacy_experiment_records_remain_available_and_are_copied_on_save(
         "notes": "Existing user record",
         "record_count": 2,
     }]
-    legacy_path.write_text(__import__("json").dumps(original), encoding="utf-8")
+    legacy_path.write_text(json.dumps(original), encoding="utf-8")
     current_path = tmp_path / "app-data" / "experiments.json"
     monkeypatch.setattr(store, "STORE_DIR", current_path.parent)
     monkeypatch.setattr(store, "STORE_PATH", current_path)

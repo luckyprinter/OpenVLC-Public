@@ -422,3 +422,74 @@ def test_serial_reader_dispatches_only_complete_fragmented_lines(fake_serial):
     assert received == [
         "RX_FILE_HEX:17:DATA:81920:320:ABCD:66696C652E62696E:" + ("deadbeef" * 8)
     ]
+
+
+def test_preferred_serial_port_is_tried_first_without_dropping_fallbacks():
+    from gui_dev_v3.serial.detection import prioritize_preferred_port
+
+    assert prioritize_preferred_port(["COM4", "COM7", "COM4"], "COM7") == [
+        "COM7", "COM4"
+    ]
+    assert prioritize_preferred_port(["COM4", "COM7"], "COM9") == [
+        "COM4", "COM7"
+    ]
+    assert prioritize_preferred_port(["COM4", "COM7"], "") == [
+        "COM4", "COM7"
+    ]
+
+
+def test_rx_auto_connect_prioritizes_only_rx_saved_port(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager,
+        "get",
+        lambda self, key, default=None: "RX_PREFERRED" if key == "connection/port" else default,
+    )
+    backend = RXPhysicalBackend()
+    attempts = []
+    backend.scan_ports = lambda: ["OTHER", "RX_PREFERRED"]
+    backend.detect_firmware = lambda port: (
+        attempts.append(port) or
+        ({"device": "VLC_RX", "firmware": "rx_test", "board": "test"}
+         if port == "RX_PREFERRED" else None)
+    )
+    backend._open_serial = lambda: True
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._auto_connect_locked() is True
+    assert attempts == ["RX_PREFERRED"]
+    assert backend.port == "RX_PREFERRED"
+    backend._connected = False
+
+
+def test_tx_auto_connect_prioritizes_only_tx_saved_port(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager,
+        "get",
+        lambda self, key, default=None: "TX_PREFERRED" if key == "connection/port" else default,
+    )
+    backend = TXPhysicalBackend()
+    attempts = []
+    backend.scan_ports = lambda: ["OTHER", "TX_PREFERRED"]
+    backend.detect_firmware = lambda port: (
+        attempts.append(port) or
+        ({"device": "VLC_TX", "firmware": "tx_test", "board": "test"}
+         if port == "TX_PREFERRED" else None)
+    )
+    backend._open_serial = lambda: True
+    backend._wait_for_firmware_ready = lambda: True
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._auto_connect_locked() is True
+    assert attempts == ["TX_PREFERRED"]
+    assert backend.port == "TX_PREFERRED"
+    backend._connected = False

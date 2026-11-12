@@ -17,17 +17,12 @@ from PySide6.QtWidgets import (
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.widgets import Card, muted_label, value_label, panel_header
 from gui_dev_v3.theme import COLORS
-from gui_dev_v3.logic.ber_bridge import compare_files
 
 class BERAnalyzerPage(QWidget):
     """Dedicated tab for comparing received files against reference files and analyzing BER."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._last_tid = -1
-        self._last_chunk_count = -1
-        self._last_expected_path = ""
-        self._last_received_path = ""
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 20)

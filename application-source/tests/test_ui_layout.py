@@ -195,6 +195,18 @@ def test_rx_signal_page_uses_unavailable_markers_when_disconnected(qapp):
         page.shutdown()
 
 
+def test_signal_gauges_show_unavailable_state_when_disconnected(qapp):
+    from gui_dev_v3.rx.signal_widgets import CircularGauge
+
+    gauge = CircularGauge("Signal Quality")
+    gauge.set_percent(0)
+    gauge.set_available(False)
+
+    assert gauge._available is False
+    assert gauge._subtext() == "Offline"
+    assert gauge._color().name().lower() == "#708090"
+
+
 def test_theme_picker_shows_curated_presets_and_keeps_saved_legacy_theme(qapp):
     from gui_dev_v3.settings import ThemePickerGrid
 

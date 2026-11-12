@@ -220,7 +220,6 @@ class HardwareConnectionPage(QWidget):
             if answer != QMessageBox.StandardButton.Yes:
                 return
 
-            self._state.set_mode("physical")
             for btn in mode_group._buttons:
                 if btn.text() == "Manual":
                     btn.setChecked(True)

@@ -1,4 +1,4 @@
-"""Transfer record loaders — reads live data from vlc_beta logs and receive folder."""
+"""Transfer record loaders for application-owned logs and received files."""
 
 from __future__ import annotations
 

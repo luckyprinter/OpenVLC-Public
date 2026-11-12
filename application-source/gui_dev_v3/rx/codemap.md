@@ -5,16 +5,16 @@ All UI pages and logic specific to the VLC Receiver application. Provides the ma
 
 ## Design
 - **Shell/Page pattern**: `RXShell` owns a `QListWidget` sidebar + `QStackedWidget` content area. Pages are registered by key matching `SIDEBAR_TABS` in `navigation.py`. A `QTimer` polls state every 1s and refreshes the active page.
-- **Mode toggle**: `ModeToggle` (from root `widgets.py`) switches between `physical`/`simulated` mode, saved to QSettings.
-- **Dashboard subpanels**: `RXDashboardPage` composes `_ReceptionStatusPanel`, `_PerformanceMetricsPanel`, `_SignalMonitorPanel`, `_SignalWaveformPanel`, `_FileInfoPanel`, `_ActivityLogPanel`. Each has a `refresh(state)` method that clears and rebuilds its content from the current `RXAppState`.
+- **Hardware connection**: `RXShell` displays the physical ESP32 connection and firmware state. The receiver has no simulated operating mode.
+- **Dashboard subpanels**: `RXDashboardPage` composes reception status, performance metrics, signal monitoring, file information, decoder status, and activity-log panels. Detailed live waveforms and signal history are provided on the Signal page.
 - **Experiment store**: `experiment_store.py` is a JSON-file-backed CRUD store at `~/.vlc_rx/experiments.json` with seed data. `experiments_page.py` exposes form + table UI.
-- **Table Builder**: `table_builder_page.py` has a two-view system (builder → preview). Uses `QListWidget` with drag-drop reorder, category-grouped available columns, manual columns with checkboxes, and generates realistic mock VLC test data.
+- **Table Builder**: `table_builder_page.py` has a two-view system (builder → preview). Uses `QListWidget` with drag-drop reorder, category-grouped available columns, and manual columns with checkboxes. Any sample rows are table-preview fixtures only; they do not emulate or replace hardware data.
 - **Settings**: `settings.py` in this folder assembles a `SettingsContainer` with 9 section pages (General, Connection, Firmware, Signal Monitoring, Experiments, Database, Table Generator, Logging, Developer) using reusable `SettingRow`/`bind_*` helpers.
 
 ## Flow
 ```
 RXShell.__init__()
-  → Restore mode from QSettings
+  → Initialize hardware-only receiver state
   → Build sidebar + register pages in QStackedWidget
   → _build_pages() creates page instances (dashboard, experiments, etc.)
   → _on_nav_changed() switches QStackedWidget, calls refresh()

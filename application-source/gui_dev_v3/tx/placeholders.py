@@ -287,16 +287,16 @@ class LogsPage(QWidget):
         self.logs_table.setHorizontalHeaderLabels(["Timestamp", "Filename", "Outcome", "Chunks Sent", "Data Rate", "Duration"])
         self.logs_table.verticalHeader().setDefaultSectionSize(32)
         lhdr = self.logs_table.horizontalHeader()
-        lhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)            # Timestamp
+        # Let content-sized columns use their real labels/values instead of
+        # fixed pixel widths. This keeps the filename column usable on compact
+        # laptop windows and at higher display scaling factors.
+        lhdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents) # Timestamp
         lhdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)          # Filename
-        lhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)            # Outcome
+        lhdr.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents) # Outcome
         lhdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents) # Chunks Sent
-        lhdr.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)            # Data Rate
-        lhdr.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)            # Duration
-        self.logs_table.setColumnWidth(0, 90)   # Timestamp (HH:MM:SS)
-        self.logs_table.setColumnWidth(2, 150)  # Outcome  (SUCCESS / FAILED + badges)
-        self.logs_table.setColumnWidth(4, 120)  # Data Rate (e.g. "12345 bps")
-        self.logs_table.setColumnWidth(5, 100)  # Duration (HH:MM:SS)
+        lhdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents) # Data Rate
+        lhdr.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents) # Duration
+        lhdr.setMinimumSectionSize(64)
         self.logs_table.verticalHeader().setVisible(False)
         self.logs_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.logs_table.setAlternatingRowColors(True)

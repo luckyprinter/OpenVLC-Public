@@ -610,6 +610,7 @@ class _SwatchCard(QWidget):
         self.setStyleSheet(
             f"QWidget#ThemeSwatch {{ border: {border_width} solid {border_color}; "
             f"border-radius: 6px; background: {bg}; }}"
+            f"QWidget#ThemeSwatch:focus {{ border: 2px solid {self._preset['preview_accent']}; }}"
         )
 
     def set_active(self, active: bool) -> None:

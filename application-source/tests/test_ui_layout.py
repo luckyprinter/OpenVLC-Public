@@ -16,6 +16,7 @@ from gui_dev_v3.rx.dashboard import RXDashboardPage
 from gui_dev_v3.rx.receive_page import ReceivePage
 from gui_dev_v3.rx.ber_analyzer_page import BERAnalyzerPage
 from gui_dev_v3.rx.experiments_page import ExperimentsPage
+from gui_dev_v3.rx import experiment_store as experiment_store_module
 from gui_dev_v3.rx.table_builder_page import TableBuilderPage
 from gui_dev_v3.rx.export_page import ExportPage
 from gui_dev_v3.rx import export_page as export_page_module

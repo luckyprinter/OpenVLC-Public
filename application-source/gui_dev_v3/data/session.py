@@ -53,19 +53,26 @@ def build_session_from_status(role: str, transfer: TransferRecord | None = None)
         vref=vref_v,
         margin=margin_v,
         target_margin=0.365,
-        adc_vref=3.300,
-        lux=420,
-        data_rate=rate_bps / 1000.0 if rate_bps else 0.0,
-        ber=0.0,
-        strict_ber=0.0,
-        crc_status="PASS" if "complete" in stage.lower() else "Unknown",
-        time_elapsed="--",
+        adc_vref=(
+            float(sig_status.get("adc_vref") or rx_status.get("adc_vref"))
+            if sig_status.get("adc_vref") or rx_status.get("adc_vref") else None
+        ),
+        # No lux meter is part of this receiver setup.
+        lux=None,
+        data_rate=rate_bps / 1000.0 if rate_bps > 0 else None,
+        ber=None,
+        strict_ber=None,
+        crc_status=str(rx_status.get("crc_status") or sig_status.get("crc_status") or "Unknown"),
+        time_elapsed=str(rx_status.get("time_elapsed") or ""),
     )
 
     # Use provided transfer or build a minimal one from status
     if transfer is None:
-        total_chunks = 97  # reasonable default when unknown
-        received = int(percent / 100 * total_chunks) if percent > 0 else 0
+        total_chunks = int(rx_status.get("total_chunks") or 0)
+        received = int(rx_status.get("received_chunks") or 0)
+        if total_chunks > 0 and received <= 0 and percent > 0:
+            received = int(percent / 100 * total_chunks)
+        received = min(max(received, 0), total_chunks)
         status = TransferStatus.INCOMPLETE
         if "complete" in stage.lower() or "success" in stage.lower():
             status = TransferStatus.COMPLETE
@@ -88,15 +95,15 @@ def build_session_from_status(role: str, transfer: TransferRecord | None = None)
             received_chunks=received,
             quality=TransferQuality(
                 label=quality_label,
-                strict_ber=0.0,
-                bit_accuracy=100.0,
-                bit_errors=0,
-                total_bits=size_bytes * 8,
+                strict_ber=None,
+                bit_accuracy=None,
+                bit_errors=None,
+                total_bits=0,
                 compared_bytes=0,
                 missing_chunks=total_chunks - received,
                 missing_bytes=0,
                 first_issue="None",
-                crc_status="PASS" if "complete" in stage.lower() else "Pending",
+                crc_status=str(rx_status.get("crc_status") or rx_status.get("crc16_ccitt") or "Unknown"),
                 recovery_rate=percent,
             ),
         )
@@ -127,9 +134,9 @@ def build_empty_session() -> SessionState:
         received_chunks=0,
         quality=TransferQuality(
             label="No Data",
-            strict_ber=0.0,
-            bit_accuracy=100.0,
-            bit_errors=0,
+            strict_ber=None,
+            bit_accuracy=None,
+            bit_errors=None,
             total_bits=0,
             compared_bytes=0,
             missing_chunks=0,
@@ -150,12 +157,12 @@ def build_empty_session() -> SessionState:
             vref=0.0,
             margin=0.0,
             target_margin=0.365,
-            adc_vref=0.0,
-            lux=0,
-            data_rate=0.0,
-            ber=0.0,
-            strict_ber=0.0,
-            crc_status="",
+            adc_vref=None,
+            lux=None,
+            data_rate=None,
+            ber=None,
+            strict_ber=None,
+            crc_status="Unknown",
             time_elapsed="",
         ),
         latest_transfer=empty_transfer,
@@ -164,9 +171,9 @@ def build_empty_session() -> SessionState:
 
 def default_experiment_metadata() -> ExperimentMetadata:
     return ExperimentMetadata(
-        environment="Lab desk, indoor ambient light",
-        distance="45 cm",
-        frequency="15 kHz",
-        vref_mode="Auto lock before receive",
+        environment="",
+        distance="",
+        frequency="",
+        vref_mode="",
         notes="",
     )

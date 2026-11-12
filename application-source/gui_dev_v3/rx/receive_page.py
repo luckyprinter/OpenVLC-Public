@@ -190,7 +190,7 @@ class ReceivePage(QWidget):
         else:
             self.lock_btn.setText("Auto Vref (Auto-Calibrate)")
             self.lock_btn.setStyleSheet("")
-            if self._app_state and self._app_state.mode == "physical":
+            if self._app_state:
                 self._app_state.send_firmware_command("VREF_MODE=AUTO\n")
 
     def _on_clear_terminal(self) -> None:

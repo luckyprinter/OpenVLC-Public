@@ -329,20 +329,12 @@ class RXDashboardPage(QWidget):
         outer.setContentsMargins(20, 16, 20, 16)
         outer.setSpacing(14)
 
-        # Receiver page identity and a concise description of its purpose.
-        intro = QVBoxLayout()
-        intro.setContentsMargins(2, 0, 2, 2)
-        intro.setSpacing(3)
-        eyebrow = QLabel("RECEIVER  /  MONITORING")
-        eyebrow.setObjectName("SectionTitle")
-        heading = QLabel("Reception overview")
-        heading.setStyleSheet("font-size: 21px; font-weight: 750; letter-spacing: -0.4px; background: transparent;")
-        description = QLabel("Track link quality, signal levels, file progress, and decoder state.")
-        description.setObjectName("Muted")
-        intro.addWidget(eyebrow)
-        intro.addWidget(heading)
-        intro.addWidget(description)
-        outer.addLayout(intro)
+        outer.addWidget(PageIntro(
+            "RECEIVER  /  MONITORING",
+            "Reception overview",
+            "Track link quality, signal levels, file progress, and decoder state.",
+            self,
+        ))
 
         # At-a-glance link and signal indicators remain grouped together.
         self._reception = _ReceptionStatusPanel(state)
@@ -374,8 +366,34 @@ class RXDashboardPage(QWidget):
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
         outer.addWidget(splitter, 1)
+        self._splitter = splitter
+        self._detail_widget = detail_widget
+        self._compact_layout = False
 
         self.refresh()
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Keep the overview useful on short/high-DPI laptop work areas."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+
+        self._perf.setVisible(not compact)
+        self._signal_mon.setVisible(not compact)
+        self._bit_decode.setVisible(not compact)
+        self._activity_log.setVisible(not compact)
+        self._file_info.filesize_row.setVisible(not compact)
+        self._file_info.received_size_row.setVisible(not compact)
+        if compact:
+            self._file_info.body.setContentsMargins(12, 8, 12, 10)
+            self._file_info.body.setSpacing(6)
+        else:
+            self._file_info.body.setContentsMargins(16, 14, 16, 16)
+            self._file_info.body.setSpacing(10)
+        self._file_info.setVisible(True)
+        self._reception.setVisible(True)
 
     def refresh(self, state: RXAppState | None = None) -> None:
         """Refresh the overview panels from the current receiver state."""

@@ -742,3 +742,20 @@ def test_rx_dashboard_does_not_present_an_uncalibrated_lux_estimate(qapp):
     labels = [label.text() for label in page.findChildren(QLabel)]
 
     assert not any("lux" in label.lower() or "light estimate" in label.lower() for label in labels)
+
+
+
+def test_directory_setting_shows_path_from_start_and_preserves_full_value(qapp):
+    from gui_dev_v3.settings import DirectorySetting
+
+    full_path = "/home/test-user/.local/share/OpenVLC/received"
+    setting = DirectorySetting(full_path)
+    setting.resize(260, 40)
+    setting.show()
+    qapp.processEvents()
+
+    assert setting.text() == full_path
+    assert setting.edit.text() == full_path
+    assert setting.edit.cursorPosition() == 0
+    assert setting.edit.toolTip() == full_path
+    setting.close()

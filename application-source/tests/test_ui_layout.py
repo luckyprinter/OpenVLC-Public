@@ -233,7 +233,12 @@ def test_rx_inspect_stacks_explorers_on_compact_display(qapp):
 
 
 def test_rx_signal_page_reflows_metrics_and_diagnostics_on_compact_display(qapp):
-    page = SignalMonitorPage(RXAppState())
+    offline_state = RXAppState()
+    page = SignalMonitorPage(offline_state)
+    page.refresh(offline_state)
+    assert not page._quality_top._available
+    assert not page._noise_top._available
+    assert all(bar._value_str == "—" for bar in page._quality_bars.values())
     page.resize(680, 500)
     page.show()
     qapp.processEvents()

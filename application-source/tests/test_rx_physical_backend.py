@@ -197,3 +197,36 @@ def test_physical_backend_reassembles_batch_and_exposes_received_path(
     assert record.quality.strict_ber is None
     assert record.received_path == str(output)
     assert backend._batch_assembler.pending_count == 0
+
+
+def test_bad_batch_part_crc_discards_pending_group_and_active_state(
+    tmp_path, monkeypatch
+):
+    from gui_dev_v3.rx.backends.physical import crc16_ccitt
+
+    monkeypatch.setattr(logger, "file_log", lambda *_args, **_kwargs: None)
+    backend = RXPhysicalBackend()
+    backend._record_diag = lambda *_args, **_kwargs: None
+    backend._save_dir = tmp_path
+    first = b"first"
+    second = b"second"
+    full_crc = crc16_ccitt(first + second)
+
+    def make_line(index: int, part: bytes, expected_crc: int) -> str:
+        wrapped = f"VLCB1~bad-crc~{index}~2~{full_crc:04X}~failed.bin"
+        return (
+            f"RX_FILE_HEX:45:DATA:{len(part)}:1:{expected_crc:04X}:"
+            f"{wrapped.encode().hex()}:{part.hex()}"
+        )
+
+    backend._handle_file_hex(make_line(1, first, crc16_ccitt(first)))
+    assert backend._batch_assembler.pending_count == 1
+
+    backend._handle_file_hex(make_line(2, second, 0x0000))
+
+    assert backend._batch_assembler.pending_count == 0
+    assert backend._active_tid is None
+    assert backend._active_filename == ""
+    assert backend._active_started_monotonic is None
+    assert not list(tmp_path.iterdir())
+    assert backend._last_completed_transfer is None

@@ -202,13 +202,19 @@ class FileManagerPage(QWidget):
             return f"{hours} hr {mins} min"
 
     def _compute_crc16(self, filepath: str) -> str:
+        """Calculate CRC-16/CCITT incrementally without loading the whole file."""
         try:
-            with open(filepath, "rb") as f:
-                data = f.read()
-                # CRC-CCITT
-                crc = binascii.crc_hqx(data, 0xFFFF)
-                return f"0x{crc:04X}"
-        except Exception:
+            crc = 0xFFFF
+            with open(filepath, "rb") as file_stream:
+                while True:
+                    block = file_stream.read(64 * 1024)
+                    if not block:
+                        break
+                    # binascii.crc_hqx accepts the previous CRC as its seed,
+                    # so processing blocks gives the same result as one read.
+                    crc = binascii.crc_hqx(block, crc)
+            return f"0x{crc:04X}"
+        except OSError:
             return "ERROR"
 
     def _on_browse_clicked(self) -> None:

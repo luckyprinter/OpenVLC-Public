@@ -528,7 +528,7 @@ class SignalWaveform(QWidget):
 
         # Empty state text (hidden once data arrives)
         self._empty_text = pg.TextItem(
-            "No signal",
+            "No telemetry data",
             color=QColor(_CLR_MUTED),
             anchor=(0.5, 0.5),
         )

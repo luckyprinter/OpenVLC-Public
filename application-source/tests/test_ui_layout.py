@@ -273,7 +273,7 @@ def test_tx_file_manager_stacks_details_on_compact_display(qapp):
     page.resize(1024, 700)
     qapp.processEvents()
     header = page.file_table.horizontalHeader()
-    assert header.minimumSectionSize() >= 84
+    assert header.sectionSize(0) >= 120
     assert all(
         page.file_table.horizontalHeaderItem(column).textAlignment() == Qt.AlignmentFlag.AlignCenter
         for column in range(page.file_table.columnCount())

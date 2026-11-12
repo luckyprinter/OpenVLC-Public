@@ -186,10 +186,11 @@ def test_rx_signal_page_uses_unavailable_markers_when_disconnected(qapp):
     page = SignalMonitorPage(state)
     try:
         page.refresh(state)
+        # Signal MetricCard is a custom-painted QWidget, not a QLabel
+        # container. Assert its public display state rather than searching
+        # for an internal child widget that intentionally does not exist.
         for metric in (page._metric_pvo, page._metric_vref, page._metric_margin):
-            value = metric.findChild(QLabel, "Value")
-            assert value is not None
-            assert value.text() == "—"
+            assert metric._value_text == "—"
     finally:
         page.shutdown()
 

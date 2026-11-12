@@ -15,6 +15,7 @@ from __future__ import annotations
 import binascii
 import json
 import queue
+from collections import deque
 from pathlib import Path
 import re
 import threading
@@ -92,6 +93,10 @@ class RXPhysicalBackend:
         # Background serial reader thread — reads ALL lines from ESP32 continuously
         self._line_queue: queue.Queue[str] = queue.Queue(maxsize=2048)
         self._last_lq_line: str | None = None  # most recent LQ line seen by reader
+        # Keep command acknowledgements separate from the UI's line queue so a
+        # concurrent refresh cannot consume a response before settings apply sees it.
+        self._command_response_condition = threading.Condition()
+        self._command_response_lines: deque[str] = deque(maxlen=128)
         self._reader_thread: threading.Thread | None = None
         self._reader_stop: threading.Event = threading.Event()
         # Prevent concurrent GUI/calibration writes from interleaving and
@@ -402,6 +407,10 @@ class RXPhysicalBackend:
         LQ lines are cached for _poll_lq(). File-data lines are handled immediately.
         All lines are also pushed to _line_queue for the refresh() caller.
         """
+        with self._command_response_condition:
+            self._command_response_lines.append(line)
+            self._command_response_condition.notify_all()
+
         if line.strip() == "RX Ready":
             self._ready_event.set()
             return
@@ -759,8 +768,49 @@ class RXPhysicalBackend:
             except Exception:
                 return False
 
+    def _send_command_and_confirm(
+        self, command: str, response_prefix: str, timeout: float = 2.0
+    ) -> bool:
+        """Send one RX setting and wait for its firmware acknowledgement."""
+        with self._command_response_condition:
+            self._command_response_lines.clear()
+
+        if not self.send_command(command):
+            self.log(
+                "Settings Apply Failed",
+                f"Could not write RX setting: {command.strip()}",
+            )
+            return False
+
+        deadline = time.monotonic() + timeout
+        error_prefixes = (
+            "RX_ERROR:", "VREF_MODE_ERROR:", "VREF_SET_SKIP:",
+            "VREF_PWM_SKIP:", "VREF_PWM_FS_ERROR:",
+        )
+        with self._command_response_condition:
+            while True:
+                while self._command_response_lines:
+                    line = self._command_response_lines.popleft()
+                    if line.startswith(response_prefix):
+                        return True
+                    if line.startswith(error_prefixes):
+                        self.log(
+                            "Settings Apply Failed",
+                            f"RX firmware rejected {command.strip()}: {line}",
+                        )
+                        return False
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    self.log(
+                        "Settings Apply Failed",
+                        f"No firmware acknowledgement for {command.strip()} "
+                        f"(expected {response_prefix}).",
+                    )
+                    return False
+                self._command_response_condition.wait(timeout=remaining)
+
     def apply_link_settings(self) -> bool:
-        """Apply saved settings and report the first failed serial write."""
+        """Apply saved settings and require firmware acknowledgement per setting."""
         if not self._connected or not self._ser:
             return False
         from gui_dev_v3.settings import SettingsManager
@@ -775,25 +825,24 @@ class RXPhysicalBackend:
         vref_auto = 1 if mgr.get("link/vref_auto", False) else 0
         majority_sampling = 1 if mgr.get("link/majority_sampling", True) else 0
         commands = [
-            f"FREQ={symbol_hz}\n",
-            f"PHASE={sample_phase_pct}\n",
-            f"MAJ={majority_sampling}\n",
-            "REPORT=1\n",
-            f"VREF_MARGIN={vref_margin_mv}\n",
-            f"VREF_PWM_FS={vref_pwm_full_scale_mv}\n",
-            f"VREF_SETTLE_MS={vref_settle_ms}\n",
-            "VREF_MODE=AUTO\n" if vref_auto else "VREF_MODE=MANUAL\n",
+            (f"FREQ={symbol_hz}\n", "RX 4B5B FREQ ="),
+            (f"PHASE={sample_phase_pct}\n", "RX 4B5B PHASE ="),
+            (f"MAJ={majority_sampling}\n", "RX 4B5B MAJ ="),
+            ("REPORT=1\n", "RX REPORT ="),
+            (f"VREF_MARGIN={vref_margin_mv}\n", "VREF_MARGIN_OK:"),
+            (f"VREF_PWM_FS={vref_pwm_full_scale_mv}\n", "VREF_PWM_FS_OK:"),
+            (f"VREF_SETTLE_MS={vref_settle_ms}\n", "VREF_SETTLE_OK:"),
+            (
+                "VREF_MODE=AUTO\n" if vref_auto else "VREF_MODE=MANUAL\n",
+                "VREF_MODE_OK:",
+            ),
         ]
         if not vref_auto:
             # VREF_SET must be last: firmware delays while the RC filter settles.
-            commands.append(f"VREF_SET={vref_target_mv}\n")
+            commands.append((f"VREF_SET={vref_target_mv}\n", "VREF_SET_OK:"))
 
-        for command in commands:
-            if not self.send_command(command):
-                self.log(
-                    "Settings Apply Failed",
-                    f"RX firmware did not accept the settings write: {command.strip()}",
-                )
+        for command, response_prefix in commands:
+            if not self._send_command_and_confirm(command, response_prefix):
                 return False
 
         if not vref_auto:

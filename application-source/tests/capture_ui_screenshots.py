@@ -105,6 +105,13 @@ def _capture_nested_views(window, app, mode: str, page_name: str, shell, width: 
                         f"RX Study & Data {tabs.tabText(index)} did not reflow at "
                         f"{width}x{height}: content={content.width()}x{content.height()}"
                     )
+                if hasattr(content, "_narrow_layout"):
+                    expected_narrow = content.width() < 1000
+                    if content._narrow_layout != expected_narrow:
+                        raise RuntimeError(
+                            f"RX Table Builder column layout is incorrect at "
+                            f"{width}x{height}: content={content.width()}x{content.height()}"
+                        )
             slug = re.sub(r"[^a-z0-9]+", "_", tabs.tabText(index).lower()).strip("_")
             target = OUTPUT_DIR / f"rx_study_data_{slug}_{width}x{height}.png"
             if not window.grab().save(str(target), "PNG"):

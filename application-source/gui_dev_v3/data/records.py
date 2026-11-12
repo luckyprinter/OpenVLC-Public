@@ -20,8 +20,10 @@ def _resolve_log_dir() -> Path:
 
 
 LOG_DIR = _resolve_log_dir()
-RECEIVE_FOLDER = Path.home() / "LiFiReceived"
-TRANSFER_RECORDS_DIR = RECEIVE_FOLDER / "transfer_records"
+
+# Read-only compatibility source for transfer records written by older
+# releases. New received payloads and current runtime records use VLC_DATA_DIR.
+LEGACY_TRANSFER_RECORDS_DIR = Path.home() / "LiFiReceived" / "transfer_records"
 
 # Sanity bounds for parsed values
 _MAX_SIZE_BYTES = 100_000_000  # 100 MB
@@ -148,11 +150,11 @@ def load_real_transfer_history() -> list[TransferRecord]:
         except (OSError, json.JSONDecodeError):
             pass
 
-    # 2. Load from transfer_records/ directory
-    if TRANSFER_RECORDS_DIR.exists():
+    # 2. Import legacy transfer records without moving or modifying user files.
+    if LEGACY_TRANSFER_RECORDS_DIR.exists():
         try:
             paths = sorted(
-                [p for p in TRANSFER_RECORDS_DIR.iterdir() if p.suffix == ".json"],
+                [p for p in LEGACY_TRANSFER_RECORDS_DIR.iterdir() if p.suffix == ".json"],
                 key=lambda p: p.stat().st_mtime,
                 reverse=True,
             )

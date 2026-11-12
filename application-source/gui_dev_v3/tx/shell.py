@@ -219,7 +219,7 @@ class TXShell(QWidget):
         layout.setSpacing(24)
 
         # Mode indicator (left)
-        self._footer_mode = QLabel("Mode: SIMULATED")
+        self._footer_mode = QLabel("Hardware: Disconnected")
         self._footer_mode.setStyleSheet(
             "font-size: 11px; font-weight: 600; background: transparent;"
         )

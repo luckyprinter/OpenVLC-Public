@@ -153,8 +153,14 @@ class _PerformanceMetricsPanel(Card):
             self.ber_row.setValue("Awaiting reference")
             self.strict_ber_row.setValue("Not measured")
         else:
-            self.ber_row.setValue(f"{comparison['overlap_ber'] * 100:.4f} %")
-            self.strict_ber_row.setValue(f"{comparison['strict_ber'] * 100:.4f} %")
+            self.ber_row.setValue(
+                f"{comparison['overlap_ber'] * 100:.4f} %"
+                if comparison["overlap_ber"] is not None else "Not measurable"
+            )
+            self.strict_ber_row.setValue(
+                f"{comparison['strict_ber'] * 100:.4f} %"
+                if comparison["strict_ber"] is not None else "Not measurable"
+            )
         transfer = state.transfer
         crc_status = (transfer.quality.crc_status if transfer.quality else "Unknown").strip().upper()
         crc_color = (

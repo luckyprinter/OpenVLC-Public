@@ -51,6 +51,15 @@ def test_rx_and_tx_pin_assignments_match_application_hardware_contract() -> None
     assert _define(rx, "VREF_PWM_PIN") == 25
 
 
+def test_tx_backend_offline_snapshot_reports_firmware_gpio_pin() -> None:
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    # The TX firmware contract is GPIO 5; the offline dashboard must not
+    # display a different pin simply because no board is connected.
+    snapshot = TXPhysicalBackend()._empty_snapshot()
+    assert snapshot.led_pin == 5
+
+
 def test_application_stream_buffer_matches_both_firmware_buffers() -> None:
     tx = (ROOT / "firmware/tx/tx.ino").read_text(encoding="utf-8")
     rx = (ROOT / "firmware/rx/rx.ino").read_text(encoding="utf-8")

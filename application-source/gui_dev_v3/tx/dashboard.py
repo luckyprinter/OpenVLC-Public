@@ -418,7 +418,7 @@ class TXConfigurationWidget(Card):
         self.row_modulation = _DetailRow("Modulation", "NRZ / OOK")
         self.row_rate = _DetailRow("Symbol Rate", "15,000 sym/s")
         self.row_gpio = _DetailRow("LED Output", "GPIO 5")
-        self.row_output = _DetailRow("LED Drive / Pre-emphasis", "100 % · Disabled")
+        self.row_output = _DetailRow("LED Profile", "100 % · Pre-emphasis Off")
         for row in (
             self.row_encoding,
             self.row_modulation,

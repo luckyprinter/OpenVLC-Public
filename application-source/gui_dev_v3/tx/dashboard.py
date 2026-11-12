@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 from gui_dev_v3.theme import COLORS
 from gui_dev_v3.tx_app_state import TXAppState
 from gui_dev_v3.widgets import Card, muted_label, primary_button
+from gui_dev_v3.ui_foundation import PageIntro
 
 
 # ── Headers & Layout Helpers ──────────────────────────────────────────
@@ -666,20 +667,12 @@ class TXDashboardPage(QWidget):
         outer.setContentsMargins(20, 16, 20, 16)
         outer.setSpacing(14)
 
-        # Clear page hierarchy: purpose first, live device state second.
-        intro = QVBoxLayout()
-        intro.setContentsMargins(2, 0, 2, 2)
-        intro.setSpacing(3)
-        eyebrow = QLabel("TRANSMITTER  /  CONTROL ROOM")
-        eyebrow.setObjectName("SectionTitle")
-        heading = QLabel("Prepare an optical transfer")
-        heading.setStyleSheet("font-size: 21px; font-weight: 750; letter-spacing: -0.4px; background: transparent;")
-        description = QLabel("Choose a file, review the link state, then start transmission.")
-        description.setObjectName("Muted")
-        intro.addWidget(eyebrow)
-        intro.addWidget(heading)
-        intro.addWidget(description)
-        outer.addLayout(intro)
+        outer.addWidget(PageIntro(
+            "TRANSMITTER  /  CONTROL ROOM",
+            "Prepare an optical transfer",
+            "Choose a file, review the link state, then start transmission.",
+            self,
+        ))
 
         self._device_status = DeviceStatusWidget()
         outer.addWidget(self._device_status)
@@ -692,10 +685,8 @@ class TXDashboardPage(QWidget):
         self._file_details.select_btn.clicked.connect(self._on_select_file_clicked)
         self._file_details.start_btn.clicked.connect(self._on_start_clicked)
         self._session = CurrentSessionWidget()
-        self._bit_stream = DigitalBitstreamWidget()
         work_row.addWidget(self._file_details, 5)
         work_row.addWidget(self._session, 4)
-        work_row.addWidget(self._bit_stream, 4)
         outer.addLayout(work_row, 5)
 
         # Keep the progress strip compact so file controls retain usable height
@@ -706,7 +697,18 @@ class TXDashboardPage(QWidget):
         self._logs = _TXLogPanel(state)
         outer.addWidget(self._logs, 1)
 
+        self._apply_compact_layout()
         self.refresh()
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._apply_compact_layout()
+
+    def _apply_compact_layout(self) -> None:
+        """Prioritize file actions on short displays; history has its own page."""
+        height = self.height()
+        self._pipeline.setVisible(height >= 640)
+        self._logs.setVisible(height >= 680)
 
     def _on_select_file_clicked(self) -> None:
         from PySide6.QtWidgets import QFileDialog
@@ -766,5 +768,4 @@ class TXDashboardPage(QWidget):
         self._pipeline.refresh(self._state)
         self._session.refresh(self._state)
         self._file_details.refresh(self._state)
-        self._bit_stream.refresh(self._state)
         self._logs.refresh(self._state)

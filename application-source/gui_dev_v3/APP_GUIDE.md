@@ -27,11 +27,10 @@ GUI page (what the user sees)
 App state (holds current application state)
        |
        v
-Backend (physical hardware OR simulation)
+Physical hardware backend
        |
-       +---- Physical: serial connection to ESP32
-       |
-       +---- Simulation: generated/mock behavior for UI development
+       v
+USB serial connection to ESP32
        |
        v
 ESP32 firmware (real-time optical TX/RX)
@@ -63,11 +62,11 @@ Do not start by reading the largest backend file from top to bottom. First under
 | File | Plain-language responsibility |
 |---|---|
 | `app.py` | Entry point. Creates the Qt application and opens the TX or RX main window. |
-| `app_state.py` | Holds receiver application state and coordinates refreshes and backend selection. |
-| `tx_app_state.py` | Holds transmitter application state and coordinates its backend. |
+| `app_state.py` | Holds receiver application state and coordinates refreshes from the physical ESP32 backend. |
+| `tx_app_state.py` | Holds transmitter application state and coordinates refreshes from the physical ESP32 backend. |
 | `models.py` | Defines structured data objects used by the receiver, such as signal, session, and transfer information. |
-| `mock_data.py` | Supplies sample receiver data for simulation and UI development. |
-| `tx_mock_data.py` | Supplies sample transmitter data and state types. |
+
+| `tx_mock_data.py` | Defines transmitter data structures used by the physical backend. Despite the legacy filename, it is not a simulation engine. |
 | `widgets.py` | Shared reusable visual components such as cards, badges, progress bars, and waveform widgets. |
 | `navigation.py` | Shared navigation definitions and labels. |
 | `theme.py` | Colors, themes, spacing/density choices, and Qt stylesheet generation. |
@@ -156,9 +155,9 @@ The physical backends are the bridge between the GUI's application state and the
 | File | Plain-language responsibility |
 |---|---|
 | `rx/backends/physical.py` | Real receiver hardware implementation. |
-| `rx/backends/simulation.py` | Simulated receiver behavior for UI testing without the ESP32. |
+
 | `tx/backends/physical.py` | Real transmitter hardware implementation. |
-| `tx/backends/simulation.py` | Simulated transmitter behavior for UI testing without the ESP32. |
+
 | `rx/backends/codemap.md`, `tx/backends/codemap.md` | Architecture notes for the corresponding backend packages. |
 
 A file named `__init__.py` marks a folder as a Python package and may expose selected classes/functions for easier imports. It is not normally where the main hardware logic lives.
@@ -220,12 +219,12 @@ The Python serial transfer to the TX board is not the optical transmission itsel
 | Serial / UART | A byte-based communication link between the computer and ESP32 over USB. |
 | Protocol | The agreed message format and command sequence used by the Python app and firmware. |
 | CRC | A checksum used to detect corrupted data. It is not encryption. |
-| Simulation | A software-only mode that imitates application behavior without controlling the physical VLC hardware. |
+| Hardware-only mode | The desktop application reads and controls real ESP32 boards through USB serial. |
 | Physical backend | The implementation that communicates with real ESP32 boards. |
 
 ## 8. A simple way to explain the architecture during a presentation
 
-> "The Python application is the control and monitoring interface. PySide6 builds the graphical interface. The application state keeps track of the current TX or RX status. The physical backend connects that state to the ESP32 through USB serial, while the simulation backend allows the interface to be tested without hardware. The ESP32 firmware performs the time-critical optical transmission and reception. This separation keeps the user interface, hardware communication, and optical signal processing organized into different parts."
+> "The Python application is the control and monitoring interface. PySide6 builds the graphical interface. The application state keeps track of the current TX or RX status. The physical backend connects that state to the ESP32 through USB serial. The application has no virtual hardware mode. The ESP32 firmware performs the time-critical optical transmission and reception. This separation keeps the user interface, hardware communication, and optical signal processing organized into different parts."
 
 ## 9. Safe code-reading workflow
 
@@ -291,7 +290,7 @@ The main class is `RXAppState`. It stores receiver-facing values such as:
 - the current session and latest transfer;
 - signal measurements and activity log;
 - whether the serial device is connected;
-- physical or simulated mode;
+- the fixed hardware-only operating mode;
 - the reference/original file used for comparison;
 - captured signal samples for a reception session.
 
@@ -302,12 +301,12 @@ The most important methods are:
 | `__post_init__()` | Initializes capture bookkeeping and performs the first refresh. |
 | `subscribe(callback)` | Registers a GUI listener that wants to know when state changes. |
 | `notify()` | Calls a snapshot of the registered listeners. |
-| `set_mode(mode)` | Switches between physical and simulated backends. |
-| `_refresh()` | Asks the active backend for a snapshot. |
+| `set_mode(mode)` | Compatibility guard that accepts only `physical`; any other mode is rejected. |
+| `_refresh()` | Asks the physical ESP32 backend for the latest snapshot. |
 | `_apply_phy_snapshot(snapshot)` | Copies real-hardware results into RX state. |
-| `_apply_sim_snapshot(snapshot)` | Copies simulated results into RX state. |
+
 | `refresh()` | Public periodic refresh; also tracks and saves reception captures. |
-| `send_firmware_command(cmd)` | Sends a command only when physical mode is active. |
+| `send_firmware_command(cmd)` | Sends a command to the connected physical receiver. |
 | `cleanup()` | Stops and releases the backend resources. |
 
 A **snapshot** is a package of values representing the backend's current view at a particular refresh. The state layer copies that package into fields that the GUI can display.
@@ -319,13 +318,13 @@ The `subscribe` / `notify` pattern is an observer pattern: a page registers inte
 The main class is `TXAppState`. It stores transmitter-facing values such as selected filename, file size, encoding, symbol rate, progress, elapsed time, data rate, connection status, activity log, and session history.
 
 Important methods:
-- `_refresh()`: chooses the physical or simulation backend and asks it for a snapshot.
-- `_apply_phy_snapshot()` / `_apply_sim_snapshot()`: copies backend values into the TX state.
-- `start_transmission(filepath)`: forwards the selected file to the active backend.
+- `_refresh()`: asks the physical ESP32 backend for the latest snapshot.
+- `_apply_phy_snapshot()`: copies hardware values into the TX state.
+- `start_transmission(filepath)`: forwards the selected file to the physical TX backend.
 - `send_firmware_command(cmd)`: forwards a raw command only to a connected physical backend.
-- `apply_link_settings_from_ui(...)`: applies UI settings through the TX controller when physical mode is active.
+- `apply_link_settings_from_ui(...)`: applies UI settings through the connected TX controller.
 - `refresh()`: refreshes values, loads a saved capture when available, and notifies listeners.
-- `cleanup()`: closes physical connections and stops simulation.
+- `cleanup()`: closes and releases physical serial resources.
 
 **Why have a separate state class for TX and RX?** They display different information and have different actions. Keeping them separate avoids one large state object full of unrelated transmitter and receiver fields.
 
@@ -335,7 +334,7 @@ Important methods:
 
 Each shell:
 1. Receives its state object.
-2. Restores the saved physical/simulated mode.
+2. Initializes the hardware-only operating mode.
 3. Builds the sidebar and navigation list.
 4. Creates a `QStackedWidget` to hold the pages.
 5. Builds the footer and connection-status area.
@@ -403,7 +402,7 @@ Do not assume a button talks directly to the ESP32. Follow the function calls un
 ## 11. Important boundaries and details to explain accurately
 
 - **The GUI does not create the optical waveform.** The Python application sends commands and file bytes to the ESP32; firmware handles the time-sensitive optical signaling.
-- **Physical and simulated are different backends.** Simulation is useful for exercising the UI and workflow, but a simulated success is not evidence that the LED, photodiode, analog front end, or optical channel works.
+- **The application is hardware-only.** GUI smoke tests and mocked serial tests can verify software behavior, but they are not evidence that the LED, photodiode, analog front end, or optical channel works.
 - **TX completion is not the same as RX verification.** A TX-side completion status means the TX-side operation finished; receiver CRC and BER results must come from the RX-side data and comparison.
 - **The readiness ping is a serial check.** `TX Ready` or `RX Ready` confirms that the firmware command loop responds over USB serial. It is not an optical synchronization signal.
 - **No cross-console readiness coordinator currently exists.** TX and RX each check their own board. The operator still needs to make sure the receiver is ready before starting a test.

@@ -374,6 +374,8 @@ def test_rx_export_stacks_history_and_inspector_on_compact_display(qapp, monkeyp
     page = ExportPage()
     assert page._history_data == []
     assert not export_page_module.HISTORY_PATH.exists()
+    assert not page._history_empty_state.isHidden()
+    assert page.table.rowCount() == 0
     page.resize(680, 500)
     page.show()
     qapp.processEvents()

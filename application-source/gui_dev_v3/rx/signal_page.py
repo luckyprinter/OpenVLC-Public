@@ -6,7 +6,7 @@ Layout (professional engineering dashboard):
 │ [PVo] [Vref] [Margin] [State] [Margin Level] [Margin Error]    │
 ├─────────────────────────────┬──────────────────┬────────────────┤
 │                             │ RECEIVER          │ MARGIN          │
-│ SIGNAL WAVEFORMS (LIVE)     │ DIAGNOSTICS       │ ANALYSIS        │
+│ PVo / Vref TELEMETRY TREND  │ DIAGNOSTICS       │ ANALYSIS        │
 │ (3 traces, 50%)             │ (4 sections)      │ (target/current │
 │                              │                   │ /deviation/     │
 │                              │                   │ status + bar)   │
@@ -18,8 +18,8 @@ Layout (professional engineering dashboard):
 │ Mode: Physical  ● Connected  ● ACTIVE                           │
 └──────────────────────────────────────────────────────────────────┘
 
-High-frequency sampler (100 ms) feeds the waveform buffer.
-1-second refresh updates all cards, tables, and trend data.
+The trend chart uses the receiver's actual low-rate PVo/Vref telemetry.
+The shell refresh interval is one second; it does not represent raw OOK samples.
 """
 
 from __future__ import annotations
@@ -360,7 +360,6 @@ class SignalMonitorPage(QWidget):
 
         self._signal_waveform = SignalWaveform(parent=left_widget)
         self._signal_waveform.setMinimumHeight(280)
-        self._signal_waveform._dt = 1.0
         self._signal_waveform.refresh_rate_changed.connect(self._on_sample_interval_changed)
         left_layout.addWidget(self._signal_waveform, 1)
 

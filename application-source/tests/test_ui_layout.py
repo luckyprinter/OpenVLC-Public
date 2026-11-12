@@ -72,10 +72,16 @@ def test_console_shell_reflows_without_overlapping_navigation(
 def test_tx_dashboard_uses_real_profile_instead_of_synthetic_bitstream(qapp):
     from types import SimpleNamespace
 
-    from gui_dev_v3.tx.dashboard import CurrentSessionWidget, TXConfigurationWidget
+    from gui_dev_v3.tx.dashboard import CurrentSessionWidget, FileDetailsWidget, TXConfigurationWidget
 
     state = SimpleNamespace(
         serial_connected=False,
+        filename="No file",
+        file_size_bytes=0,
+        total_chunks=0,
+        status_text="Offline — no hardware",
+        estimated_time="00:00:00",
+        elapsed_time="00:00:00",
         encoding="4B5B",
         modulation="NRZ / OOK",
         symbol_rate="15,000 sym/s",
@@ -94,6 +100,10 @@ def test_tx_dashboard_uses_real_profile_instead_of_synthetic_bitstream(qapp):
     session = CurrentSessionWidget()
     session.refresh(state)
     assert session.row_success.val.text() == "—"
+
+    file_details = FileDetailsWidget()
+    file_details.refresh(state)
+    assert not file_details.start_btn.isEnabled()
 
 
 def test_theme_picker_shows_curated_presets_and_keeps_saved_legacy_theme(qapp):

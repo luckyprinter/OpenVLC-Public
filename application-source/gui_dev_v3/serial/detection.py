@@ -185,3 +185,18 @@ def baud_for_role(role: str) -> int:
     if role == "rx":
         return BAUDRATE_RX
     return BAUDRATE_TX
+
+
+
+def prioritize_preferred_port(ports: list[str], preferred_port: str | None) -> list[str]:
+    """Try the user's last successful port first, then every other detected port.
+
+    A stale preference is never injected into discovery: if the saved device is
+    disconnected or its OS port name changed, normal enumeration still proceeds.
+    """
+    ordered = list(dict.fromkeys(ports))
+    preferred = (preferred_port or "").strip()
+    if preferred and preferred in ordered:
+        ordered.remove(preferred)
+        ordered.insert(0, preferred)
+    return ordered

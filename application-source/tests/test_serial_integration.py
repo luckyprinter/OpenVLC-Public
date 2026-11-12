@@ -401,3 +401,66 @@ def test_serial_scan_lock_serializes_separate_processes(tmp_path: Path):
 
     assert first.exitcode == 0
     assert second.exitcode == 0
+
+
+
+def test_rx_port_scan_only_returns_ports_reported_by_pyserial(monkeypatch: pytest.MonkeyPatch):
+    """RX discovery must not inject retired /tmp aliases as fake serial devices."""
+    from gui_dev_v3.rx.backends.physical import _list_usb_serial_ports
+
+    serial_module = types.ModuleType("serial")
+    tools_module = types.ModuleType("serial.tools")
+    list_ports_module = types.ModuleType("serial.tools.list_ports")
+    list_ports_module.comports = lambda: [
+        types.SimpleNamespace(
+            device="/dev/ttyUSB1",
+            description="USB Serial",
+            hwid="USB VID:PID=10C4:EA60",
+            vid=0x10C4,
+            pid=0xEA60,
+        ),
+        types.SimpleNamespace(
+            device="/dev/ttyS0",
+            description="Built-in UART",
+            hwid="n/a",
+            vid=None,
+            pid=None,
+        ),
+    ]
+    serial_module.tools = tools_module
+    tools_module.list_ports = list_ports_module
+    monkeypatch.setitem(sys.modules, "serial", serial_module)
+    monkeypatch.setitem(sys.modules, "serial.tools", tools_module)
+    monkeypatch.setitem(sys.modules, "serial.tools.list_ports", list_ports_module)
+
+    ports = _list_usb_serial_ports()
+
+    assert ports == ["/dev/ttyUSB1"]
+    assert "/tmp/esp32_tx" not in ports
+    assert "/tmp/esp32_rx" not in ports
+
+
+def test_rx_port_scan_does_not_invent_ports_when_no_usb_devices(monkeypatch: pytest.MonkeyPatch):
+    from gui_dev_v3.rx.backends.physical import _list_usb_serial_ports
+
+    serial_module = types.ModuleType("serial")
+    tools_module = types.ModuleType("serial.tools")
+    list_ports_module = types.ModuleType("serial.tools.list_ports")
+    list_ports_module.comports = lambda: []
+    serial_module.tools = tools_module
+    tools_module.list_ports = list_ports_module
+    monkeypatch.setitem(sys.modules, "serial", serial_module)
+    monkeypatch.setitem(sys.modules, "serial.tools", tools_module)
+    monkeypatch.setitem(sys.modules, "serial.tools.list_ports", list_ports_module)
+
+    assert _list_usb_serial_ports() == []
+
+
+
+def test_preferred_serial_port_is_tried_first_without_excluding_fallbacks():
+    from gui_dev_v3.serial.detection import prioritize_preferred_port
+
+    assert prioritize_preferred_port(["COM4", "COM7"], "COM7") == ["COM7", "COM4"]
+    assert prioritize_preferred_port(["COM4", "COM7"], "COM9") == ["COM4", "COM7"]
+    assert prioritize_preferred_port(["COM4", "COM4", "COM7"], "COM4") == ["COM4", "COM7"]
+    assert prioritize_preferred_port([], "COM4") == []

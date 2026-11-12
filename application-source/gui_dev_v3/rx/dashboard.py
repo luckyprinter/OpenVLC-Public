@@ -162,7 +162,7 @@ class _PerformanceMetricsPanel(Card):
             else COLORS["red"] if crc_status in {"FAIL", "FAILED", "CRC FAILED"}
             else COLORS["muted"]
         )
-        self.crc_row.setStatus(sig.crc_status or "—", crc_color)
+        self.crc_row.setStatus(crc_status or "—", crc_color)
         self.margin_row.setValue(f"{sig.margin:.3f} V")
         self.data_rate_row.setValue(f"{sig.data_rate:.2f} kbps" if sig.data_rate > 0 else "— kbps")
 

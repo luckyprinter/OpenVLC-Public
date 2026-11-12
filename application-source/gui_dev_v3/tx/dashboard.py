@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
 from gui_dev_v3.theme import COLORS
 from gui_dev_v3.tx_app_state import TXAppState
 from gui_dev_v3.widgets import Card, muted_label, primary_button
+from gui_dev_v3.ui_foundation import PageIntro
 
 
 # ── Headers & Layout Helpers ──────────────────────────────────────────
@@ -689,20 +690,13 @@ class TXDashboardPage(QWidget):
         outer.setContentsMargins(20, 16, 20, 16)
         outer.setSpacing(14)
 
-        # Clear page hierarchy: purpose first, live device state second.
-        intro = QVBoxLayout()
-        intro.setContentsMargins(2, 0, 2, 2)
-        intro.setSpacing(3)
-        eyebrow = QLabel("TRANSMITTER  /  CONTROL ROOM")
-        eyebrow.setObjectName("SectionTitle")
-        heading = QLabel("Prepare an optical transfer")
-        heading.setStyleSheet("font-size: 21px; font-weight: 750; letter-spacing: -0.4px; background: transparent;")
-        description = QLabel("Choose a file, review the link state, then start transmission.")
-        description.setObjectName("Muted")
-        intro.addWidget(eyebrow)
-        intro.addWidget(heading)
-        intro.addWidget(description)
-        outer.addLayout(intro)
+        # Shared page identity keeps TX and RX hierarchy consistent.
+        outer.addWidget(PageIntro(
+            "TRANSMITTER  /  CONTROL ROOM",
+            "Prepare an optical transfer",
+            "Choose a file, review the link state, then start transmission.",
+            self,
+        ))
 
         self._device_status = DeviceStatusWidget()
         outer.addWidget(self._device_status)

@@ -15,6 +15,9 @@ from .line_buffer import SerialLineBuffer
 MAX_STREAM_FILE_BYTES = 81920   # 80 KB — matches firmware MAX_STREAM_FILE_BYTES
 MAX_NAME_BYTES        = 80      # matches firmware MAX_NAME_BYTES (was wrongly 64)
 STREAM_SERIAL_BLOCK   = 512    # bytes per STREAM_DATA chunk sent to firmware
+# DMA can return a full file as one hex-encoded RX_FILE_HEX line. Reserve
+# enough bounded space for 512 × 1 KiB payload bytes encoded as hex plus header.
+MAX_SERIAL_LINE_BYTES = 2 * 1024 * 1024
 
 LogCallback    = Callable[[str], None]
 StatusCallback = Callable[[dict[str, Any]], None]
@@ -238,7 +241,7 @@ class SerialSession:
         # PySerial readline() may return a partial fragment when its timeout
         # expires. Do not dispatch that fragment as a complete protocol line:
         # large RX_FILE_HEX messages can span many reads.
-        line_buffer = SerialLineBuffer()
+        line_buffer = SerialLineBuffer(max_line_bytes=MAX_SERIAL_LINE_BYTES)
         while self._running and self.serial_obj and self.serial_obj.is_open:
             try:
                 raw = self.serial_obj.readline()

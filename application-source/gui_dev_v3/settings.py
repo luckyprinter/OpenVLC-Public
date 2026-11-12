@@ -436,6 +436,7 @@ class SettingsContainer(QWidget):
         super().__init__(parent)
         self._sections = sections
         self._developer_index = developer_index
+        self._page_wrappers: list[QWidget] = []
 
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -486,6 +487,7 @@ class SettingsContainer(QWidget):
             wrapper_lo.setContentsMargins(24, 20, 24, 24)
             wrapper_lo.setSpacing(0)
             wrapper_lo.addWidget(page)
+            self._page_wrappers.append(wrapper)
             wrapper_lo.addStretch(1)
             # Wrap in scroll area
             scroll = QScrollArea()
@@ -502,6 +504,16 @@ class SettingsContainer(QWidget):
         self._nav_list.currentRowChanged.connect(self._on_nav_changed)
         if sections:
             self._nav_list.setCurrentRow(0)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Reduce settings-page gutters on compact laptop work areas."""
+        super().resizeEvent(event)
+        compact = self.width() < 900
+        margins = (10, 12, 10, 12) if compact else (24, 20, 24, 24)
+        for wrapper in self._page_wrappers:
+            layout = wrapper.layout()
+            if layout is not None:
+                layout.setContentsMargins(*margins)
 
     def _on_nav_changed(self, index: int) -> None:
         if 0 <= index < self._stack.count():
@@ -615,9 +627,10 @@ class ThemePickerGrid(QWidget):
 
         from PySide6.QtWidgets import QApplication
         from PySide6.QtWidgets import QGridLayout
-        grid = QGridLayout(self)
-        grid.setContentsMargins(0, 6, 0, 6)
-        grid.setSpacing(6)
+        self._grid = QGridLayout(self)
+        self._grid.setContentsMargins(0, 6, 0, 6)
+        self._grid.setSpacing(6)
+        self._column_count = 3
 
         # Keep the default picker focused on five curated presets. Older
         # presets remain supported in theme.py so existing saved preferences
@@ -639,7 +652,18 @@ class ThemePickerGrid(QWidget):
             card = _SwatchCard(preset, active=(preset["key"] == current))
             card.clicked.connect(self._on_card_clicked)
             self._cards.append(card)
-            grid.addWidget(card, i // cols, i % cols)
+            self._grid.addWidget(card, i // cols, i % cols)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Reflow theme choices instead of clipping them on narrow windows."""
+        super().resizeEvent(event)
+        columns = 1 if self.width() < 320 else 2 if self.width() < 560 else 3
+        if columns == self._column_count:
+            return
+        self._column_count = columns
+        for index, card in enumerate(self._cards):
+            self._grid.removeWidget(card)
+            self._grid.addWidget(card, index // columns, index % columns)
 
     def _on_card_clicked(self, key: str) -> None:
         if key == self._current:

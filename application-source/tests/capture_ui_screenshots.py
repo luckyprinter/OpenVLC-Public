@@ -31,7 +31,7 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
         stack = getattr(settings_page, "_stack", None)
         if nav_panel is not None and stack is not None:
             compact = width < 900
-            expected_nav_width = 160 if compact else 200
+            expected_nav_width = 180 if compact else 200
             if nav_panel.width() != expected_nav_width:
                 raise RuntimeError(
                     f"{mode.upper()} settings navigation width is {nav_panel.width()} "

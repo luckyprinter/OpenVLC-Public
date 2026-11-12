@@ -22,7 +22,7 @@ from gui_dev_v3.rx import experiment_store as experiment_store_module
 from gui_dev_v3.rx import export_page as export_page_module
 from gui_dev_v3.rx.inspect_page import InspectPage
 from gui_dev_v3.rx.signal_page import SignalMonitorPage
-from gui_dev_v3.settings import SettingsContainer, ThemePickerGrid
+from gui_dev_v3.settings import SettingsContainer, ThemePickerGrid, SpinSetting
 from gui_dev_v3.tx.placeholders import TransmitPage
 from gui_dev_v3.tx.file_manager_page import FileManagerPage
 
@@ -433,3 +433,10 @@ def test_experiment_store_starts_empty_and_persists_user_created_records(monkeyp
     assert len(records) == 1
     assert records[0].name == "Distance validation"
     assert records[0].notes == "Initial test"
+
+
+
+def test_numeric_settings_keep_suffix_visible(qapp):
+    setting = SpinSetting(3, 1, 60, "seconds")
+    assert setting.width() >= setting.sizeHint().width()
+    assert setting.width() >= 128

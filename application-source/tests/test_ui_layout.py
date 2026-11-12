@@ -53,6 +53,7 @@ def qapp() -> QApplication:
         (1366, 768, 224, True),
         (1280, 720, 224, True),
         (1024, 700, 72, False),
+        (680, 500, 72, False),
     ],
 )
 def test_console_shell_reflows_without_overlapping_navigation(

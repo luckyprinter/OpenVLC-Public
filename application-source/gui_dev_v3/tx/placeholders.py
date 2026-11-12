@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from gui_dev_v3.tx_app_state import TXAppState
 from gui_dev_v3.widgets import Card, muted_label, primary_button, secondary_button
 from gui_dev_v3.theme import COLORS
+from gui_dev_v3.ui_foundation import PageIntro
 
 
 class TransmitPage(QWidget):
@@ -42,6 +43,12 @@ class TransmitPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(14)
+        layout.addWidget(PageIntro(
+            "TRANSMITTER  /  JOB MANAGEMENT",
+            "Transmission queue",
+            "Queue files, manage batch transfers, and review completed sessions.",
+            self,
+        ))
 
         # The active queue and its controls form the primary workspace row.
         top_row = QHBoxLayout()

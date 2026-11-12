@@ -599,7 +599,7 @@ class ExportPage(QWidget):
                     "total_chunks": transfer.total_chunks,
                     "received_chunks": transfer.received_chunks,
                     "ber": ber if ber is not None else "N/A",
-                    "ber_method": "method2" if ber is not None else None,
+                    "ber_method": "method2_reference_file" if comparison is not None else None,
                 }
                 self._history_data.insert(0, entry)
                 self._save_history()

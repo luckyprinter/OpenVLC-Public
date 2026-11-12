@@ -175,11 +175,6 @@ def _quality_from_signal(sig: SignalState) -> dict[str, int]:
     }
 
 
-def _is_empty(sig: SignalState) -> bool:
-    """Check if signal is in empty/offline state."""
-    return sig.pvo == 0.0 and sig.vref == 0.0
-
-
 def _separator() -> QFrame:
     """Thin horizontal line separator for diagnostics sections."""
     frame = QFrame()
@@ -566,13 +561,13 @@ class SignalMonitorPage(QWidget):
         sig = state.signal
         transfer = state.transfer
         quality = transfer.quality
-        empty = _is_empty(sig)
+        empty = not state.serial_connected
 
         # --- Top row: 4 MetricCards + 2 CircularGauges ---
         if empty:
-            self._metric_pvo.set_value("0.00 V")
-            self._metric_vref.set_value("0.00 V")
-            self._metric_margin.set_value("0.00 V")
+            self._metric_pvo.set_value("—")
+            self._metric_vref.set_value("—")
+            self._metric_margin.set_value("—")
             self._metric_state.set_value("OFFLINE")
             self._metric_state.set_value_color("#708090")
             self._metric_state.set_center_footer("No hardware")

@@ -28,8 +28,11 @@ _MAX_LOG_LINES = 2000
 _STATUS_DIR = Path(__file__).resolve().parent.parent.parent / "state"
 
 
-def crc16_ccitt(data: bytes, poly: int = 0x1021) -> int:
-    crc = 0xFFFF
+def crc16_ccitt(
+    data: bytes, poly: int = 0x1021, initial_crc: int = 0xFFFF
+) -> int:
+    """Calculate CRC-16/CCITT, optionally continuing from a prior CRC."""
+    crc = initial_crc & 0xFFFF
     for byte in data:
         crc ^= byte << 8
         for _ in range(8):

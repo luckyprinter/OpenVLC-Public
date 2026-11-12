@@ -240,14 +240,62 @@ def test_tx_settings_apply_reports_serial_write_failure(fake_serial):
     controller.disconnect()
 
 
-def test_tx_settings_apply_reports_success_when_all_writes_succeed(fake_serial):
+def test_tx_settings_apply_reports_success_when_firmware_confirms_configuration(fake_serial):
     from gui_dev_v3.serial.controllers import TXSerialController
 
     controller = TXSerialController()
     assert controller.connect("MOCK_TX", expected_role="VLC_TX") is True
     controller._dma_capable = False
 
+    original_send = controller.send_line
+
+    def send_with_firmware_config(command: str) -> bool:
+        result = original_send(command)
+        if result and command == "CONFIG?":
+            controller._append_line(
+                "TX 4B5B CONFIG: MODE=4B5B, FREQ=15000, ACTIVE_LOW=1, "
+                "IDLE_ON=1, QUIET=1, GAP=0, FGAP=1, STREAM_MAX_BYTES=81920, "
+                "ONE_LEVEL=HIGH, ZERO_LEVEL=LOW, IDLE_LEVEL=HIGH"
+            )
+        return result
+
+    controller.send_line = send_with_firmware_config  # type: ignore[method-assign]
     assert controller.apply_4b5b_settings() is True
+    controller.disconnect()
+
+
+def test_tx_settings_apply_rejects_firmware_configuration_mismatch(fake_serial):
+    from gui_dev_v3.serial.controllers import TXSerialController
+
+    controller = TXSerialController()
+    assert controller.connect("MOCK_TX", expected_role="VLC_TX") is True
+    controller._dma_capable = False
+
+    original_send = controller.send_line
+
+    def send_with_mismatched_config(command: str) -> bool:
+        result = original_send(command)
+        if result and command == "CONFIG?":
+            controller._append_line(
+                "TX 4B5B CONFIG: MODE=4B5B, FREQ=10000, ACTIVE_LOW=1, "
+                "IDLE_ON=1, QUIET=1, GAP=0, FGAP=1"
+            )
+        return result
+
+    controller.send_line = send_with_mismatched_config  # type: ignore[method-assign]
+    assert controller.apply_4b5b_settings() is False
+    controller.disconnect()
+
+
+def test_tx_settings_apply_fails_when_firmware_readback_is_missing(fake_serial):
+    from gui_dev_v3.serial.controllers import TXSerialController
+
+    controller = TXSerialController()
+    assert controller.connect("MOCK_TX", expected_role="VLC_TX") is True
+    controller._dma_capable = False
+    controller.wait_for_line_containing = lambda *_args, **_kwargs: False  # type: ignore[method-assign]
+
+    assert controller.apply_4b5b_settings() is False
     controller.disconnect()
 
 

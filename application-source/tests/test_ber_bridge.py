@@ -105,6 +105,7 @@ def test_late_reference_selection_updates_and_persists_completed_capture(tmp_pat
 
     state = RXAppState.__new__(RXAppState)
     state._lock = threading.Lock()
+    state._subscribers = []
     state.expected_file_path = None
     state.expected_file_data = None
     state._method2_cache_key = None

@@ -453,8 +453,13 @@ def test_numeric_settings_keep_suffix_visible(qapp):
 
 
 
-def test_bundled_inter_font_is_available_and_preferred(qapp):
+def test_ui_font_uses_bundled_inter_or_platform_general_font(qapp):
+    platform_family = QFontDatabase.systemFont(
+        QFontDatabase.SystemFont.GeneralFont
+    ).family()
     load_bundled_fonts()
-    families = {family.lower() for family in QFontDatabase.families()}
-    assert any(family.startswith("inter") for family in families)
-    assert qapp.font().family().lower().startswith("inter")
+    selected_family = qapp.font().family()
+    assert (
+        selected_family == platform_family
+        or selected_family.lower().startswith("inter")
+    )

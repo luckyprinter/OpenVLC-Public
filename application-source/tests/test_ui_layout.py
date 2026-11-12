@@ -22,6 +22,8 @@ from gui_dev_v3.rx import export_page as export_page_module
 from gui_dev_v3.rx.inspect_page import InspectPage
 from gui_dev_v3.rx.signal_page import SignalMonitorPage
 from gui_dev_v3.settings import SettingsContainer, ThemePickerGrid, SpinSetting
+from gui_dev_v3.tx.dashboard import TXDashboardPage
+from gui_dev_v3.tx_app_state import TXAppState
 from gui_dev_v3.tx.placeholders import TransmitPage
 from gui_dev_v3.tx.file_manager_page import FileManagerPage
 
@@ -447,4 +449,21 @@ def test_table_builder_exports_blank_template_without_fabricated_measurements(qa
             assert item is not None
             assert item.text() == ""
 
+    page.close()
+
+
+def test_tx_dashboard_hides_secondary_panels_on_compact_display(qapp):
+    page = TXDashboardPage(TXAppState())
+    page.resize(800, 600)
+    page.show()
+    qapp.processEvents()
+
+    assert not page._pipeline.isVisible()
+    assert not page._logs.isVisible()
+    assert not hasattr(page, "_bit_stream")
+
+    page.resize(1100, 700)
+    qapp.processEvents()
+    assert page._pipeline.isVisible()
+    assert page._logs.isVisible()
     page.close()

@@ -15,20 +15,6 @@ from typing import Any
 import threading
 from gui_dev_v3.serial.controllers import TXSerialController
 
-# Resolve beta state/log dirs with VLC_DATA_DIR env var fallback
-def _resolve_beta_dir() -> tuple[Path, Path]:
-    import os
-    env = os.getenv("VLC_DATA_DIR")
-    if env:
-        base = Path(env).expanduser()
-        return base / "state", base / "logs" / "tx"
-    parent = Path(__file__).resolve().parents[4] / "vlc_beta"
-    return parent / "state", parent / "logs" / "tx"
-
-BETA_STATE_DIR, BETA_TX_LOG_DIR = _resolve_beta_dir()
-STATUS_FRESHNESS_SEC = 30.0
-
-
 @dataclass
 class TXPhysicalSnapshot:
     """Immutable data packet from the TX physical backend."""
@@ -547,93 +533,6 @@ class TXPhysicalBackend:
 
 
 # ── Helpers ──
-
-def _is_status_fresh(status: dict | None, max_age: float = STATUS_FRESHNESS_SEC) -> bool:
-    if not status:
-        return False
-    updated = status.get("updated_at")
-    if updated is not None:
-        return (time.time() - float(updated)) < max_age
-    return False
-
-
-def _read_tx_status() -> dict[str, Any] | None:
-    path = BETA_STATE_DIR / "tx_status.json"
-    if not path.exists():
-        return None
-    try:
-        data: dict[str, Any] | None = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else None
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def _read_latest_tx_record() -> dict[str, Any] | None:
-    path = BETA_TX_LOG_DIR / "latest_tx_record.json"
-    if not path.exists():
-        return None
-    try:
-        data: dict[str, Any] | None = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else None
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def _parse_tx_record(record: dict[str, Any]) -> dict[str, Any]:
-    payload = record.get("payload") or {}
-    settings = record.get("settings") or {}
-    batch = record.get("batch") or {}
-    parts = record.get("parts") or []
-
-    filename = payload.get("name", "thesis.pdf")
-    size_bytes = int(payload.get("size_bytes", 0))
-    chunk_bytes = int(settings.get("chunk_bytes", 256))
-    total_chunks = max(size_bytes // max(chunk_bytes, 1), 1) if size_bytes else 0
-
-    if parts:
-        total_chunks = sum(
-            int(p.get("size_bytes", 0)) // max(chunk_bytes, 1) for p in parts
-        )
-        total_chunks = max(total_chunks, 1)
-
-    status = str(record.get("status", "pending")).lower()
-    mode = str(settings.get("mode", "4B5B"))
-    symbol_rate = f"{int(settings.get('symbol_hz', 15000)):,} sym/s"
-    led_pin = int(settings.get("led_pin", 5))
-    tx_power = 100
-
-    if status == "complete":
-        percent = 100
-        current_chunk = total_chunks
-    elif status in ("failed", "error"):
-        percent = 0
-        current_chunk = 0
-    else:
-        percent = 0
-        current_chunk = 0
-
-    return {
-        "filename": filename,
-        "filetype": _guess_filetype(filename),
-        "size_bytes": size_bytes,
-        "total_chunks": total_chunks,
-        "chunk_size": chunk_bytes,
-        "encoding": mode,
-        "modulation": "NRZ / OOK",
-        "symbol_rate": symbol_rate,
-        "led_pin": led_pin,
-        "tx_power": tx_power,
-        "pre_emphasis": "Enabled" if settings.get("pre_emphasis", False) else "Disabled",
-        "status_text": "Ready to transmit" if status in ("pending", "idle") else status.capitalize(),
-        "percent": percent,
-        "current_chunk": current_chunk,
-        "elapsed_time": "00:00:00",
-        "estimated_time": "00:00:00",
-        "data_rate": "0 bps",
-        "serial_connected": True,
-        "port": str(record.get("tx_port", "COM6")),
-    }
-
 
 def _guess_filetype(filename: str) -> str:
     ext = filename.split(".")[-1].lower() if "." in filename else ""

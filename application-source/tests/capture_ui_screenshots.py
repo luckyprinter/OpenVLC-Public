@@ -34,6 +34,8 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
             # small bottom inset at compact laptop resolutions.
             layout = body
             layout.activate()
+            if not page._state.serial_connected and file_panel.start_btn.isEnabled():
+                raise RuntimeError(f"TX Start must be disabled while hardware is disconnected at {width}x{height}")
             for control_name in ("select_btn", "start_btn"):
                 control = getattr(file_panel, control_name, None)
                 if control is None or not control.isVisible():

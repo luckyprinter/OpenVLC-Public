@@ -134,13 +134,13 @@ class SessionInspectorCard(Card):
 
         # ── Tab 3: OOK Capture Data ──
         self.ook_data_tab = QWidget()
-        self.ook_data_lo = QVBoxLayout(self.bitstream_tab)
-        self.bitstream_lo.setContentsMargins(12, 12, 12, 12)
+        self.ook_data_lo = QVBoxLayout(self.ook_data_tab)
+        self.ook_data_lo.setContentsMargins(12, 12, 12, 12)
         
         self.ook_data_text = QPlainTextEdit()
-        self.bitstream_text.setReadOnly(True)
-        self.bitstream_text.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
-        self.bitstream_text.setStyleSheet("""
+        self.ook_data_text.setReadOnly(True)
+        self.ook_data_text.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self.ook_data_text.setStyleSheet("""
             QPlainTextEdit {
                 background-color: #06090F;
                 border: 1px solid #1A3152;
@@ -151,8 +151,8 @@ class SessionInspectorCard(Card):
                 padding: 10px;
             }
         """)
-        self.bitstream_lo.addWidget(self.bitstream_text)
-        self.tabs.addTab(self.bitstream_tab, "Raw OOK Samples")
+        self.ook_data_lo.addWidget(self.ook_data_text)
+        self.tabs.addTab(self.ook_data_tab, "OOK Capture Data")
 
         # ── Tab 4: Protocol Logs ──
         self.protocol_tab = QWidget()
@@ -258,9 +258,9 @@ class SessionInspectorCard(Card):
                 bit_values[index:index + 8]
                 for index in range(0, len(bit_values), 8)
             )
-            self.bitstream_text.setPlainText(legacy_text + grouped)
+            self.ook_data_text.setPlainText(legacy_text + grouped)
         else:
-            self.bitstream_text.setPlainText(
+            self.ook_data_text.setPlainText(
                 "Raw comparator/bit samples are not available in this capture. "
                 "The current firmware does not stream symbol-rate OOK samples."
             )

@@ -193,7 +193,8 @@ class RXPhysicalBackend:
         # Try this RX console's last successful port first. If it is stale,
         # prioritize_preferred_port leaves the actual enumerated fallback list intact.
         from gui_dev_v3.settings import SettingsManager
-        preferred = SettingsManager("rx").get("connection/port", "")
+        settings = SettingsManager("rx")
+        preferred = settings.get("connection/port", "")
         ports = prioritize_preferred_port(ports, str(preferred or ""))
         if ports:
             self.log("Scan", f"Found {len(ports)} ports: {', '.join(ports)}")
@@ -209,6 +210,8 @@ class RXPhysicalBackend:
                     self._port = None
                     continue
                 self._connected = True
+                # Remember only a successfully identified and opened RX device.
+                settings.set("connection/port", port)
                 self._record_diag("serial_connected", role="rx", baud_rate=RX_BAUD,
                                   firmware_family="rx")
                 self.log("Connected", f"Auto-connected to {port} (VLC_RX)")

@@ -45,3 +45,14 @@ def test_runtime_data_dir_preserves_explicit_user_override(monkeypatch, tmp_path
     monkeypatch.setenv("VLC_DATA_DIR", str(explicit))
     assert configure_runtime_data_dir() == explicit
     assert __import__("os").environ["VLC_DATA_DIR"] == str(explicit)
+
+
+def test_runtime_status_and_rx_logs_use_application_data(monkeypatch, tmp_path):
+    monkeypatch.setenv("VLC_DATA_DIR", str(tmp_path))
+
+    from gui_dev_v3.data import records, status
+
+    assert status._resolve_state_dir() == tmp_path / "state"
+    assert records._resolve_log_dir() == tmp_path / "logs" / "rx"
+    assert "vlc_beta" not in str(status._resolve_state_dir())
+    assert "vlc_beta" not in str(records._resolve_log_dir())

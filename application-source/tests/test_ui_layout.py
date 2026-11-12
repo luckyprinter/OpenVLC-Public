@@ -493,3 +493,33 @@ def test_tx_start_requires_selected_file_and_connected_hardware(qapp):
     widget.refresh(state)
     assert widget.start_btn.isEnabled()
     widget.close()
+
+def test_rx_export_updates_existing_history_after_method2_comparison(qapp, monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    from gui_dev_v3.models import TransferStatus as RXTransferStatus
+
+    monkeypatch.setattr(export_page_module, "HISTORY_DIR", tmp_path)
+    monkeypatch.setattr(export_page_module, "HISTORY_PATH", tmp_path / "history.json")
+    transfer = SimpleNamespace(
+        tid=77,
+        status=RXTransferStatus.COMPLETE,
+        filename="received.bin",
+        time_label="12:00:00",
+        size_bytes=8,
+        total_chunks=1,
+        received_chunks=1,
+    )
+    state = SimpleNamespace(transfer=transfer, get_method2_comparison=lambda: None)
+    page = ExportPage()
+    page.refresh(state)
+    assert page._history_data[0]["ber"] == "N/A"
+    assert page._history_data[0]["ber_method"] is None
+
+    state.get_method2_comparison = lambda: {
+        "strict_ber": 0.0125,
+        "overlap_ber": 0.0,
+    }
+    page.refresh(state)
+    assert page._history_data[0]["ber"] == 0.0125
+    assert page._history_data[0]["ber_method"] == "method2_reference_file"
+    page.close()

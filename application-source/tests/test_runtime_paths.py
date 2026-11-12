@@ -105,3 +105,22 @@ def test_logger_uses_writable_application_data_directory(monkeypatch, tmp_path):
     monkeypatch.setenv("VLC_DATA_DIR", str(tmp_path))
 
     assert Path(get_base_dir()) == tmp_path
+
+
+
+def test_user_config_directories_follow_platform_conventions(tmp_path):
+    from gui_dev_v3.runtime_paths import resolve_user_config_dir
+
+    home = tmp_path / "home"
+    assert resolve_user_config_dir(
+        platform="win32", environ={"APPDATA": str(tmp_path / "roaming")}, home=home
+    ) == tmp_path / "roaming" / "OpenVLC"
+    assert resolve_user_config_dir(
+        platform="darwin", environ={}, home=home
+    ) == home / "Library" / "Application Support" / "OpenVLC" / "Config"
+    assert resolve_user_config_dir(
+        platform="linux", environ={"XDG_CONFIG_HOME": str(tmp_path / "config")}, home=home
+    ) == tmp_path / "config" / "OpenVLC"
+    assert resolve_user_config_dir(
+        platform="linux", environ={}, home=home
+    ) == home / ".config" / "OpenVLC"

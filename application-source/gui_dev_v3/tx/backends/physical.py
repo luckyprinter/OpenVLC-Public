@@ -14,6 +14,7 @@ from typing import Any
 
 import threading
 from gui_dev_v3.serial.controllers import TXSerialController
+from gui_dev_v3.serial.detection import prioritize_preferred_port
 
 @dataclass
 class TXPhysicalSnapshot:
@@ -155,6 +156,11 @@ class TXPhysicalBackend:
     def _auto_connect_locked(self) -> bool:
         """Perform discovery and persistent connection while holding the shared lock."""
         ports = self.scan_ports()
+        # Keep TX's saved preference separate from RX's and fall back to all
+        # currently enumerated devices when the saved port is no longer present.
+        from gui_dev_v3.settings import SettingsManager
+        preferred = SettingsManager("tx").get("connection/port", "")
+        ports = prioritize_preferred_port(ports, str(preferred or ""))
         if ports:
             self.log("Scan", f"Found {len(ports)} ports: {', '.join(ports)}")
         for port in ports:

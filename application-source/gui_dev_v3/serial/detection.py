@@ -9,6 +9,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from gui_dev_v3.runtime_paths import resolve_user_config_dir
+
 # TX firmware: 115200 baud (tx_dma.ino / tx_non_dma.ino → Serial.begin(115200))
 # RX firmware: 460800 baud (rx.ino → Serial.begin(460800))
 BAUDRATE_TX = 115200
@@ -21,7 +23,7 @@ BAUDRATE = BAUDRATE_TX
 # Both TX and RX consoles may scan from separate processes. Serialize the
 # complete identify -> persistent-open sequence so one role cannot repeatedly
 # steal the other role's candidate port between the probe and final open.
-_SERIAL_SCAN_LOCK_PATH = Path.home() / ".vlc_app" / "serial_scan.lock"
+_SERIAL_SCAN_LOCK_PATH = resolve_user_config_dir() / "serial_scan.lock"
 
 
 @contextmanager

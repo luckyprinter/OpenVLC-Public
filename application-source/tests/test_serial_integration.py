@@ -417,3 +417,46 @@ def test_serial_scan_lock_serializes_separate_processes(tmp_path: Path):
 
     assert first.exitcode == 0
     assert second.exitcode == 0
+
+def test_stream_start_captures_completion_counter_before_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """An immediate TX_STREAM_DONE response must not be lost after STREAM_START."""
+    from gui_dev_v3.serial.controllers import TXSerialController
+
+    class FakeSettings:
+        def __init__(self, _role: str) -> None:
+            pass
+
+        def get(self, key: str, default: Any = None) -> Any:
+            return 15000 if key == "link/symbol_hz" else default
+
+    monkeypatch.setattr("gui_dev_v3.settings.SettingsManager", FakeSettings)
+    controller = TXSerialController()
+    statuses: list[dict[str, Any]] = []
+    controller.on_status = statuses.append
+
+    def immediate_firmware_response(command: str) -> bool:
+        if command == "STREAM_BEGIN:1:1:5:16:0000:1:66696C652E62696E":
+            controller._append_line("TX_STREAM_BEGIN_OK")
+        elif command.startswith("STREAM_DATA:"):
+            controller._append_line("TX_STREAM_DATA_OK")
+        elif command == "STREAM_START":
+            # Simulate firmware replying before send_line() returns.
+            controller._append_line("TX_STREAM_DONE")
+        return True
+
+    controller.send_line = immediate_firmware_response  # type: ignore[method-assign]
+    payload = tmp_path / "file.bin"
+    payload.write_bytes(b"hello")
+
+    assert controller._send_stream(
+        payload,
+        b"hello",
+        b"file.bin",
+        chunk_size=16,
+        tid=1,
+        file_crc=0,
+        round_count=1,
+    ) is True
+    assert any(item.get("stage") == "Send complete" for item in statuses)

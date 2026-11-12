@@ -245,7 +245,6 @@ class SignalMonitorPage(QWidget):
         self._pvo_hist: list[float] = []
         self._vref_hist: list[float] = []
         self._margin_hist: list[float] = []
-        self._last_ook_chunk: int = -1  # track chunk index for OOK update
 
         self._build_ui()
 
@@ -256,8 +255,6 @@ class SignalMonitorPage(QWidget):
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
-        if self._state and self._state._simulation:
-            self._last_ook_chunk = self._state._simulation._sample_counter
         if hasattr(self, "_sample_timer") and not self._sample_timer.isActive():
             self._sample_timer.start(100)
 
@@ -547,27 +544,13 @@ class SignalMonitorPage(QWidget):
         if self._paused:
             return
         sig = self._state.signal
-        mode = self._state.mode
-
-        if mode == "simulated" and self._state._simulation:
-            if self._last_ook_chunk <= 0:
-                self._last_ook_chunk = self._state._simulation._sample_counter
-            new_samples = self._state.get_new_simulation_samples(self._last_ook_chunk)
-            for pvo, vref, margin, bit in new_samples:
-                self._ook_widget.push_bit(bit)
-                self._pvo_hist.append(pvo)
-                self._vref_hist.append(vref)
-                self._margin_hist.append(margin)
-            if new_samples:
-                self._last_ook_chunk = self._state._simulation._sample_counter
-        else:
-            pvo = sig.pvo
-            vref = sig.vref
-            margin = sig.margin
-            self._ook_widget.set_from_pvo_vref(pvo, vref)
-            self._pvo_hist.append(pvo)
-            self._vref_hist.append(vref)
-            self._margin_hist.append(margin)
+        pvo = sig.pvo
+        vref = sig.vref
+        margin = sig.margin
+        self._ook_widget.set_from_pvo_vref(pvo, vref)
+        self._pvo_hist.append(pvo)
+        self._vref_hist.append(vref)
+        self._margin_hist.append(margin)
 
         # Cap history lists to prevent growth
         for hist in (self._pvo_hist, self._vref_hist, self._margin_hist):

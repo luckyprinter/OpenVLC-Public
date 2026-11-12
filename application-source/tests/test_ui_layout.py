@@ -682,3 +682,50 @@ def test_window_minimum_height_respects_scaled_logical_work_area():
     assert min_height == 418
     assert min_width <= 683 - 32
     assert min_height <= 466 - 48
+
+
+
+def test_tx_file_manager_crc16_reads_large_files_incrementally(qapp, tmp_path, monkeypatch):
+    import binascii
+
+    from gui_dev_v3.tx.file_manager_page import FileManagerPage
+
+    payload = bytes(range(256)) * 1024
+    source = tmp_path / "large-payload.bin"
+    source.write_bytes(payload)
+
+    page = FileManagerPage()
+    actual = page._compute_crc16(str(source))
+    expected = f"0x{binascii.crc_hqx(payload, 0xFFFF):04X}"
+
+    assert actual == expected
+
+    # The file manager must read in bounded blocks rather than a single
+    # unbounded read, even when the file is larger than one block.
+    original_open = open
+    read_sizes = []
+
+    class TrackingReader:
+        def __init__(self, wrapped):
+            self._wrapped = wrapped
+
+        def __enter__(self):
+            self._wrapped.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self._wrapped.__exit__(*args)
+
+        def read(self, size=-1):
+            read_sizes.append(size)
+            return self._wrapped.read(size)
+
+    def tracking_open(path, mode="r", *args, **kwargs):
+        wrapped = original_open(path, mode, *args, **kwargs)
+        if str(path) == str(source) and mode == "rb":
+            return TrackingReader(wrapped)
+        return wrapped
+
+    monkeypatch.setattr("builtins.open", tracking_open)
+    assert page._compute_crc16(str(source)) == expected
+    assert read_sizes and all(0 < size <= 64 * 1024 for size in read_sizes)

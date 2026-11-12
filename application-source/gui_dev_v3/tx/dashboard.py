@@ -264,7 +264,7 @@ class CurrentSessionWidget(Card):
         self.body.setSpacing(3)
         
         self.row_sent = _DetailRow("Files Sent", "0")
-        self.row_success = _DetailRow("Success Rate", "100 %", val_color=COLORS["green"])
+        self.row_success = _DetailRow("Success Rate", "—", val_color=COLORS["muted"])
         self.row_rate = _DetailRow("Average Throughput", "0 bps")
         self.row_last = _DetailRow("Last Transfer", "None")
         
@@ -282,12 +282,16 @@ class CurrentSessionWidget(Card):
             if item["outcome"] == "SUCCESS":
                 success += 1
                 
-        rate_pct = 100
-        if sent > 0:
-            rate_pct = int((success / sent) * 100)
-            
+        rate_pct = int((success / sent) * 100) if sent > 0 else None
+
         self.row_sent.setValue(str(sent))
-        self.row_success.setValue(f"{rate_pct} %", COLORS["green"] if rate_pct >= 90 else COLORS["amber"])
+        if rate_pct is None:
+            self.row_success.setValue("—", COLORS["muted"])
+        else:
+            self.row_success.setValue(
+                f"{rate_pct} %",
+                COLORS["green"] if rate_pct >= 90 else COLORS["amber"],
+            )
 
         # Compute average throughput from completed transmissions
         rates_bps: list[float] = []

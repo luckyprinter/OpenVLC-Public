@@ -290,13 +290,11 @@ def test_firmware_crc_failure_discards_active_batch_group(monkeypatch):
         part_chunks=1,
         tid=81,
     )
-    backend._active_tid = 81
-    backend._active_batch_group_id = "firmware-crc"
-    backend._active_filename = "failed.bin (Part 1/2)"
-    backend._active_total_size = 10
-    backend._active_total_chunks = 2
+    encoded_name = "VLCB1~firmware-crc~1~2~1234~failed.bin".encode().hex()
+    backend._handle_transfer_notice(
+        f"RX_TRANSFER_NOTICE:81:10:2:1234:{encoded_name}"
+    )
     backend._active_received_chunks = 1
-    backend._active_started_monotonic = time.monotonic()
 
     backend._handle_file_crc_fail(
         "RX_FILE_CRC_FAIL:81:got=0000:expected=1234"

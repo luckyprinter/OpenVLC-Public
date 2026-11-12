@@ -348,6 +348,15 @@ class ExportPage(QWidget):
         self.table.verticalHeader().setDefaultSectionSize(32)
         self.table.setSortingEnabled(True)
         self.table.setMinimumHeight(220)
+        self.table.setMinimumWidth(0)
+        self._history_empty_state = QLabel(
+            "No transfer history yet. Completed or failed sessions will appear here."
+        )
+        self._history_empty_state.setWordWrap(True)
+        self._history_empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._history_empty_state.setMinimumHeight(56)
+        self._history_empty_state.setObjectName("Muted")
+        self.history_card.body.addWidget(self._history_empty_state)
         self.history_card.body.addWidget(self.table)
 
         # Actions below the table
@@ -530,6 +539,7 @@ class ExportPage(QWidget):
             self.table.setItem(row, 6, ber_item)
 
         self.table.clearSelection()
+        self._history_empty_state.setVisible(not self._history_data)
         self._on_selection_changed()
 
     def refresh(self, state: RXAppState) -> None:

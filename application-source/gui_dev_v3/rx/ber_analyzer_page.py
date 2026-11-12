@@ -155,6 +155,10 @@ class BERAnalyzerPage(QWidget):
             )
             return
 
+        # Store Method 2 on the matching completed capture. CRC status remains
+        # independent and is never used to infer BER.
+        state.apply_method2_result(transfer.tid, result["strict_ber"])
+
         self.lbl_compared.setText(
             f"{result['overlap_bytes']:,} / {result['expected_bytes']:,} B"
         )

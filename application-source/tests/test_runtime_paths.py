@@ -56,3 +56,43 @@ def test_runtime_status_and_rx_logs_use_application_data(monkeypatch, tmp_path):
     assert records._resolve_log_dir() == tmp_path / "logs" / "rx"
     assert "vlc_beta" not in str(status._resolve_state_dir())
     assert "vlc_beta" not in str(records._resolve_log_dir())
+
+
+def test_serial_status_writer_uses_application_status_store(monkeypatch):
+    from gui_dev_v3.data import status as status_module
+    from gui_dev_v3.serial import session as session_module
+
+    captured = {}
+
+    def capture(role, stage, detail="", percent=None, state="idle", **extra):
+        captured.update(
+            role=role,
+            stage=stage,
+            detail=detail,
+            percent=percent,
+            state=state,
+            extra=extra,
+        )
+
+    monkeypatch.setattr(status_module, "write_status", capture)
+    session_module.write_status(
+        "rx",
+        {
+            "role": "rx",
+            "stage": "Connected",
+            "detail": "Serial link ready",
+            "state": "active",
+            "updated_at": 123.0,
+            "percent": 25,
+            "port": "/dev/ttyUSB0",
+        },
+    )
+
+    assert captured == {
+        "role": "rx",
+        "stage": "Connected",
+        "detail": "Serial link ready",
+        "percent": 25,
+        "state": "active",
+        "extra": {"port": "/dev/ttyUSB0"},
+    }

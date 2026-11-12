@@ -106,9 +106,14 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
     if mode == "rx" and page_name == "dashboard":
         page = shell._page_widgets.get("dashboard")
         file_panel = getattr(page, "_file_info", None)
-        if file_panel is None or file_panel.height() < 180:
-            raise RuntimeError(f"RX received-file panel is too short at {width}x{height}")
         compact = getattr(page, "_compact_layout", False)
+        minimum_panel_height = 120 if compact else 180
+        if file_panel is None or file_panel.height() < minimum_panel_height:
+            raise RuntimeError(
+                f"RX received-file panel is too short at {width}x{height}: "
+                f"height={file_panel.height() if file_panel is not None else 'missing'}, "
+                f"minimum={minimum_panel_height}"
+            )
         required_rows = (
             ("filename_row", "pct_row", "progress_bar")
             if compact else

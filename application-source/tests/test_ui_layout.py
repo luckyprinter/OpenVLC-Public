@@ -67,3 +67,23 @@ def test_console_shell_reflows_without_overlapping_navigation(
     window.return_to_launcher()
     window.close()
     qapp.processEvents()
+
+
+def test_theme_picker_shows_curated_presets_and_keeps_saved_legacy_theme(qapp):
+    from gui_dev_v3.settings import ThemePickerGrid
+
+    picker = ThemePickerGrid(current="graphite_lab")
+    assert {card._key for card in picker._cards} == {
+        "graphite_lab",
+        "midnight_navy",
+        "arctic_light",
+        "dark_lab",
+        "clean_data",
+    }
+
+    # A user's previously selected non-curated theme remains visible rather
+    # than silently appearing unselected after the UI is simplified.
+    legacy_picker = ThemePickerGrid(current="dracula")
+    legacy_keys = {card._key for card in legacy_picker._cards}
+    assert "dracula" in legacy_keys
+    assert len(legacy_keys) == 6

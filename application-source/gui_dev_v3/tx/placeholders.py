@@ -125,10 +125,7 @@ class TransmitPage(QWidget):
             self.start_btn.style().unpolish(self.start_btn)
             self.start_btn.style().polish(self.start_btn)
             
-            # Cancel active simulation if running
-            if self.state.mode == "simulated" and self.state._simulation:
-                self.state._simulation.stop()
-                self.state.refresh()
+            # Stop scheduling queued items. An active hardware transfer is not aborted.
             return
 
         # Start the batch

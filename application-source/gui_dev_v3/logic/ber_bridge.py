@@ -32,6 +32,8 @@ def _build_result(expected_size: int, received_size: int, overlap_bit_errors: in
 
 def compare_payload_bits(expected: bytes, received: bytes, mismatch_limit: int = 50) -> dict:
     """Compare two byte payloads bit-for-bit, including missing/extra length."""
+    if mismatch_limit < 0:
+        raise ValueError("mismatch_limit cannot be negative")
     expected, received = bytes(expected), bytes(received)
     overlap = min(len(expected), len(received))
     bit_errors = byte_mismatches = 0
@@ -57,7 +59,12 @@ def compare_files(expected_path: str | Path, received_path: str | Path,
                   mismatch_limit: int = 50, block_size: int = 64 * 1024) -> dict:
     """Stream-compare the original reference and reconstructed RX file."""
     expected_path, received_path = Path(expected_path), Path(received_path)
-    expected_size, received_size = expected_path.stat().st_size, received_path.stat().st_size
+    if mismatch_limit < 0:
+        raise ValueError("mismatch_limit cannot be negative")
+    if block_size < 1:
+        raise ValueError("block_size must be positive")
+    expected_before, received_before = expected_path.stat(), received_path.stat()
+    expected_size, received_size = expected_before.st_size, received_before.st_size
     overlap = min(expected_size, received_size)
     remaining, offset = overlap, 0
     bit_errors = byte_mismatches = 0
@@ -79,6 +86,14 @@ def compare_files(expected_path: str | Path, received_path: str | Path,
                                         "received": rec_val, "bit_errors": errors})
             offset += count
             remaining -= count
+    expected_after, received_after = expected_path.stat(), received_path.stat()
+    if (
+        expected_before.st_size != expected_after.st_size
+        or expected_before.st_mtime_ns != expected_after.st_mtime_ns
+        or received_before.st_size != received_after.st_size
+        or received_before.st_mtime_ns != received_after.st_mtime_ns
+    ):
+        raise OSError("A comparison file changed during Method 2 BER calculation")
     if expected_size != received_size and len(preview) < mismatch_limit:
         preview.append({"offset": overlap,
                         "expected": "EOF" if overlap >= expected_size else "additional data",

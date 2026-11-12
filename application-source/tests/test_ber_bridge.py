@@ -36,7 +36,7 @@ def test_compare_files_streams_identical_files(tmp_path):
 def test_compare_files_reports_bit_and_size_errors(tmp_path):
     expected = tmp_path / "original.bin"
     received = tmp_path / "received.bin"
-    expected.write_bytes(b"\\x00\\x0f\\xaa")
+    expected.write_bytes(b"\x00\x0f\xaa")
     received.write_bytes(b"\x01\x03")
 
     result = compare_files(expected, received, block_size=1)
@@ -67,7 +67,7 @@ def test_compare_files_handles_empty_reference(tmp_path):
 def test_app_state_method2_uses_selected_reference_and_received_path(tmp_path):
     expected = tmp_path / "original.bin"
     received = tmp_path / "received.bin"
-    expected.write_bytes(b"\\x00\\x0f\\xaa")
+    expected.write_bytes(b"\x00\x0f\xaa")
     received.write_bytes(bytes([0x01, 0x03]))
 
     # Avoid constructing a serial backend; exercise only the comparison method.

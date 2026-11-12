@@ -151,12 +151,21 @@ class _BaseWindow(QMainWindow):
             super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
+        from PySide6.QtWidgets import QMessageBox
         from gui_dev_v3.settings_store import load_settings, save_settings
+
         latest = load_settings()
         latest.resolution = self.settings.resolution
         latest.fullscreen = self.settings.fullscreen
         latest.borderless = self.settings.borderless
-        save_settings(latest)
+        if not save_settings(latest):
+            QMessageBox.warning(
+                self,
+                "Settings Not Saved",
+                "The existing settings file could not be read, so OpenVLC left it "
+                "untouched instead of overwriting it with defaults. Use the explicit "
+                "Reset Settings action to create a backup and recover with defaults.",
+            )
         super().closeEvent(event)
 
 # ── Launcher Page ──────────────────────────────────────────────────────

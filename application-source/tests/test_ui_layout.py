@@ -124,6 +124,8 @@ def test_theme_picker_reflows_to_two_columns_on_narrow_width(qapp):
     qapp.processEvents()
 
     assert picker._column_count == 2
+    assert all(card.focusPolicy().name == "StrongFocus" for card in picker._cards)
+    assert all(card.accessibleName() for card in picker._cards)
     positions = [
         picker._grid.getItemPosition(index)
         for index in range(picker._grid.count())
@@ -139,6 +141,8 @@ def test_settings_container_reduces_gutters_on_compact_width(qapp):
     settings.show()
     qapp.processEvents()
 
+    assert settings._nav_list.focusPolicy().name == "StrongFocus"
+    assert settings._nav_list.accessibleName() == "Settings sections"
     wrapper_layout = settings._page_wrappers[0].layout()
     margins = wrapper_layout.contentsMargins()
     assert (margins.left(), margins.top(), margins.right(), margins.bottom()) == (

@@ -234,9 +234,30 @@ def test_rx_inspect_stacks_explorers_on_compact_display(qapp):
 
 
 def test_rx_signal_page_reflows_metrics_and_diagnostics_on_compact_display(qapp):
+    from dataclasses import replace
+
     offline_state = RXAppState()
     page = SignalMonitorPage(offline_state)
     page.refresh(offline_state)
+    assert not hasattr(page, "_ook_widget")
+    assert page._signal_waveform._buffer == []
+
+    # The plot receives one point per actual state refresh, not ten repeated
+    # copies of the same low-rate telemetry value from a 100 ms timer.
+    offline_state.serial_connected = True
+    offline_state.signal = replace(
+        offline_state.signal, pvo=1.20, vref=0.80, margin=0.40
+    )
+    page.refresh(offline_state)
+    assert len(page._signal_waveform._buffer) == 1
+    page.refresh(offline_state)
+    assert len(page._signal_waveform._buffer) == 1
+    page._last_sample_monotonic -= 2.0
+    page.refresh(offline_state)
+    assert len(page._signal_waveform._buffer) == 2
+    offline_state.serial_connected = False
+    page.refresh(offline_state)
+    assert page._signal_waveform._buffer == []
     assert not page._quality_top._available
     assert not page._noise_top._available
     assert all(bar._value_str == "—" for bar in page._quality_bars.values())

@@ -16,7 +16,7 @@ from gui_dev_v3.app import VLCMainWindow, load_bundled_fonts
 
 SCALE_LABEL = os.environ.get("OPENVLC_SCREENSHOT_SCALE", "1.0").replace(".", "p")
 OUTPUT_DIR = Path("ui-screenshots") / f"scale-{SCALE_LABEL}"
-WINDOW_SIZES = ((1366, 768), (1280, 720), (1024, 700))
+WINDOW_SIZES = ((1366, 768), (1280, 720), (1024, 700), (680, 500))
 PAGES = {
     "tx": {"dashboard": 0, "transmit": 1, "file_manager": 2, "logs": 3, "settings": 4},
     "rx": {"dashboard": 0, "receive": 1, "inspect": 2, "signal": 3, "ber_analyzer": 4, "study_data": 5, "settings": 6},

@@ -431,3 +431,20 @@ def test_numeric_settings_keep_suffix_visible(qapp):
     assert setting.width() >= setting.sizeHint().width()
     assert setting.width() >= 128
 
+
+
+def test_table_builder_exports_blank_template_without_fabricated_measurements(qapp):
+    page = TableBuilderPage()
+    page._selected_keys = ["Distance (m)", "BER (%)", "PV0 (V)"]
+    page._generate_table_data(preview=True)
+
+    assert "no synthetic test data" in page._preview_notice.text()
+    assert page._preview_table.rowCount() > 0
+    assert page._preview_table.columnCount() == 3
+    for row in range(page._preview_table.rowCount()):
+        for column in range(page._preview_table.columnCount()):
+            item = page._preview_table.item(row, column)
+            assert item is not None
+            assert item.text() == ""
+
+    page.close()

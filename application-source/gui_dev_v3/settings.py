@@ -580,6 +580,9 @@ class _SwatchCard(QWidget):
         self._active = active
         self._preset = preset
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName(preset["label"])
+        self.setAccessibleDescription(f"Select the {preset['label']} theme.")
         self.setFixedHeight(40)
         self.setMinimumWidth(120)
         self._build()
@@ -619,6 +622,7 @@ class _SwatchCard(QWidget):
         self.setStyleSheet(
             f"QWidget#ThemeSwatch {{ border: {border_width} solid {border_color}; "
             f"border-radius: 6px; background: {bg}; }}"
+            f"QWidget#ThemeSwatch:focus {{ border: 2px solid {self._preset['preview_accent']}; }}"
         )
 
     def set_active(self, active: bool) -> None:
@@ -628,6 +632,13 @@ class _SwatchCard(QWidget):
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         self.clicked.emit(self._key)
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.clicked.emit(self._key)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 class ThemePickerGrid(QWidget):
@@ -644,11 +655,11 @@ class ThemePickerGrid(QWidget):
         self._current = current
         self._cards: list[_SwatchCard] = []
 
-        from PySide6.QtWidgets import QApplication
         from PySide6.QtWidgets import QGridLayout
-        grid = QGridLayout(self)
-        grid.setContentsMargins(0, 6, 0, 6)
-        grid.setSpacing(6)
+        self._grid = QGridLayout(self)
+        self._grid.setContentsMargins(0, 6, 0, 6)
+        self._grid.setSpacing(6)
+        self._column_count = 3
 
         # Keep the default picker focused on five curated presets. Older
         # presets remain supported in theme.py so existing saved preferences
@@ -665,12 +676,11 @@ class ThemePickerGrid(QWidget):
             preset for preset in THEME_PRESETS
             if preset["key"] in curated_keys or preset["key"] == current
         ]
-        cols = 3
         for i, preset in enumerate(primary_presets):
             card = _SwatchCard(preset, active=(preset["key"] == current))
             card.clicked.connect(self._on_card_clicked)
             self._cards.append(card)
-            grid.addWidget(card, i // cols, i % cols)
+            self._grid.addWidget(card, i // self._column_count, i % self._column_count)
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         """Reflow theme choices instead of clipping them on narrow windows."""

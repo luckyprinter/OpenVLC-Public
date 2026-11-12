@@ -24,6 +24,14 @@ def _define(source: str, name: str) -> int:
     return int(match.group(1))
 
 
+def test_gui_runtime_has_no_virtual_simulation_backends() -> None:
+    gui_root = Path(__file__).resolve().parents[1] / "gui_dev_v3"
+    assert not (gui_root / "rx" / "backends" / "simulation.py").exists()
+    assert not (gui_root / "tx" / "backends" / "simulation.py").exists()
+    assert not (gui_root / "mock_data.py").exists()
+    assert not (gui_root / "tx_mock_data.py").exists()
+
+
 def test_crc16_ccitt_standard_check_value() -> None:
     assert crc16_ccitt(b"123456789") == 0x29B1
 

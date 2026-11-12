@@ -208,7 +208,8 @@ class TXAppState:
         self.data_rate = "0 bps"
         self.port = "—"
         self.serial_connected = False
-        self.using_mock_data = True
+        # An offline physical backend is not simulated or mock data.
+        self.using_mock_data = False
         self.record_count = 0
 
     def update_simulation_params(self, **kwargs: Any) -> None:

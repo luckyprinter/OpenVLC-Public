@@ -476,6 +476,10 @@ def test_rx_port_scan_uses_only_operating_system_ports(fake_serial, monkeypatch)
             hwid="USB VID:PID=10C4:EA60", vid=0x10C4, pid=0xEA60,
         ),
         types.SimpleNamespace(
+            device="/dev/serial/by-id/usb-CP2102", description="CP2102 USB UART",
+            hwid="USB VID:PID=10C4:EA60", vid=0x10C4, pid=0xEA60,
+        ),
+        types.SimpleNamespace(
             device="/dev/ttyS0", description="Built-in serial",
             hwid="n/a", vid=None, pid=None,
         ),
@@ -485,7 +489,7 @@ def test_rx_port_scan_uses_only_operating_system_ports(fake_serial, monkeypatch)
     monkeypatch.setitem(sys.modules, "serial.tools", tools_module)
     monkeypatch.setitem(sys.modules, "serial.tools.list_ports", list_ports_module)
 
-    assert _list_usb_serial_ports() == ["/dev/ttyUSB1", "COM4"]
+    assert _list_usb_serial_ports() == ["/dev/ttyUSB1", "COM4", "/dev/serial/by-id/usb-CP2102"]
 
 
 def test_serial_scan_lock_serializes_separate_processes(tmp_path: Path):

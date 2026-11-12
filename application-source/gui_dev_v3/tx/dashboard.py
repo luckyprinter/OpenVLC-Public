@@ -360,16 +360,8 @@ class FileDetailsWidget(Card):
             f"QPushButton:hover {{ background-color: {COLORS['header']}; }}"
         )
         
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setMinimumHeight(30)
-        self.cancel_btn.setStyleSheet(
-            f"QPushButton {{ background-color: {COLORS['red']}; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-weight: 700; font-size: 11px; }}"
-            f"QPushButton:hover {{ background-color: #ff5c5c; }}"
-        )
-        
         btn_row.addWidget(self.select_btn)
         btn_row.addWidget(self.start_btn)
-        btn_row.addWidget(self.cancel_btn)
         self.body.addLayout(btn_row)
         
     def refresh(self, state: TXAppState) -> None:
@@ -406,7 +398,6 @@ class FileDetailsWidget(Card):
             self.row_crc.setValue("Idle", COLORS["muted"])
             
         self.start_btn.setEnabled(not is_transmitting and state.serial_connected)
-        self.cancel_btn.setVisible(is_transmitting)
         self.start_btn.setVisible(not is_transmitting)
 
 
@@ -700,7 +691,6 @@ class TXDashboardPage(QWidget):
         self._file_details = FileDetailsWidget()
         self._file_details.select_btn.clicked.connect(self._on_select_file_clicked)
         self._file_details.start_btn.clicked.connect(self._on_start_clicked)
-        self._file_details.cancel_btn.clicked.connect(self._on_cancel_clicked)
         self._session = CurrentSessionWidget()
         self._bit_stream = DigitalBitstreamWidget()
         work_row.addWidget(self._file_details, 5)

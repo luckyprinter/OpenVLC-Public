@@ -76,7 +76,7 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
             raise RuntimeError(f"TX link-profile status is clipped at {width}x{height}")
         if status.fontMetrics().horizontalAdvance(status.text()) > status.width() + 2:
             raise RuntimeError(f"TX link-profile status text overflows at {width}x{height}")
-        for row_name in ("row_encoding", "row_modulation", "row_rate", "row_gpio", "row_output"):
+        for row_name in ("row_protocol", "row_rate", "row_gpio", "row_drive", "row_driver", "row_gap"):
             row = getattr(profile, row_name, None)
             if row is None:
                 raise RuntimeError(f"TX link-profile row {row_name} is missing at {width}x{height}")

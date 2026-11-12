@@ -278,6 +278,7 @@ class ExportPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._history_data: list[dict] = []
+        self._history_corrupt = False
         self._load_history()
         # Page layout
         lo = QVBoxLayout(self)
@@ -379,6 +380,11 @@ class ExportPage(QWidget):
         self._history_empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._history_empty_state.setMinimumHeight(56)
         self._history_empty_state.setObjectName("Muted")
+        if self._history_corrupt:
+            self._history_empty_state.setText(
+                "History file could not be read. Existing data was preserved; "
+                "repair or move it before saving new history."
+            )
         self.history_card.body.addWidget(self._history_empty_state)
         self.history_card.body.addWidget(self.table)
 
@@ -485,19 +491,30 @@ class ExportPage(QWidget):
     def _load_history(self) -> None:
         # Never seed fake transfers or overwrite unreadable user history.
         self._history_data = []
+        self._history_corrupt = False
         if not HISTORY_PATH.exists():
             return
         try:
             data = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
+            self._history_corrupt = True
             return
-        if isinstance(data, list):
+        if isinstance(data, list) and all(isinstance(item, dict) for item in data):
             self._history_data = data
+        else:
+            self._history_corrupt = True
 
-    def _save_history(self) -> None:
+    def _save_history(self, *, force: bool = False) -> None:
+        # A new transfer must not replace a damaged history file with an
+        # empty/partial list. Explicit user-confirmed clear/restore may do so.
+        if self._history_corrupt and not force:
+            return
         try:
             HISTORY_DIR.mkdir(parents=True, exist_ok=True)
-            HISTORY_PATH.write_text(json.dumps(self._history_data, indent=2), encoding="utf-8")
+            temporary = HISTORY_PATH.with_suffix(".tmp")
+            temporary.write_text(json.dumps(self._history_data, indent=2), encoding="utf-8")
+            temporary.replace(HISTORY_PATH)
+            self._history_corrupt = False
         except OSError:
             pass
 
@@ -637,7 +654,7 @@ class ExportPage(QWidget):
         )
         if ret == QMessageBox.StandardButton.Yes:
             self._history_data.clear()
-            self._save_history()
+            self._save_history(force=True)
             self._populate_table()
 
     def _get_selected_entry(self) -> dict | None:
@@ -727,7 +744,7 @@ class ExportPage(QWidget):
                     
                     if "history" in data:
                         self._history_data = data["history"]
-                        self._save_history()
+                        self._save_history(force=True)
                         self._populate_table()
                     
                     if "experiments" in data:

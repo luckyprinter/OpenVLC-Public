@@ -15,6 +15,7 @@ def settings_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     settings_path = settings_dir / "settings.json"
     monkeypatch.setattr(settings_store, "SETTINGS_DIR", settings_dir)
     monkeypatch.setattr(settings_store, "SETTINGS_PATH", settings_path)
+    monkeypatch.setattr(settings_store, "LEGACY_SETTINGS_PATH", tmp_path / "legacy" / "settings.json")
     return settings_path
 
 
@@ -146,3 +147,53 @@ def test_explicit_recovery_backs_up_corrupt_settings_before_replacing(
     assert len(backups) == 1
     assert backups[0].read_bytes() == original
     assert settings_store.load_settings() == settings_store.AppSettings()
+
+
+
+def test_legacy_settings_are_loaded_and_copied_to_new_config_path_without_deletion(
+    settings_paths: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    legacy_path = tmp_path / "legacy" / "settings.json"
+    legacy_path.parent.mkdir(parents=True)
+    legacy_bytes = json.dumps({
+        "theme": "charcoal",
+        "density": "compact",
+        "accent": "cyan",
+        "resolution": "1366x768",
+    }).encode("utf-8")
+    legacy_path.write_bytes(legacy_bytes)
+    monkeypatch.setattr(settings_store, "LEGACY_SETTINGS_PATH", legacy_path)
+
+    assert settings_store.load_settings().theme == "charcoal"
+    expected = settings_store.AppSettings(theme="charcoal", density="compact", accent="cyan", resolution="1366x768")
+    assert settings_store.save_settings(expected) is True
+    assert settings_store.load_settings() == expected
+    assert json.loads(settings_paths.read_text(encoding="utf-8"))["theme"] == "charcoal"
+    assert legacy_path.read_bytes() == legacy_bytes
+
+
+def test_corrupt_legacy_settings_are_preserved_until_explicit_recovery(
+    settings_paths: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    legacy_path = tmp_path / "legacy" / "settings.json"
+    legacy_path.parent.mkdir(parents=True)
+    original = b"{ broken legacy settings"
+    legacy_path.write_bytes(original)
+    monkeypatch.setattr(settings_store, "LEGACY_SETTINGS_PATH", legacy_path)
+
+    assert settings_store.save_settings(settings_store.AppSettings(theme="charcoal")) is False
+    assert legacy_path.read_bytes() == original
+    assert not settings_paths.exists()
+
+    assert settings_store.save_settings(
+        settings_store.AppSettings(), allow_corrupt_recovery=True
+    ) is True
+    backups = list(legacy_path.parent.glob("settings.json.corrupt-*.bak"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == original
+    assert legacy_path.read_bytes() == original
+    assert settings_paths.exists()

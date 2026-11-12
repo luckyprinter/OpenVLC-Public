@@ -209,6 +209,7 @@ class ConnectionChannelPage(QWidget):
         port_layout.setSpacing(8)
         self.port_combo = ComboSetting([], "")
         self.port_combo.setMinimumWidth(0)
+        self.port_combo.setMinimumHeight(38)
         self.port_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         from gui_dev_v3.rx.backends.physical import _list_usb_serial_ports
         
@@ -233,10 +234,12 @@ class ConnectionChannelPage(QWidget):
         bind_combo(self.port_combo, mgr, "connection/port", "")
         
         refresh_btn = QPushButton("Refresh")
+        refresh_btn.setMinimumHeight(36)
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.clicked.connect(_refresh_ports)
         
         force_btn = QPushButton("Force Connect")
+        force_btn.setMinimumHeight(36)
         force_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         force_btn.setToolTip("Bypass verification and force open this COM port.")
         force_btn.setStyleSheet("""
@@ -446,7 +449,7 @@ class ConnectionChannelPage(QWidget):
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         """Keep the port selector and connection actions reachable at narrow widths."""
         super().resizeEvent(event)
-        compact = self.width() < 560
+        compact = self.width() < 700
         if compact == self._port_row_compact:
             return
         self._port_row_compact = compact

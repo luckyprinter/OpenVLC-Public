@@ -547,10 +547,10 @@ class SettingsContainer(QWidget):
                 label = str(
                     item.data(Qt.ItemDataRole.AccessibleTextRole) or item.toolTip()
                 )
-                # QListWidget's native delegate can elide a long category name
-                # before wrapping it on Windows. An explicit line break keeps
-                # every label visible and its accessible name unchanged.
-                item.setText(label.replace(" & ", " &\n") if compact else label)
+                # Keep the visible compact label concise on Windows; the full
+                # category name remains in its tooltip and accessible text.
+                compact_label = {"General & Display": "General"}.get(label, label)
+                item.setText(compact_label if compact else label)
                 item.setSizeHint(QSize(0, 56 if compact else 42))
         margins = (10, 12, 10, 12) if compact else (24, 20, 24, 24)
         for wrapper in self._page_wrappers:

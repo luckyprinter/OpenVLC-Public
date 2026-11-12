@@ -177,6 +177,7 @@ class TXSerialController(SerialSession):
             "FREQ": str(freq),
             "ACTIVE_LOW": str(1 if active_low else 0),
             "IDLE_ON": str(1 if idle_on else 0),
+            "QUIET": str(1 if quiet else 0),
             "GAP": str(gap),
             "FGAP": str(fgap),
         }

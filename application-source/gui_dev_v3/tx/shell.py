@@ -18,6 +18,7 @@ from gui_dev_v3.settings import SettingsManager
 from gui_dev_v3.tx_app_state import POLL_INTERVAL_MS, TXAppState, build_default_tx_state
 from gui_dev_v3.widgets import scrollable
 from gui_dev_v3.theme import COLORS
+from gui_dev_v3.ui_foundation import SidebarNavigationList, add_navigation_item
 
 from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QStackedWidget, QVBoxLayout, QWidget
@@ -73,10 +74,7 @@ class TXShell(QWidget):
         sidebar_layout.addWidget(subtitle)
 
         # Navigation list
-        self.nav = QListWidget()
-        self.nav.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.nav.setSpacing(2)
-        self.nav.setIconSize(QSize(18, 18))
+        self.nav = SidebarNavigationList("Transmitter", self.sidebar)
         self._nav_items: list[tuple[QListWidgetItem, str]] = []
         sidebar_layout.addWidget(self.nav, 1)
 
@@ -362,9 +360,7 @@ class TXShell(QWidget):
                 icon = qta.icon(icon_name)
             except Exception:
                 icon = qta.icon("fa5s.circle")  # Fallback
-            item = QListWidgetItem(icon, label)
-            item.setToolTip(label)
-            self.nav.addItem(item)
+            item = add_navigation_item(self.nav, icon, label)
             self._nav_items.append((item, label))
             page = page_map.get(page_key)
             if page:

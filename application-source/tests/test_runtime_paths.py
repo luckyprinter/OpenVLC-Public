@@ -37,3 +37,11 @@ def test_linux_runtime_data_uses_xdg_default():
         home=Path("/home/tester"),
     )
     assert result == Path("/home/tester/.local/share/OpenVLC")
+
+def test_runtime_data_dir_preserves_explicit_user_override(monkeypatch, tmp_path):
+    from gui_dev_v3.runtime_paths import configure_runtime_data_dir
+
+    explicit = tmp_path / "custom-openvlc-data"
+    monkeypatch.setenv("VLC_DATA_DIR", str(explicit))
+    assert configure_runtime_data_dir() == explicit
+    assert __import__("os").environ["VLC_DATA_DIR"] == str(explicit)

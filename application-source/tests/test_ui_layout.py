@@ -356,7 +356,7 @@ def test_rx_receive_clear_is_display_only_and_does_not_immediately_repopulate(qa
         chunks=[chunk],
         status=None,
     )
-    state = SimpleNamespace(transfer=transfer, is_receiving=True, progress_percent=50)
+    state = SimpleNamespace(transfer=transfer, is_receiving=True, progress_percent=50, serial_connected=False)
     page.refresh(state)
     assert page.terminal.toPlainText() == ""
 

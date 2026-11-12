@@ -243,7 +243,7 @@ def load_session_capture(tid: int) -> SessionCapture | None:
             tid=int(data["tid"]),
             timestamp=str(data["timestamp"]),
             filename=str(data["filename"]),
-            ber=float(data["ber"]),
+            ber=(float(data["ber"]) if data.get("ber") is not None else None),
             crc_status=str(data["crc_status"]),
             throughput_kbps=float(data["throughput_kbps"]),
             analog_time=list(data["analog_time"]),
@@ -252,6 +252,7 @@ def load_session_capture(tid: int) -> SessionCapture | None:
             margin_samples=list(data["margin_samples"]),
             ook_bits=list(data["ook_bits"]),
             protocol_events=list(data["protocol_events"]),
+            ber_method=str(data.get("ber_method", "unavailable")),
         )
     except Exception as exc:
         print(f"Failed to load session capture {tid}: {exc}")

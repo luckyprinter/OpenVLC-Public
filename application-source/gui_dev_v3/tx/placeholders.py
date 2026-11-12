@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 from gui_dev_v3.tx_app_state import TXAppState
 from gui_dev_v3.widgets import Card, muted_label, primary_button, secondary_button
 from gui_dev_v3.theme import COLORS
+from gui_dev_v3.ui_foundation import PageIntro
 
 
 class TransmitPage(QWidget):
@@ -42,12 +43,19 @@ class TransmitPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(14)
+        layout.addWidget(PageIntro(
+            "TRANSMITTER  /  JOB MANAGEMENT",
+            "Transmission queue",
+            "Queue files, manage batch transfers, and review completed sessions.",
+            self,
+        ))
 
         # The active queue and its controls form the primary workspace row.
         top_row = QHBoxLayout()
         top_row.setSpacing(14)
 
         queue_card = Card("Transmission Queue")
+        self._queue_card = queue_card
         self.queue_table = QTableWidget(0, 3)
         self.queue_table.setHorizontalHeaderLabels(["Filename", "Size", "Status"])
         self.queue_table.verticalHeader().setDefaultSectionSize(32)
@@ -69,6 +77,7 @@ class TransmitPage(QWidget):
         right_col = QVBoxLayout()
         right_col.setSpacing(14)
         ctrl_card = Card("Queue Controls")
+        self._controls_card = ctrl_card
         self.start_btn = primary_button("Start Batch Transmission")
         self.start_btn.setMinimumHeight(40)
         self.start_btn.clicked.connect(self._on_start_batch)
@@ -80,6 +89,7 @@ class TransmitPage(QWidget):
         right_col.addWidget(ctrl_card)
 
         config_card = Card("Batch Configuration")
+        self._config_card = config_card
         config_card.body.addWidget(_detail_row("Batch Mode", "Sequential"))
         config_card.body.addWidget(_detail_row("Retry Policy", "Max 3 retries"))
         config_card.body.addWidget(_detail_row("Delay Between Files", "2.0 seconds"))
@@ -90,6 +100,7 @@ class TransmitPage(QWidget):
 
         # History spans the full workspace width for readable column headings.
         history_card = Card("Session History")
+        self._history_card = history_card
         self.history_table = QTableWidget(0, 4)
         self.history_table.setHorizontalHeaderLabels(["Time", "File", "Throughput", "Outcome"])
         self.history_table.verticalHeader().setDefaultSectionSize(32)
@@ -108,9 +119,23 @@ class TransmitPage(QWidget):
         self.history_table.setSortingEnabled(True)
         history_card.body.addWidget(self.history_table, 1)
         layout.addWidget(history_card, 2)
+        self._compact_layout = False
 
         if self.state:
             self.refresh(self.state)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Prioritize the active queue on short/high-DPI displays."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        # Session history has its own navigation destination. Hiding duplicate
+        # summary panels leaves usable room for queue controls on short displays.
+        self._history_card.setVisible(not compact)
+        self._config_card.setVisible(not compact)
+        self.queue_table.setMinimumHeight(120 if compact else 150)
 
     def _on_start_batch(self) -> None:
         if not self.state:

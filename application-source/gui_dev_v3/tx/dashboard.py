@@ -410,39 +410,38 @@ class TXConfigurationWidget(Card):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("TX LINK PROFILE", parent)
-        self.body.setSpacing(7)
-        self._status = muted_label("Application configuration · not yet confirmed by hardware")
+        self.body.setSpacing(5)
+        self._status = muted_label("Application profile · not hardware-verified")
         self.body.addWidget(self._status)
 
         self.row_encoding = _DetailRow("Encoding", "4B5B")
         self.row_modulation = _DetailRow("Modulation", "NRZ / OOK")
         self.row_rate = _DetailRow("Symbol Rate", "15,000 sym/s")
         self.row_gpio = _DetailRow("LED Output", "GPIO 5")
-        self.row_drive = _DetailRow("LED Drive", "100 %")
-        self.row_preemphasis = _DetailRow("Pre-emphasis", "Disabled")
+        self.row_output = _DetailRow("LED Drive / Pre-emphasis", "100 % · Disabled")
         for row in (
             self.row_encoding,
             self.row_modulation,
             self.row_rate,
             self.row_gpio,
-            self.row_drive,
-            self.row_preemphasis,
+            self.row_output,
         ):
             self.body.addWidget(row)
         self.body.addStretch(1)
 
     def refresh(self, state: TXAppState) -> None:
         self._status.setText(
-            "Application profile · TX connected"
+            "TX connected · application profile"
             if state.serial_connected
-            else "Saved/default profile · TX hardware disconnected"
+            else "TX offline · saved/default profile"
         )
         self.row_encoding.setValue(state.encoding or "—")
         self.row_modulation.setValue(state.modulation or "—")
         self.row_rate.setValue(state.symbol_rate or "—")
         self.row_gpio.setValue(f"GPIO {state.led_pin}" if state.led_pin else "—")
-        self.row_drive.setValue(state.tx_power or "—")
-        self.row_preemphasis.setValue(state.pre_emphasis or "—")
+        output = state.tx_power or "—"
+        pre_emphasis = state.pre_emphasis or "—"
+        self.row_output.setValue(f"{output} · {pre_emphasis}")
 
 
 # ── Section 6: TRANSMISSION LOGS ─────────────────────────────────────

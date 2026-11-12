@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QBoxLayout, QWidget
 
 from gui_dev_v3.app import VLCMainWindow
 from gui_dev_v3.app_state import RXAppState
@@ -196,13 +196,13 @@ def test_rx_inspect_stacks_explorers_on_compact_display(qapp):
     qapp.processEvents()
 
     assert page._compact_layout
-    assert page._bottom_layout.direction() == page._bottom_layout.Direction.TopToBottom
-    assert page._ref_status_layout.direction() == page._ref_status_layout.Direction.TopToBottom
+    assert page._bottom_layout.direction() == QBoxLayout.Direction.TopToBottom
+    assert page._ref_status_layout.direction() == QBoxLayout.Direction.TopToBottom
 
     page.resize(1100, 700)
     qapp.processEvents()
     assert not page._compact_layout
-    assert page._bottom_layout.direction() == page._bottom_layout.Direction.LeftToRight
+    assert page._bottom_layout.direction() == QBoxLayout.Direction.LeftToRight
     page.close()
 
 

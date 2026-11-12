@@ -116,6 +116,10 @@ class TransmitPage(QWidget):
         if not self.state:
             return
 
+        if not self._batch_active and not self.state.serial_connected:
+            QMessageBox.warning(self, "TX Hardware Disconnected", "Connect the transmitter before starting a batch.")
+            return
+
         if self._batch_active:
             # Stop the batch
             self._batch_active = False
@@ -205,6 +209,9 @@ class TransmitPage(QWidget):
             self.history_table.setItem(row, 3, outcome_item)
         self.history_table.setSortingEnabled(True)
         self.history_table.blockSignals(False)
+
+        queued_items = any(item["status"] == "Queued" for item in state.transmission_queue)
+        self.start_btn.setEnabled(self._batch_active or (state.serial_connected and queued_items))
 
         # 3. Batch State Machine Processing
         if self._batch_active:

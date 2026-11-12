@@ -460,3 +460,33 @@ def test_stream_start_captures_completion_counter_before_write(
         round_count=1,
     ) is True
     assert any(item.get("stage") == "Send complete" for item in statuses)
+
+def test_rx_link_settings_stop_and_report_when_a_write_fails(
+    monkeypatch: pytest.MonkeyPatch
+):
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    class FakeSettings:
+        def __init__(self, _role: str) -> None:
+            pass
+
+        def get(self, _key: str, default: Any = None) -> Any:
+            return default
+
+    monkeypatch.setattr("gui_dev_v3.settings.SettingsManager", FakeSettings)
+    backend = RXPhysicalBackend()
+    backend._connected = True
+    backend._ser = object()
+    sent: list[str] = []
+    logged: list[tuple[str, str]] = []
+
+    def fail_second_write(command: str) -> bool:
+        sent.append(command)
+        return len(sent) < 2
+
+    backend.send_command = fail_second_write  # type: ignore[method-assign]
+    backend.log = lambda stage, detail="": logged.append((stage, detail))  # type: ignore[method-assign]
+
+    assert backend.apply_link_settings() is False
+    assert sent == ["FREQ=15000\\n", "PHASE=50\\n"]
+    assert logged and logged[0][0] == "Settings Apply Failed"

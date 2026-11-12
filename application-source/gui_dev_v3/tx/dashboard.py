@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
     QFrame,
@@ -453,7 +452,7 @@ class _LogEntryWidget(QWidget):
 
 
 class _TXLogPanel(Card):
-    """TRANSMISSION LOG panel — scrollable list of log entries."""
+    """TRANSMISSION LOG panel — compact, non-scrollable recent activity."""
 
     def __init__(self, state: TXAppState, parent: QWidget | None = None) -> None:
         super().__init__("", parent)
@@ -467,18 +466,12 @@ class _TXLogPanel(Card):
         self._log_layout.setSpacing(0)
         self._log_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        self._scroll_area = QScrollArea()
-        self._scroll_area.setWidgetResizable(True)
-        self._scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
-        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll_area.setStyleSheet(
+        self._log_container.setMinimumHeight(64)
+        self._log_container.setMaximumHeight(140)
+        self._log_container.setStyleSheet(
             f"background: {COLORS['panel']}; border: 1px solid {COLORS['border']}; border-radius: 6px;"
         )
-        self._scroll_area.setWidget(self._log_container)
-
-        self._scroll_area.setMinimumHeight(64)
-        self._scroll_area.setMaximumHeight(140)
-        self.body.addWidget(self._scroll_area, 1)
+        self.body.addWidget(self._log_container, 1)
 
         self._last_log_len = 0
         self._no_entries_label = muted_label("No log entries yet.")
@@ -504,8 +497,9 @@ class _TXLogPanel(Card):
             self._log_layout.addWidget(self._no_entries_label)
             return
 
-        # Build new - limit to top 100 for UI performance
-        for i, entry in enumerate(reversed(log_entries[-100:])):
+        # Show only the latest few events here. The dedicated Logs page
+        # remains the place for full history; the dashboard never scrolls.
+        for i, entry in enumerate(reversed(log_entries[-4:])):
             widget = _LogEntryWidget(entry, i)
             self._log_layout.addWidget(widget)
 

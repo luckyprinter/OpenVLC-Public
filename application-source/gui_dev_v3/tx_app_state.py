@@ -40,10 +40,8 @@ class TXAppState:
     port: str = "—"
     serial_connected: bool = False
     activity_log: list[dict[str, str]] = field(default_factory=list)
-    using_mock_data: bool = False
     record_count: int = 0
     tid: int = 0
-    mode: str = "physical"
     current_capture: SessionCapture | None = None
     transmission_queue: list[dict[str, Any]] = field(default_factory=list)
     session_history: list[dict[str, Any]] = field(default_factory=list)
@@ -71,14 +69,6 @@ class TXAppState:
             subs = list(self._subscribers)
         for callback in subs:
             callback(self)
-
-    def set_mode(self, mode: str) -> None:
-        """Compatibility guard: this application supports physical hardware only."""
-        if mode != "physical":
-            raise ValueError("Only physical ESP32 hardware mode is supported.")
-        self.mode = "physical"
-        self._refresh()
-        self.notify()
 
     def _refresh(self) -> None:
         """Refresh transmitter state from the physical ESP32 backend."""
@@ -137,7 +127,6 @@ class TXAppState:
         self.activity_log = self.activity_log[:500]
         self.record_count = s.record_count
         self.tid = getattr(s, 'tid', 0)
-        self.using_mock_data = False
 
     def _load_empty(self) -> None:
         self.filename = "No file"
@@ -192,7 +181,7 @@ class TXAppState:
         with self._lock:
             mode = self.mode
             physical = self._physical
-        if mode != "physical" or physical is None:
+        if physical is None:
             return False
         ctrl = getattr(physical, "_controller", None)
         if ctrl is None or not ctrl.is_connected:

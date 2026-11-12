@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import json
-import os
 import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from .detection import BAUDRATE, BAUDRATE_RX, BAUDRATE_TX, baud_for_role
@@ -25,9 +22,6 @@ StatusCallback = Callable[[dict[str, Any]], None]
 # How many serial lines to keep in memory (prevents unbounded growth).
 _MAX_LOG_LINES = 2000
 
-_STATUS_DIR = Path(__file__).resolve().parent.parent.parent / "state"
-
-
 def crc16_ccitt(
     data: bytes, poly: int = 0x1021, initial_crc: int = 0xFFFF
 ) -> int:
@@ -42,12 +36,19 @@ def crc16_ccitt(
 
 
 def write_status(role: str, payload: dict[str, Any]) -> None:
-    _STATUS_DIR.mkdir(parents=True, exist_ok=True)
-    path = _STATUS_DIR / f"{role}_status.json"
-    try:
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    except OSError:
-        pass
+    """Write serial status through the application-owned runtime data layer."""
+    from gui_dev_v3.data.status import write_status as write_runtime_status
+
+    reserved = {"role", "stage", "detail", "state", "updated_at", "percent"}
+    extras = {key: value for key, value in payload.items() if key not in reserved}
+    write_runtime_status(
+        role,
+        str(payload.get("stage", "")),
+        str(payload.get("detail", "")),
+        percent=payload.get("percent"),
+        state=str(payload.get("state", "idle")),
+        **extras,
+    )
 
 
 class SerialSession:

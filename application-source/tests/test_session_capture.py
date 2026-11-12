@@ -174,3 +174,31 @@ def test_method2_result_is_persisted_only_for_matching_capture(monkeypatch):
     state.set_method2_comparison(99, {**result, "strict_ber": 0.0})
     assert state.current_capture.ber == 11 / 24
     assert state.get_method2_comparison()["strict_ber"] == 11 / 24
+
+
+def test_app_state_reads_legacy_method2_capture():
+    capture = SessionCapture(
+        tid=71,
+        timestamp="2026-11-12 12:00:00",
+        filename="legacy-method2.bin",
+        ber=0.0125,
+        ber_method="method2",
+        crc_status="PASS",
+        throughput_kbps=5.0,
+        analog_time=[],
+        pvo_samples=[],
+        vref_samples=[],
+        margin_samples=[],
+        ook_bits=[],
+        protocol_events=[],
+    )
+    state = RXAppState.__new__(RXAppState)
+    state._lock = threading.Lock()
+    state.transfer = SimpleNamespace(tid=71)
+    state.current_capture = capture
+    state._method2_comparison = None
+
+    comparison = state.get_method2_comparison()
+
+    assert comparison is not None
+    assert comparison["strict_ber"] == 0.0125

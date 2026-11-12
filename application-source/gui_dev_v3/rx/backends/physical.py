@@ -685,9 +685,9 @@ class RXPhysicalBackend:
                     import time as _time
                     quality = TransferQuality(
                         label="Firmware CRC Failed",
-                        strict_ber=0.0,
-                        bit_accuracy=0.0,
-                        bit_errors=0,
+                        strict_ber=None,
+                        bit_accuracy=None,
+                        bit_errors=None,
                         total_bits=0,
                         compared_bytes=0,
                         missing_chunks=0,

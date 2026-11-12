@@ -20,7 +20,7 @@ def test_compare_files_streams_identical_files(tmp_path):
     expected = tmp_path / "original.bin"
     received = tmp_path / "received.bin"
     payload = bytes(range(256)) * 5
-    expected.write_bytes(payload)
+    expected.write_bytes(bytes([0x00, 0x0F, 0xAA]))
     received.write_bytes(payload)
 
     result = compare_files(expected, received, block_size=127)
@@ -36,7 +36,7 @@ def test_compare_files_streams_identical_files(tmp_path):
 def test_compare_files_reports_bit_and_size_errors(tmp_path):
     expected = tmp_path / "original.bin"
     received = tmp_path / "received.bin"
-    expected.write_bytes(b"\x00\x0f\xaa")
+    expected.write_bytes(bytes([0x00, 0x0F, 0xAA]))
     received.write_bytes(b"\x01\x03")
 
     result = compare_files(expected, received, block_size=1)
@@ -53,7 +53,7 @@ def test_compare_files_reports_bit_and_size_errors(tmp_path):
 def test_compare_files_handles_empty_reference(tmp_path):
     expected = tmp_path / "empty.bin"
     received = tmp_path / "received.bin"
-    expected.write_bytes(b"")
+    expected.write_bytes(bytes([0x00, 0x0F, 0xAA]))
     received.write_bytes(b"")
 
     result = compare_files(expected, received)
@@ -90,8 +90,8 @@ def test_app_state_method2_uses_selected_reference_and_received_path(tmp_path):
 def test_late_reference_selection_updates_and_persists_completed_capture(tmp_path, monkeypatch):
     expected = tmp_path / "original.bin"
     received = tmp_path / "received.bin"
-    expected.write_bytes(b"\\x00\\x0f\\xaa")
-    received.write_bytes(b"\\x01\\x03")
+    expected.write_bytes(bytes([0x00, 0x0F, 0xAA]))
+    received.write_bytes(bytes([0x01, 0x03]))
     capture = SessionCapture(
         tid=42, timestamp="2026-11-12 12:00:00", filename="received.bin",
         ber=None, ber_method=None, crc_status="PASS", throughput_kbps=10.0,

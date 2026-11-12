@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
+    QSizePolicy,
     QDialog,
     QPushButton,
 )
@@ -246,6 +247,7 @@ class SignalMonitorPage(QWidget):
         self._vref_hist: list[float] = []
         self._margin_hist: list[float] = []
         self._last_ook_chunk: int = -1  # track chunk index for OOK update
+        self._compact_layout = False
 
         self._build_ui()
 
@@ -253,6 +255,31 @@ class SignalMonitorPage(QWidget):
         self._sample_timer = QTimer(self)
         self._sample_timer.timeout.connect(self._sample_waveform)
         self._sample_timer.start(100)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Reflow signal diagnostics into a scrollable single-column workspace."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+
+        columns = 2 if compact else 6
+        for index, widget in enumerate(self._metric_widgets):
+            self._metric_grid.removeWidget(widget)
+            self._metric_grid.addWidget(widget, index // columns, index % columns)
+
+        orientation = Qt.Orientation.Vertical if compact else Qt.Orientation.Horizontal
+        self._middle_splitter.setOrientation(orientation)
+        self._bottom_splitter.setOrientation(orientation)
+        self._middle_splitter.setChildrenCollapsible(compact)
+        self._bottom_splitter.setChildrenCollapsible(compact)
+        if compact:
+            self._middle_splitter.setSizes([320, 240, 200])
+            self._bottom_splitter.setSizes([300, 260])
+        else:
+            self._middle_splitter.setSizes([460, 300, 300])
+            self._bottom_splitter.setSizes([450, 450])
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -287,11 +314,12 @@ class SignalMonitorPage(QWidget):
         # Row 1 — 6 status cards (4 MetricCards + 2 QualityBars)
         outer.addLayout(self._build_top_metrics())
 
-        # Row 2 — Waveform / Diagnostics / Margin Analysis (7:3:2)
-        outer.addWidget(self._build_middle_row(), 1)
+        # Dense analysis panels can stack vertically on compact workspaces.
+        self._middle_splitter = self._build_middle_row()
+        outer.addWidget(self._middle_splitter, 1)
 
-        # Row 3 — Transfer Statistics / Quality Metrics (1:1)
-        outer.addWidget(self._build_bottom_row(), 1)
+        self._bottom_splitter = self._build_bottom_row()
+        outer.addWidget(self._bottom_splitter, 1)
 
     # --- Row 1: Metric Cards + QualityBars ---
 
@@ -319,11 +347,13 @@ class SignalMonitorPage(QWidget):
         self._metric_state = MetricCard("State", color="#26c6da")
         self._quality_top = CircularGauge("Signal Quality")
         self._noise_top = CircularGauge("Noise Level", inverted=True)
-
-        for w in [
+        self._metric_grid = grid
+        self._metric_widgets = [
             self._metric_pvo, self._metric_vref, self._metric_margin,
             self._metric_state, self._quality_top, self._noise_top,
-        ]:
+        ]
+
+        for w in self._metric_widgets:
             w.setObjectName("Card")
 
         # Single row: all 6 widgets
@@ -341,7 +371,7 @@ class SignalMonitorPage(QWidget):
 
     def _build_middle_row(self) -> QSplitter:
         splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
+        splitter.setChildrenCollapsible(True)
 
         # Left: Analog and digital traces stacked vertically (stretch 7)
         left_widget = QWidget()
@@ -366,6 +396,11 @@ class SignalMonitorPage(QWidget):
         margin_card = Card("Margin Analysis")
         margin_card.body.addWidget(margin_widget)
         splitter.addWidget(margin_card)
+
+        for index in range(splitter.count()):
+            child = splitter.widget(index)
+            child.setMinimumWidth(0)
+            child.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
 
         splitter.setStretchFactor(0, 6)
         splitter.setStretchFactor(1, 3)
@@ -436,7 +471,7 @@ class SignalMonitorPage(QWidget):
 
     def _build_bottom_row(self) -> QSplitter:
         splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
+        splitter.setChildrenCollapsible(True)
 
         # --- 1. Transfer Statistics (ProgressBar on top + compact 6-row table) ---
         transfer_widget = self._build_transfer_stats()
@@ -449,6 +484,11 @@ class SignalMonitorPage(QWidget):
         quality_card = Card("Signal Quality Metrics")
         quality_card.body.addWidget(quality_widget)
         splitter.addWidget(quality_card)
+
+        for index in range(splitter.count()):
+            child = splitter.widget(index)
+            child.setMinimumWidth(0)
+            child.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
 
         splitter.setStretchFactor(0, 1)
         splitter.setStretchFactor(1, 1)

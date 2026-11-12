@@ -1,6 +1,13 @@
 import json
 
+import pytest
+
 from gui_dev_v3.data import records
+
+
+@pytest.fixture(autouse=True)
+def isolate_legacy_capture_dir(monkeypatch, tmp_path):
+    monkeypatch.setattr(records, "LEGACY_CAPTURE_DIR", tmp_path / "no-legacy-captures")
 
 
 def test_load_session_capture_preserves_unavailable_ber(tmp_path, monkeypatch):

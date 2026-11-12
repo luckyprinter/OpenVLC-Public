@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from PySide6.QtCore import Qt, QSettings, Signal
+from PySide6.QtCore import Qt, QSettings, Signal, QSize
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,

@@ -336,7 +336,7 @@ class RXDashboardPage(QWidget):
         outer.addWidget(PageIntro(
             "RECEIVER  /  MONITORING",
             "Reception overview",
-            "Track link quality, signal levels, file progress, and decoder state.",
+            "Track receiver connection, signal telemetry, and file-transfer progress.",
             self,
         ))
 
@@ -351,8 +351,8 @@ class RXDashboardPage(QWidget):
         top_grid.addWidget(self._signal_mon, 1)
         outer.addLayout(top_grid)
 
-        # The file is the main object being received; decoder state is
-        # secondary context. Detailed live waveform analysis stays on Signal.
+        # The file is the main object being received; connection and protocol state
+        # are secondary context. Detailed telemetry trends stay on Signal.
         detail_widget = QWidget()
         detail_grid = QHBoxLayout(detail_widget)
         detail_grid.setContentsMargins(0, 0, 0, 0)

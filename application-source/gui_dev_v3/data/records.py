@@ -231,6 +231,7 @@ def _resolve_capture_dir() -> Path:
 
 
 CAPTURE_DIR = _resolve_capture_dir()
+LEGACY_CAPTURE_DIR = Path.home() / ".vlc_rx" / "captures"
 
 
 def save_session_capture(capture: SessionCapture) -> None:
@@ -253,11 +254,14 @@ def save_session_capture(capture: SessionCapture) -> None:
 
 def load_session_capture(tid: int) -> SessionCapture | None:
     path = CAPTURE_DIR / f"session_{tid}.json"
-    if not path.exists():
+    legacy_path = LEGACY_CAPTURE_DIR / f"session_{tid}.json"
+    source_path = path if path.exists() else legacy_path
+    if not source_path.exists():
         return None
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return SessionCapture(
+        raw_text = source_path.read_text(encoding="utf-8")
+        data = json.loads(raw_text)
+        capture = SessionCapture(
             tid=int(data["tid"]),
             timestamp=str(data["timestamp"]),
             filename=str(data["filename"]),
@@ -272,6 +276,14 @@ def load_session_capture(tid: int) -> SessionCapture | None:
             protocol_events=list(data["protocol_events"]),
             ber_method=str(data.get("ber_method", "unavailable")),
         )
+        if source_path == legacy_path:
+            # Keep the old file intact; copy it into the current app-data
+            # location only after parsing it successfully.
+            CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(raw_text, encoding="utf-8")
+            temporary.replace(path)
+        return capture
     except Exception as exc:
         print(f"Failed to load session capture {tid}: {exc}")
         return None

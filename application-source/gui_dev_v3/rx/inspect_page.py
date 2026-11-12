@@ -504,6 +504,7 @@ class InspectPage(QWidget):
         self._last_chunk_count = len(transfer.chunks)
         self._last_expected_path = expected_path
         self._current_chunks = transfer.chunks
+        self._legend_row.setVisible(bool(self._current_chunks))
 
         # Method 2 requires the original reference file selected by the user.
         if expected_path:

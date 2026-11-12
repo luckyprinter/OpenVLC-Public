@@ -139,7 +139,7 @@ def test_non_dma_large_file_batching_uses_configured_chunk_and_rounds(
     controller.serial_obj = object()
     controller._dma_capable = False
 
-    sent_parts: list[tuple[int, int]] = []
+    sent_parts: list[tuple[int, int, bool]] = []
 
     def fake_send_stream(
         _path: Path,
@@ -161,8 +161,9 @@ def test_non_dma_large_file_batching_uses_configured_chunk_and_rounds(
     monkeypatch.setattr(controller, "status", lambda *_args, **_kwargs: None)
 
     assert controller.send_file(file_path, chunk_bytes=300, rounds=3) is True
-    assert [part_size for part_size, _chunk in sent_parts] == [
+    assert [part_size for part_size, _chunk, _batch_part in sent_parts] == [
         MAX_STREAM_FILE_BYTES,
         1,
     ]
-    assert all(chunk == 300 for _part_size, chunk in sent_parts)
+    assert all(chunk == 300 for _part_size, chunk, _batch_part in sent_parts)
+    assert all(batch_part for _part_size, _chunk, batch_part in sent_parts)

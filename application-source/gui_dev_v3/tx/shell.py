@@ -354,8 +354,9 @@ class TXShell(QWidget):
             self._nav_items.append((item, label))
             page = page_map.get(page_key)
             if page:
-                self._page_widgets[page_key] = page
-                self.pages.addWidget(page)
+                page_container = scrollable(page) if page_key == "file_manager" else page
+                self._page_widgets[page_key] = page_container
+                self.pages.addWidget(page_container)
 
         self.nav.blockSignals(False)
 

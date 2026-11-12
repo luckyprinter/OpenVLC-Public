@@ -58,21 +58,27 @@ class BatchAssembler:
         group_id, filename = str(group_id).strip(), str(filename).strip()
         part_index, part_count, full_crc = int(part_index), int(part_count), int(full_crc)
         part_chunks, tid, part_data = int(part_chunks), int(tid), bytes(part_data)
-        if not group_id or not filename:
-            raise ValueError("batch group and filename are required")
-        if part_count < 2 or part_count > self.max_parts:
-            raise ValueError(f"invalid batch part count: {part_count}")
-        if not 1 <= part_index <= part_count:
-            raise ValueError("batch part index is outside its declared range")
-        if not 0 <= full_crc <= 0xFFFF:
-            raise ValueError("full-file CRC must be 16-bit")
-        if not 1 <= part_chunks <= self.max_part_chunks:
-            raise ValueError("invalid part chunk count")
-        if not part_crc_ok:
+
+        def reject(message: str) -> None:
+            # A malformed fragment makes the group ambiguous; do not retain
+            # previously accepted parts and accidentally complete it later.
             self._pending.pop(group_id, None)
-            raise ValueError("batch part CRC failed")
+            raise ValueError(message)
+
+        if not group_id or not filename:
+            reject("batch group and filename are required")
+        if part_count < 2 or part_count > self.max_parts:
+            reject(f"invalid batch part count: {part_count}")
+        if not 1 <= part_index <= part_count:
+            reject("batch part index is outside its declared range")
+        if not 0 <= full_crc <= 0xFFFF:
+            reject("full-file CRC must be 16-bit")
+        if not 1 <= part_chunks <= self.max_part_chunks:
+            reject("invalid part chunk count")
+        if not part_crc_ok:
+            reject("batch part CRC failed")
         if not part_data:
-            raise ValueError("empty batch parts are invalid")
+            reject("empty batch parts are invalid")
         batch = self._pending.get(group_id)
         if batch and (batch.part_count != part_count or batch.full_crc != full_crc or batch.filename != filename):
             self._pending.pop(group_id, None)

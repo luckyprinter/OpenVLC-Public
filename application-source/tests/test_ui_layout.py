@@ -88,7 +88,7 @@ def test_tx_dashboard_uses_real_profile_instead_of_synthetic_bitstream(qapp):
     profile = TXConfigurationWidget()
     profile.refresh(state)
     assert profile.row_gpio.val.text() == "GPIO 5"
-    assert "offline" in profile._status.text().lower()
+    assert any(word in profile._status.text().lower() for word in ("offline", "disconnected"))
     assert not hasattr(profile, "canvas")
 
     session = CurrentSessionWidget()

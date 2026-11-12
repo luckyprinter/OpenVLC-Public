@@ -9,6 +9,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QLayout,
     QDateTimeEdit,
     QHBoxLayout,
     QBoxLayout,
@@ -49,8 +50,10 @@ class ExperimentsPage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setMinimumWidth(0)
         layout = QVBoxLayout(self)
         self._main_layout = layout
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(24)
         self._compact_layout = False
@@ -64,6 +67,7 @@ class ExperimentsPage(QWidget):
         # Two-panel body
         body = QBoxLayout(QBoxLayout.Direction.LeftToRight)
         self._body_layout = body
+        body.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
         body.setSpacing(24)
         layout.addLayout(body, 1)
 

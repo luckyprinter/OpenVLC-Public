@@ -66,13 +66,15 @@ def apply_design_tokens(tokens: dict) -> None:
 
 
 def _minimum_window_dimensions(available_width: int, available_height: int) -> tuple[int, int]:
-    """Choose a minimum logical window size that leaves room for OS chrome.
+    """Choose a compact minimum logical size while leaving room for OS chrome.
 
-    A 480 px minimum height was too large for a 1024x700 physical display at
-    150% scaling, where Qt reports a much smaller logical work area.
+    The minimum must not grow with a large monitor: doing so prevents users
+    from resizing the workspace down to the compact layouts that the UI
+    explicitly supports. On small displays, cap the minimum to the available
+    work area minus a modest margin.
     """
-    min_width = max(640, min(1024, int(available_width) - 32))
-    min_height = max(360, min(700, int(available_height) - 48))
+    min_width = max(360, min(640, int(available_width) - 32))
+    min_height = max(320, min(480, int(available_height) - 48))
     return min_width, min_height
 
 
@@ -97,7 +99,7 @@ class _BaseWindow(QMainWindow):
                 available.width(), available.height()
             )
         else:
-            min_width, min_height = 1024, 700
+            min_width, min_height = 640, 480
         self.setMinimumSize(QSize(min_width, min_height))
         self.settings = load_settings()
         self._apply_display_mode()

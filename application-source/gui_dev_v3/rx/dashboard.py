@@ -331,6 +331,7 @@ class RXDashboardPage(QWidget):
         # The file is the main object being received; decoder state is
         # secondary context. Detailed live waveform analysis stays on Signal.
         detail_widget = QWidget()
+        detail_widget.setMinimumHeight(180)
         detail_grid = QHBoxLayout(detail_widget)
         detail_grid.setContentsMargins(0, 0, 0, 0)
         detail_grid.setSpacing(14)
@@ -340,12 +341,13 @@ class RXDashboardPage(QWidget):
         detail_grid.addWidget(self._bit_decode, 2)
 
         self._activity_log = _ActivityLogPanel(state)
+        self._activity_log.setMinimumHeight(96)
         splitter = QSplitter(Qt.Orientation.Vertical)
         splitter.setChildrenCollapsible(False)
         splitter.addWidget(detail_widget)
         splitter.addWidget(self._activity_log)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
+        splitter.setStretchFactor(0, 4)
+        splitter.setStretchFactor(1, 1)
         outer.addWidget(splitter, 1)
 
         self.refresh()

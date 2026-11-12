@@ -171,8 +171,9 @@ class _PipelineStage(QFrame):
         )
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(4)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(2)
+        self.setMinimumHeight(44)
         
         self.name_lbl = QLabel(name)
         self.name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -661,8 +662,8 @@ class TXDashboardPage(QWidget):
         self._state = state
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(20, 16, 20, 16)
-        outer.setSpacing(10)
+        outer.setContentsMargins(20, 12, 20, 8)
+        outer.setSpacing(8)
 
         # Clear page hierarchy: purpose first, live device state second.
         intro = QVBoxLayout()

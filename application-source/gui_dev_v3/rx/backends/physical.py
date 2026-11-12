@@ -24,6 +24,9 @@ from typing import Any
 
 from gui_dev_v3.data.session import build_empty_session
 from gui_dev_v3.models import SessionState, SignalState, TransferRecord, TransferStatus
+from gui_dev_v3.serial.line_buffer import SerialLineBuffer
+from gui_dev_v3.logic.batch_assembler import BatchAssembler
+from gui_dev_v3.serial.session import MAX_STREAM_FILE_BYTES
 
 # RX firmware runs at 460800, TX at 115200 — try both for IDENTIFY
 BAUD_RATES = (460800, 115200)
@@ -115,7 +118,8 @@ class RXPhysicalBackend:
         self._pwm_autocal_iterations: int = 0
         self._active_started_monotonic: float | None = None
         # Batch reconstruction state for large files
-        self._batch_transfers: dict[str, dict] = {}
+        self._batch_assembler = BatchAssembler()
+        self._serial_line_buffer = SerialLineBuffer(max_line_bytes=MAX_STREAM_FILE_BYTES * 2 + 1024)
 
     def log(self, event: str, details: str) -> None:
         if self._last_logged.get(event) == details:
@@ -320,12 +324,8 @@ class RXPhysicalBackend:
             return False
 
     def _serial_reader_loop(self) -> None:
-        """Read firmware output until stopped or the serial link fails.
-
-        A read exception or a port that has closed unexpectedly is treated as
-        a lost connection. The backend clears its live connection state and
-        closes the stale handle so the normal auto-connect loop can retry.
-        """
+        """Read complete firmware lines, buffering fragments across timeouts."""
+        self._serial_line_buffer.clear()
         while not self._reader_stop.is_set():
             ser = self._ser
             if ser is None:
@@ -334,12 +334,24 @@ class RXPhysicalBackend:
                 self._mark_serial_lost(ser, ConnectionError("Serial port closed"))
                 break
             try:
-                line_bytes = ser.readline()
-                if line_bytes:
-                    line = line_bytes.decode("utf-8", errors="replace").strip()
-                    if line:
-                        # Dispatch file-data lines immediately in this thread
+                waiting = int(getattr(ser, "in_waiting", 0) or 0)
+                raw = ser.read(max(1, min(waiting, 65536)))
+                if raw:
+                    previous_overflows = self._serial_line_buffer.overflow_count
+                    for line in self._serial_line_buffer.feed(raw):
                         self._dispatch_line(line)
+                    if self._serial_line_buffer.overflow_count > previous_overflows:
+                        self._log_queue.append({
+                            "time": time.strftime("%H:%M:%S"),
+                            "event": "Serial Line Overflow",
+                            "details": "Discarded an overlong or malformed serial line",
+                        })
+                for group_id in self._batch_assembler.prune_expired():
+                    self._log_queue.append({
+                        "time": time.strftime("%H:%M:%S"),
+                        "event": "Batch Expired",
+                        "details": f"Incomplete file batch {group_id} expired before all parts arrived",
+                    })
             except Exception as exc:
                 if self._reader_stop.is_set():
                     break
@@ -473,157 +485,153 @@ class RXPhysicalBackend:
             self._log_queue.append({"time": now, "event": "RAM Store", "details": line[:80]})
 
     def _handle_file_hex(self, line: str) -> None:
-        """Decode and save a completed file from RX_FILE_HEX line.
-
-        Format: RX_FILE_HEX:<tid>:<frame_type>:<total_size>:<total_chunks>:<crc_hex>:<name_hex>:<data_hex>
-        """
-        now = time.strftime("%H:%M:%S")
+        """Handle a complete RX_FILE_HEX line and reconstruct optional batches."""
         try:
             parts = line.split(":")
             if len(parts) < 8:
-                self._log_queue.append({"time": now, "event": "RX File", "details": "Malformed RX_FILE_HEX (too few fields)"})
                 return
-
             tid = int(parts[1])
-            total_size = int(parts[3])
-            crc_expected_hex = parts[5]
+            frame_type = int(parts[2])
+            part_size = int(parts[3])
+            part_total_chunks = int(parts[4])
+            part_crc_expected = int(parts[5], 16)
             name_hex = parts[6]
             data_hex = parts[7]
 
-            filename = bytes.fromhex(name_hex).decode("utf-8", errors="replace") if name_hex else f"rx_{tid}.bin"
-            file_bytes = bytes.fromhex(data_hex)
+            name_bytes = bytes.fromhex(name_hex) if name_hex else b""
+            filename = name_bytes.decode("utf-8", errors="replace") if name_bytes else "unknown.bin"
+            file_bytes = bytes.fromhex(data_hex) if data_hex else b""
 
-            # Verify CRC16-CCITT
-            calc_crc = crc16_ccitt(file_bytes)
-            expected_crc = int(crc_expected_hex, 16)
-            crc_ok = (calc_crc == expected_crc)
+            if len(file_bytes) != part_size:
+                self._log_queue.append({
+                    "time": time.strftime("%H:%M:%S"),
+                    "event": "RX File Truncated",
+                    "details": f"Part {tid}: expected {part_size} B, received {len(file_bytes)} B",
+                })
+                self._active_tid = None
+                return
 
-            # Save to disk
-            self._save_dir.mkdir(parents=True, exist_ok=True)
-            
-            # --- BATCH INTERCEPTION ---
+            part_crc_ok = crc16_ccitt(file_bytes) == part_crc_expected
+            if not part_crc_ok:
+                self._log_queue.append({
+                    "time": time.strftime("%H:%M:%S"),
+                    "event": "RX Part CRC Fail",
+                    "details": f"Part {tid} failed its CRC and was not added to the batch",
+                })
+                self._active_tid = None
+                return
+
+            full_crc_expected = part_crc_expected
             if filename.startswith("VLCB1~"):
-                b_parts = filename.split("~", 5)
-                if len(b_parts) == 6:
-                    group_id = b_parts[1]
-                    part_index = int(b_parts[2])
-                    part_count = int(b_parts[3])
-                    full_crc = int(b_parts[4], 16)
-                    orig_name = b_parts[5]
-                    
-                    batch = self._batch_transfers.setdefault(group_id, {
-                        "parts": {},
-                        "created": time.time(),
-                        "started_monotonic": time.monotonic(),
-                        "name": orig_name,
-                        "full_crc": full_crc,
-                        "part_count": part_count
-                    })
-                    batch["parts"][part_index] = file_bytes
-                    self._log_queue.append({
-                        "time": now,
-                        "event": "Batch Part",
-                        "details": f"Part {part_index}/{part_count} of '{orig_name}' (CRC {'OK' if crc_ok else 'FAIL'})"
-                    })
-                    
-                    if len(batch["parts"]) == part_count:
-                        # Measure the complete batch, not only the final part.
-                        batch_started = batch.get("started_monotonic")
-                        if isinstance(batch_started, (int, float)):
-                            self._active_started_monotonic = batch_started
-                        # Reconstruct the full file
-                        file_bytes = b"".join(batch["parts"][i] for i in range(1, part_count + 1))
-                        filename = orig_name
-                        calc_crc = crc16_ccitt(file_bytes)
-                        expected_crc = full_crc
-                        crc_ok = (calc_crc == expected_crc)
-                        del self._batch_transfers[group_id]
-                        # Continue below with the stitched file...
-                    else:
-                        # Wait for remaining parts
-                        self._active_tid = None
-                        return
-            # --------------------------
+                metadata = filename.split("~", 5)
+                if len(metadata) != 6:
+                    raise ValueError("Malformed VLCB1 batch metadata")
+                assembled = self._batch_assembler.add_part(
+                    group_id=metadata[1],
+                    part_index=int(metadata[2]),
+                    part_count=int(metadata[3]),
+                    full_crc=int(metadata[4], 16),
+                    filename=metadata[5],
+                    part_data=file_bytes,
+                    part_crc_ok=True,
+                    part_chunks=part_total_chunks,
+                    tid=tid,
+                    started_monotonic=self._active_started_monotonic,
+                )
+                if assembled is None:
+                    self._active_tid = None
+                    self._active_filename = None
+                    return
+                file_bytes = assembled["data"]
+                filename = assembled["filename"]
+                full_crc_expected = assembled["full_crc"]
+                tid = assembled["last_tid"]
+                self._active_started_monotonic = assembled["started_monotonic"]
+                self._active_total_chunks = assembled["total_chunks"]
+                self._active_received_chunks = assembled["total_chunks"]
+                self._active_total_size = len(file_bytes)
+            else:
+                self._active_total_chunks = part_total_chunks
+                self._active_received_chunks = part_total_chunks
+                self._active_total_size = len(file_bytes)
 
-            # Sanitise filename
-            safe_name = re.sub(r"[^\w.\-]", "_", filename) or f"rx_{tid}.bin"
-            out_path = self._save_dir / safe_name
-            # Avoid clobbering existing files
-            counter = 1
-            while out_path.exists():
-                stem = Path(safe_name).stem
-                suffix = Path(safe_name).suffix
-                out_path = self._save_dir / f"{stem}_{counter}{suffix}"
-                counter += 1
-
+            crc_ok = crc16_ccitt(file_bytes) == full_crc_expected
+            safe_name = Path(filename).name or f"rx_{tid}.bin"
+            out_path = RECEIVE_FOLDER / safe_name
+            if out_path.exists():
+                out_path = RECEIVE_FOLDER / f"{out_path.stem}_{tid}{out_path.suffix}"
             out_path.write_bytes(file_bytes)
 
-            crc_label = "CRC OK" if crc_ok else f"CRC MISMATCH (got {calc_crc:08X} expected {expected_crc:08X})"
-            self._log_queue.append({
-                "time": now,
-                "event": "File Received!",
-                "details": f"'{filename}' {len(file_bytes)}B — {crc_label} → saved to {out_path}"
-            })
-            from gui_dev_v3.logger import file_log
-            file_log("RX", "File Received", f"TID={tid} file='{filename}' size={len(file_bytes)} {crc_label} path={out_path}")
-
-            # Build a completed TransferRecord so Inspect/BER/Receiver tabs update
-            from gui_dev_v3.models import TransferQuality, TransferStatus, ChunkRecord, ChunkStatus
-            import time as _time
-            n_chunks = max(self._active_total_chunks, 1)
-            # Build per-chunk records (all received since we got the full HEX payload)
-            chunk_size = (len(file_bytes) + n_chunks - 1) // n_chunks
-            chunks = [
-                ChunkRecord(
-                    index=i,
-                    status=ChunkStatus.RECEIVED,
+            n_chunks = max(int(self._active_total_chunks or part_total_chunks), 1)
+            chunks = []
+            for index in range(n_chunks):
+                start = (index * len(file_bytes)) // n_chunks
+                end = ((index + 1) * len(file_bytes)) // n_chunks
+                if end <= start:
+                    continue
+                chunks.append(ChunkRecord(
+                    index=index,
                     expected=b"",
-                    received=file_bytes[i * chunk_size : (i + 1) * chunk_size],
-                )
-                for i in range(n_chunks)
-            ]
+                    received=file_bytes[start:end],
+                    status="RECEIVED",
+                    crc_ok=crc_ok,
+                ))
+
+            from gui_dev_v3.models import TransferQuality, TransferStatus, TransferRecord
+            import time as _time
             quality = TransferQuality(
                 label="CRC OK" if crc_ok else "CRC Failed",
-                strict_ber=0.0,
+                strict_ber=0.0 if crc_ok else 1.0,
                 bit_accuracy=100.0 if crc_ok else 0.0,
-                bit_errors=0,
+                bit_errors=0 if crc_ok else len(file_bytes) * 8,
                 total_bits=len(file_bytes) * 8,
                 compared_bytes=len(file_bytes),
                 missing_chunks=0,
                 missing_bytes=0,
-                first_issue="None" if crc_ok else "CRC mismatch",
+                first_issue=None if crc_ok else "CRC mismatch",
                 crc_status="PASS" if crc_ok else "FAIL",
-                recovery_rate=100.0,
+                recovery_rate=100.0 if crc_ok else 0.0,
+            )
+            duration_ms = (
+                int((time.monotonic() - self._active_started_monotonic) * 1000)
+                if self._active_started_monotonic is not None else 0
+            )
+            self._record_diag(
+                "transfer_completed" if crc_ok else "transfer_failed",
+                role="rx",
+                reason_code="success" if crc_ok else "crc_mismatch",
+                size_bucket=_diagnostic_size_bucket(len(file_bytes)),
+                duration_ms=duration_ms,
+                retry_count=0,
             )
             self._last_completed_transfer = TransferRecord(
                 tid=tid,
-                filename=filename,
+                filename=safe_name,
                 status=TransferStatus.COMPLETE if crc_ok else TransferStatus.CRC_FAILED,
                 time_label=_time.strftime("%H:%M:%S"),
                 size_bytes=len(file_bytes),
                 total_chunks=n_chunks,
-                received_chunks=n_chunks,
-                quality=quality,
+                received_chunks=len(chunks),
                 chunks=chunks,
+                quality=quality,
             )
-            duration_ms = int((time.monotonic() - self._active_started_monotonic) * 1000) if self._active_started_monotonic is not None else 0
-            if crc_ok:
-                self._record_diag(
-                    "transfer_completed", role="rx",
-                    size_bucket=_diagnostic_size_bucket(len(file_bytes)),
-                    duration_ms=duration_ms, chunk_count=n_chunks, crc_ok=True,
-                )
-            else:
-                self._record_diag(
-                    "transfer_failed", role="rx", reason_code="crc_mismatch",
-                    size_bucket=_diagnostic_size_bucket(len(file_bytes)),
-                    duration_ms=duration_ms, retry_count=0,
-                )
-            # Clear active transfer
             self._active_tid = None
-            self._active_started_monotonic = None
-        except Exception as e:
-            self._log_queue.append({"time": now, "event": "RX File Error", "details": str(e)[:120]})
+            self._active_filename = None
+            self._active_total_chunks = 0
+            self._active_received_chunks = 0
+            self._active_total_size = 0
+            self._log_queue.append({
+                "time": time.strftime("%H:%M:%S"),
+                "event": "File Received",
+                "details": f"{safe_name} ({len(file_bytes):,} B) — {'CRC PASS' if crc_ok else 'CRC FAIL'}",
+            })
+        except Exception as exc:
+            self._log_queue.append({
+                "time": time.strftime("%H:%M:%S"),
+                "event": "RX File Error",
+                "details": str(exc)[:160],
+            })
+            self._active_tid = None
 
     def _handle_file_crc_fail(self, line: str) -> None:
         """Handle RX_FILE_CRC_FAIL from firmware (firmware detected CRC mismatch)."""
@@ -640,6 +648,12 @@ class RXPhysicalBackend:
                 
                 # Update the active transfer if it matches
                 if self._active_tid == tid:
+                    if self._active_filename and self._active_filename.startswith("VLCB1~"):
+                        self._active_tid = None
+                        self._active_filename = None
+                        self._active_total_chunks = 0
+                        self._active_received_chunks = 0
+                        return
                     from gui_dev_v3.models import TransferQuality, TransferStatus, TransferRecord
                     import time as _time
                     quality = TransferQuality(

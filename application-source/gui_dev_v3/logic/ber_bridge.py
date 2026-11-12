@@ -125,6 +125,46 @@ def transfer_quality_from_chunks(
 
 
 
+
+def test_compare_payload_bits_compatibility(expected: bytes, received: bytes) -> dict:
+    """Backward-compatible in-memory comparison used by legacy analyzer tests."""
+    expected = bytes(expected or b"")
+    received = bytes(received or b"")
+    overlap = min(len(expected), len(received))
+    bit_errors = 0
+    byte_mismatches = 0
+    preview = []
+    for offset in range(overlap):
+        xor = expected[offset] ^ received[offset]
+        if xor:
+            errors = xor.bit_count()
+            bit_errors += errors
+            byte_mismatches += 1
+            if len(preview) < 50:
+                preview.append({"offset": offset, "expected": expected[offset],
+                                "received": received[offset], "bit_errors": errors})
+    delta = len(received) - len(expected)
+    missing_extra = abs(delta) * 8
+    total_bits = max(len(expected), len(received)) * 8
+    if delta and len(preview) < 50:
+        preview.append({"offset": overlap,
+                        "expected": "EOF" if delta > 0 else "missing",
+                        "received": "extra" if delta > 0 else "EOF",
+                        "bit_errors": missing_extra})
+    errors = bit_errors + missing_extra
+    return {
+        "expected_bytes": len(expected), "received_bytes": len(received),
+        "overlap_bytes": overlap, "length_delta": delta,
+        "byte_mismatches": byte_mismatches + abs(delta),
+        "overlap_bit_errors": bit_errors, "strict_bit_errors": errors,
+        "overlap_bits": overlap * 8, "strict_bits": total_bits,
+        "overlap_ber": bit_errors / (overlap * 8) if overlap else None,
+        "strict_ber": errors / total_bits if total_bits else None,
+        "bit_accuracy": 1.0 - errors / total_bits if total_bits else None,
+        "first_mismatch": preview[0]["offset"] if preview else None,
+        "preview": preview,
+    }
+
 def compare_files(expected_path: str | Path, received_path: str | Path, *, mismatch_limit: int = 50, block_size: int = 65536) -> dict:
     """Compare files in bounded blocks; missing/extra bytes count as eight errors each."""
     expected_path, received_path = Path(expected_path), Path(received_path)

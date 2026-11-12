@@ -103,6 +103,7 @@ class TableBuilderPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._compact_layout = False
+        self._narrow_layout = False
         self.setMinimumWidth(0)
         self._stack = QVBoxLayout(self)
         self._stack.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
@@ -305,10 +306,16 @@ class TableBuilderPage(QWidget):
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         """Stack table-builder columns and form controls on compact screens."""
         super().resizeEvent(event)
-        compact = self.width() < 1100 or self.height() < 740
-        if compact == self._compact_layout:
+        narrow = self.width() < 900
+        compact = narrow or self.height() < 620
+        if compact == self._compact_layout and narrow == self._narrow_layout:
             return
         self._compact_layout = compact
+        self._narrow_layout = narrow
+
+        # A short but wide laptop window still has room for the three-column
+        # picker. Reduce spacing there instead of stacking every card and
+        # creating multiple competing vertical scroll regions.
         self._builder_layout.setContentsMargins(
             12 if compact else 32,
             12 if compact else 28,
@@ -318,21 +325,19 @@ class TableBuilderPage(QWidget):
         self._builder_layout.setSpacing(12 if compact else 20)
         self._builder_top_row.setDirection(
             QBoxLayout.Direction.TopToBottom
-            if compact else QBoxLayout.Direction.LeftToRight
+            if narrow else QBoxLayout.Direction.LeftToRight
         )
-        self._builder_top_row.setSpacing(8 if compact else 20)
+        self._builder_top_row.setSpacing(8 if narrow else (12 if compact else 20))
         self._three_col_layout.setDirection(
             QBoxLayout.Direction.TopToBottom
-            if compact else QBoxLayout.Direction.LeftToRight
+            if narrow else QBoxLayout.Direction.LeftToRight
         )
         self._three_col_layout.setSpacing(12 if compact else 16)
         self._arrow_layout.setDirection(
             QBoxLayout.Direction.LeftToRight
-            if compact else QBoxLayout.Direction.TopToBottom
+            if narrow else QBoxLayout.Direction.TopToBottom
         )
-        self._arrow_layout.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
+        self._arrow_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
     def _build_available_list(self) -> None:
         self._avail_list.clear()

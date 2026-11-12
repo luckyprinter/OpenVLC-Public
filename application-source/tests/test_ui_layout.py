@@ -138,14 +138,14 @@ def test_rx_dashboard_does_not_present_offline_defaults_as_measurements(qapp):
         transfer=SimpleNamespace(total_chunks=0, received_chunks=0),
     )
 
-    performance = _PerformanceMetricsPanel()
+    performance = _PerformanceMetricsPanel(state)
     performance.refresh(state)
     assert performance.ber_row.val.text() == "—"
     assert performance.strict_ber_row.val.text() == "—"
     assert performance.margin_row.val.text() == "—"
     assert performance.data_rate_row.val.text() == "—"
 
-    signal = _SignalMonitorPanel()
+    signal = _SignalMonitorPanel(state)
     signal.refresh(state)
     assert signal.pvo_row.val.text() == "—"
     assert signal.vref_row.val.text() == "—"

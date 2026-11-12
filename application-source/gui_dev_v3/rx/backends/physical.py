@@ -1243,9 +1243,9 @@ class RXPhysicalBackend:
 
 
 def _list_usb_serial_ports() -> list[str]:
-    """Return serial ports, prioritising true USB/ACM adapters (ESP32) first.
+    """Return only OS-enumerated serial ports, prioritising USB/ACM adapters.
 
-    Port priority order:
+    No synthetic or hard-coded virtual endpoints are injected. Port priority order:
       1. ttyUSB* / ttyACM* — real USB-serial adapters (CP2102, CH340, FTDI)
       2. COM* — Windows virtual COM ports
       3. Everything else with USB VID/PID

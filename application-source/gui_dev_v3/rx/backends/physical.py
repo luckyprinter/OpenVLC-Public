@@ -842,7 +842,12 @@ class RXPhysicalBackend:
             commands.append((f"VREF_SET={vref_target_mv}\n", "VREF_SET_OK:"))
 
         for command, response_prefix in commands:
-            if not self._send_command_and_confirm(command, response_prefix):
+            timeout = 2.0
+            if response_prefix == "VREF_SET_OK:":
+                # Firmware blocks while the PWM/RC output settles; honor the
+                # configured delay plus margin instead of timing out early.
+                timeout = max(2.0, min(vref_settle_ms / 1000.0 + 1.0, 7.0))
+            if not self._send_command_and_confirm(command, response_prefix, timeout):
                 return False
 
         if not vref_auto:

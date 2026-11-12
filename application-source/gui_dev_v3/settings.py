@@ -446,6 +446,7 @@ class SettingsContainer(QWidget):
         nav_panel = QWidget()
         nav_panel.setObjectName("Card")
         nav_panel.setFixedWidth(200)
+        self._nav_panel = nav_panel
         nav_lo = QVBoxLayout(nav_panel)
         nav_lo.setContentsMargins(8, 16, 8, 8)
         nav_lo.setSpacing(2)
@@ -516,6 +517,7 @@ class SettingsContainer(QWidget):
         """Reduce settings-page gutters on compact laptop work areas."""
         super().resizeEvent(event)
         compact = self.width() < 900
+        self._nav_panel.setFixedWidth(156 if compact else 200)
         margins = (10, 12, 10, 12) if compact else (24, 20, 24, 24)
         for wrapper in self._page_wrappers:
             layout = wrapper.layout()

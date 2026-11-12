@@ -332,7 +332,8 @@ def test_rx_experiments_stack_form_and_saved_records_on_compact_display(qapp, mo
     monkeypatch.setattr(experiment_store_module, "STORE_DIR", tmp_path)
     monkeypatch.setattr(experiment_store_module, "STORE_PATH", tmp_path / "experiments.json")
     page = ExperimentsPage()
-    assert page._empty_state.isVisible()
+    assert not page._empty_state.isHidden()
+    assert page._table.isHidden()
     assert page._table.rowCount() == 0
     page.resize(680, 500)
     page.show()

@@ -36,39 +36,11 @@ from gui_dev_v3.widgets import ModeSelectCard  # noqa: F401 — kept for legacy 
 
 
 def load_bundled_fonts() -> None:
-    """Load bundled fonts and prefer the proportional UI family consistently."""
+    """Load all TTF files in the assets/fonts directory into QFontDatabase."""
     font_dir = Path(__file__).parent / "assets" / "fonts"
-    loaded_families: set[str] = set()
     if font_dir.exists():
-        for font_file in sorted(font_dir.glob("*.ttf")):
-            font_id = QFontDatabase.addApplicationFont(str(font_file))
-            if font_id >= 0:
-                loaded_families.update(QFontDatabase.applicationFontFamilies(font_id))
-
-    # QSS family fallback differs between Windows and Linux. Explicitly set
-    # Inter as the application default when the bundled font is available so
-    # Windows does not silently fall back to a monospaced system font.
-    app = QApplication.instance()
-    if app is not None:
-        # Prefer the bundled proportional family, then an explicit platform
-        # UI family. Some offscreen Windows Qt builds report a fixed-width
-        # "general" font, so do not trust that fallback for the whole UI.
-        available = {family.lower(): family for family in QFontDatabase.families()}
-        available.update({family.lower(): family for family in loaded_families})
-        candidates = (
-            ("inter", "segoe ui", "arial")
-            if sys.platform == "win32"
-            else ("inter", "dejavu sans", "noto sans", "liberation sans")
-        )
-        ui_family = next(
-            (available[name] for name in candidates if name in available),
-            None,
-        )
-        app_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.GeneralFont)
-        if ui_family:
-            app_font.setFamily(ui_family)
-        app.setFont(app_font)
-
+        for font_file in font_dir.glob("*.ttf"):
+            QFontDatabase.addApplicationFont(str(font_file))
 
 # ── Design Loader ──────────────────────────────────────────────────────
 

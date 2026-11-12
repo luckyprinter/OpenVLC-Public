@@ -113,6 +113,8 @@ class TableBuilderPage(QWidget):
         self._preview_view = self._build_preview_view()
         self._builder_view.setMinimumWidth(0)
         self._preview_view.setMinimumWidth(0)
+        if self._preview_view.layout() is not None:
+            self._preview_view.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
 
         self._stack.addWidget(self._builder_view)
         self._stack.addWidget(self._preview_view)

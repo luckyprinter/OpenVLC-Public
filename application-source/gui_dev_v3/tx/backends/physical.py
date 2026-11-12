@@ -530,7 +530,7 @@ class TXPhysicalBackend:
             encoding="4B5B",
             modulation="NRZ / OOK",
             symbol_rate="15,000 sym/s",
-            led_pin=25,
+            led_pin=5,
             tx_power="100 %",
             pre_emphasis="Disabled",
             status_text="Offline — no hardware",

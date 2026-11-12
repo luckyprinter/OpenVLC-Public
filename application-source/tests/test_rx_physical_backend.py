@@ -151,3 +151,49 @@ def test_incomplete_batch_part_clears_live_progress_but_keeps_bounded_group(tmp_
     assert backend._active_received_chunks == 0
     assert backend._active_started_monotonic is None
     assert not list(tmp_path.iterdir())
+
+
+def test_physical_backend_reassembles_batch_and_exposes_received_path(
+    tmp_path, monkeypatch
+):
+    import time
+    from gui_dev_v3.rx.backends.physical import crc16_ccitt
+
+    monkeypatch.setattr(logger, "file_log", lambda *_args, **_kwargs: None)
+    backend = RXPhysicalBackend()
+    backend._record_diag = lambda *_args, **_kwargs: None
+    backend._save_dir = tmp_path
+    backend._active_started_monotonic = time.monotonic()
+
+    first = b"OpenVLC "
+    second = b"batch test"
+    complete = first + second
+    full_crc = crc16_ccitt(complete)
+
+    def make_line(index: int, tid: int, part: bytes) -> str:
+        wrapped_name = (
+            f"VLCB1~batch-test~{index}~2~{full_crc:04X}~received.bin"
+        )
+        name_hex = wrapped_name.encode("utf-8").hex()
+        return (
+            f"RX_FILE_HEX:{tid}:DATA:{len(part)}:1:"
+            f"{crc16_ccitt(part):04X}:{name_hex}:{part.hex()}"
+        )
+
+    backend._handle_file_hex(make_line(1, 31, first))
+    assert backend._batch_assembler.pending_count == 1
+    assert not list(tmp_path.iterdir())
+
+    backend._handle_file_hex(make_line(2, 32, second))
+
+    output = tmp_path / "received.bin"
+    assert output.read_bytes() == complete
+    record = backend._last_completed_transfer
+    assert record is not None
+    assert record.tid == 32
+    assert record.filename == "received.bin"
+    assert record.status == TransferStatus.COMPLETE
+    assert record.quality.crc_status == "PASS"
+    assert record.quality.strict_ber is None
+    assert record.received_path == str(output)
+    assert backend._batch_assembler.pending_count == 0

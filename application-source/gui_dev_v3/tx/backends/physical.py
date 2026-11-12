@@ -180,7 +180,11 @@ class TXPhysicalBackend:
                                   firmware_family=family)
                 fw_label = "Non-DMA" if ("non_dma" in fw or "nondma" in fw) else ("DMA" if "dma" in fw else "TX")
                 self.log("Connected", f"Auto-connected to {port} | Firmware: {fw_label} ({fw})")
-                self.apply_link_settings()
+                if not self.apply_link_settings():
+                    self.log(
+                        "Connected with Settings Warning",
+                        "Serial connection is active, but one or more saved link settings were not applied. Review the Settings Apply Failed entry.",
+                    )
                 return True
         if ports:
             self.log("Failed", "No VLC_TX devices found.")
@@ -236,7 +240,11 @@ class TXPhysicalBackend:
         fw_label = "Non-DMA" if ("non_dma" in fw or "nondma" in fw) else ("DMA" if "dma" in fw else "TX")
         force_str = " (Force Connect)" if force else ""
         self.log("Connected", f"Opened {port} | Firmware: {fw_label}{force_str}")
-        self.apply_link_settings()
+        if not self.apply_link_settings():
+            self.log(
+                "Connected with Settings Warning",
+                "Serial connection is active, but one or more saved link settings were not applied. Review the Settings Apply Failed entry.",
+            )
         return True
 
     def _open_serial(self) -> bool:
@@ -345,16 +353,17 @@ class TXPhysicalBackend:
         )
         self._transmission_thread.start()
 
-    def apply_link_settings(self) -> None:
-        """Apply saved settings to physical TX firmware.
+    def apply_link_settings(self) -> bool:
+        """Apply saved settings and report any serial write failure.
 
-        Uses the controller's gated apply_4b5b_settings() so that DMA-only
-        commands (DMA_MODE=, PREAMBLE=, CARRIER=) are only sent when the
-        connected firmware is confirmed DMA-capable. Sending these to
-        tx_non_dma.ino causes 'TX_ERROR: unknown command' responses.
+        The serial connection remains active if configuration fails: callers
+        can distinguish an open hardware link from a fully configured link.
+        DMA-only commands remain gated by TXSerialController.
         """
         if not self._connected or not self._controller.is_connected:
-            return
+            self.log("Settings Apply Failed", "TX serial connection is not ready")
+            return False
+
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("tx")
 
@@ -366,17 +375,25 @@ class TXPhysicalBackend:
         quiet      = bool(mgr.get("link/quiet_mode", True))
         intensity  = int(mgr.get("link/cal_intensity_pct", 100))
 
-        # apply_4b5b_settings() gates DMA_MODE/PREAMBLE/CARRIER to DMA firmware only
-        self._controller.apply_4b5b_settings(
+        # Stop before INTENSITY if any 4B5B/configuration write fails.
+        if not self._controller.apply_4b5b_settings(
             freq=symbol_hz,
             gap=gap,
             fgap=fgap,
             active_low=active_low,
             idle_on=idle_on,
             quiet=quiet,
-        )
-        # INTENSITY is common to both firmware variants
-        self.send_command(f"INTENSITY={intensity}")
+        ):
+            self.log("Settings Apply Failed", "TX 4B5B/link configuration could not be sent")
+            return False
+
+        # INTENSITY is common to both firmware variants.
+        if not self.send_command(f"INTENSITY={intensity}"):
+            self.log("Settings Apply Failed", "Serial write failed at INTENSITY")
+            return False
+
+        self.log("Settings Applied", "Saved TX link settings were sent successfully")
+        return True
 
     def cleanup(self) -> None:
         """Close serial connection and release port."""

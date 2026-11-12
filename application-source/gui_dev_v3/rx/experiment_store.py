@@ -23,34 +23,16 @@ class Experiment:
     record_count: int = 0
 
 
-def _default_experiments() -> list[dict[str, Any]]:
-    """Seed data matching the design image."""
-    return [
-        dict(id=1, name="Distance Test - Day 1", type="Distance Test",
-             created_at="2025-05-21 12:45:30", notes="Test with different distances", record_count=10),
-        dict(id=2, name="Ambient Light Test", type="Ambient Light",
-             created_at="2025-05-22 09:15:00", notes="", record_count=8),
-        dict(id=3, name="LED Wattage Test", type="LED Wattage",
-             created_at="2025-05-23 14:30:00", notes="", record_count=6),
-        dict(id=4, name="BER Validation", type="BER Test",
-             created_at="2025-05-24 11:00:00", notes="", record_count=12),
-        dict(id=5, name="Payload Test", type="Payload Test",
-             created_at="2025-05-25 16:20:00", notes="", record_count=9),
-    ]
-
-
 def _load_all() -> list[dict[str, Any]]:
-    if STORE_PATH.exists():
-        try:
-            data = json.loads(STORE_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                return data
-        except (OSError, json.JSONDecodeError):
-            pass
-    # First run — seed default data
-    seeds = _default_experiments()
-    _save_all(seeds)
-    return seeds
+    """Load only user-created experiments; a fresh install starts empty."""
+    if not STORE_PATH.exists():
+        return []
+    try:
+        data = json.loads(STORE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        # Leave damaged data untouched so it can be recovered manually.
+        return []
+    return data if isinstance(data, list) else []
 
 
 def _save_all(items: list[dict[str, Any]]) -> None:

@@ -729,3 +729,16 @@ def test_tx_file_manager_crc16_reads_large_files_incrementally(qapp, tmp_path, m
     monkeypatch.setattr("builtins.open", tracking_open)
     assert page._compute_crc16(str(source)) == expected
     assert read_sizes and all(0 < size <= 64 * 1024 for size in read_sizes)
+
+
+
+def test_rx_dashboard_does_not_present_an_uncalibrated_lux_estimate(qapp):
+    from gui_dev_v3.app_state import RXAppState
+    from gui_dev_v3.rx.dashboard import RXDashboardPage
+
+    page = RXDashboardPage(RXAppState())
+    labels = [label.text() for label in page.findChildren(__import__(
+        "PySide6.QtWidgets", fromlist=["QLabel"]
+    ).QLabel)]
+
+    assert not any("lux" in label.lower() or "light estimate" in label.lower() for label in labels)

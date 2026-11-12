@@ -659,9 +659,9 @@ class RXPhysicalBackend:
                     import time as _time
                     quality = TransferQuality(
                         label="Firmware CRC Failed",
-                        strict_ber=0.0,
-                        bit_accuracy=0.0,
-                        bit_errors=0,
+                        strict_ber=None,
+                        bit_accuracy=None,
+                        bit_errors=None,
                         total_bits=0,
                         compared_bytes=0,
                         missing_chunks=0,
@@ -1059,9 +1059,9 @@ class RXPhysicalBackend:
             adc_vref=3.300,
             lux=int(pvo * 150) if pvo > 0 else 0,  # rough lux estimate from PVo
             data_rate=0.0,  # updated by transfer activity
-            ber=0.0,
-            strict_ber=0.0,
-            crc_status="PASS" if pass_rate > 80 else "FAIL",
+            ber=None,
+            strict_ber=None,
+            crc_status="Unknown",
             time_elapsed="--",
         )
 
@@ -1072,7 +1072,7 @@ class RXPhysicalBackend:
         if self._active_tid is not None:
             from gui_dev_v3.models import TransferQuality, TransferStatus
             in_progress_quality = TransferQuality(
-                label="Receiving…", strict_ber=0.0, bit_accuracy=0.0, bit_errors=0,
+                label="Receiving…", strict_ber=None, bit_accuracy=None, bit_errors=None,
                 total_bits=0, compared_bytes=0, missing_chunks=0, missing_bytes=0,
                 first_issue="None", crc_status="", recovery_rate=0.0,
             )
@@ -1372,8 +1372,8 @@ def _empty_transfer() -> TransferRecord:
         time_label="", size_bytes=0,
         total_chunks=0, received_chunks=0,
         quality=TransferQuality(
-            label="No Data", strict_ber=0.0, bit_accuracy=100.0,
-            bit_errors=0, total_bits=0, compared_bytes=0,
+            label="No Data", strict_ber=None, bit_accuracy=None,
+            bit_errors=None, total_bits=0, compared_bytes=0,
             missing_chunks=0, missing_bytes=0,
             first_issue="None", crc_status="", recovery_rate=0.0,
         ),

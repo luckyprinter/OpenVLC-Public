@@ -203,9 +203,9 @@ def empty_transfer() -> TransferRecord:
         received_chunks=0,
         quality=TransferQuality(
             label="No Data",
-            strict_ber=0.0,
-            bit_accuracy=100.0,
-            bit_errors=0,
+            strict_ber=None,
+            bit_accuracy=None,
+            bit_errors=None,
             total_bits=0,
             compared_bytes=0,
             missing_chunks=0,

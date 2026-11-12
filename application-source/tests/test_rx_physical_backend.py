@@ -305,6 +305,10 @@ def test_firmware_crc_failure_discards_active_batch_group(monkeypatch):
     assert backend._batch_assembler.pending_count == 0
     assert backend._active_batch_group_id is None
     assert backend._active_tid is None
+    assert backend._active_filename == ""
+    assert backend._active_total_size == 0
+    assert backend._active_total_chunks == 0
+    assert backend._active_received_chunks == 0
     assert backend._active_started_monotonic is None
     assert backend._last_completed_transfer.status == TransferStatus.CRC_FAILED
     assert backend._last_completed_transfer.quality.strict_ber is None

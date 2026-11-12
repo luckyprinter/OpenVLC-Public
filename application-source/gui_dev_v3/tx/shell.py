@@ -31,11 +31,6 @@ class TXShell(QWidget):
         self.state = state or build_default_tx_state()
         self._settings_mgr = SettingsManager("tx")
 
-        # Restore saved mode
-        saved_mode: str = str(self._settings_mgr.get("general/mode", "physical"))
-        if saved_mode in ("physical", "simulated") and saved_mode != self.state.mode:
-            self.state.set_mode(saved_mode)  # type: ignore[arg-type]
-
         # Outer vertical layout: header | content | footer
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -219,7 +214,7 @@ class TXShell(QWidget):
         layout.setSpacing(24)
 
         # Mode indicator (left)
-        self._footer_mode = QLabel("Mode: SIMULATED")
+        self._footer_mode = QLabel("Mode: HARDWARE")
         self._footer_mode.setStyleSheet(
             "font-size: 11px; font-weight: 600; background: transparent;"
         )
@@ -249,73 +244,42 @@ class TXShell(QWidget):
         self._footer_time.setText(now.strftime("%H:%M:%S"))
 
     def _update_status_indicators(self) -> None:
-        """Update connection and mode indicators from current state."""
+        """Update transmitter connection indicators from the physical ESP32 state."""
         connected = self.state.serial_connected
-        mode = self.state.mode.upper() if hasattr(self.state, 'mode') else "SIMULATED"
-
-        # Determine dot + header state
-        if self.state.mode == "simulated":
-            if connected:
-                dot_state = "connected"
-                status_text = "● Connected (Simulated)"
-                status_color = COLORS.get("status_dot_on", COLORS["green"])
-                self._conn_device.setText("Device: Simulated RX")
-                self._conn_firmware.setText("Firmware: Virtual")
-                conn_status_text = "Connected (Sim)"
-            else:
-                dot_state = "simulated"
-                status_text = "● Waiting for RX (Simulated)"
-                status_color = COLORS.get("status_dot_sim", COLORS["amber"])
-                self._conn_device.setText("Device: —")
-                self._conn_firmware.setText("Firmware: —")
-                conn_status_text = "Searching (Sim)"
-        else:
-            if connected:
-                dot_state = "connected"
-                port_str = self.state.port or "COM?"
-                status_text = f"● Connected ({port_str})"
-                status_color = COLORS.get("status_dot_on", COLORS["green"])
-                # Try to read actual firmware type from the physical backend
-                phy = getattr(self.state, "_physical", None)
-                fw_info = getattr(phy, "_firmware_info", None) if phy else None
-                if fw_info:
-                    device_label = fw_info.get("device", "VLC_TX")
-                    fw_label = fw_info.get("firmware", "tx_unknown")
-                    # Make firmware type human readable
-                    if "non_dma" in fw_label or "nondma" in fw_label:
-                        fw_label = "Non-DMA"
-                    elif "dma" in fw_label:
-                        fw_label = "DMA"
-                    else:
-                        fw_label = "TX"
-                    self._conn_device.setText(f"Device: {device_label} ({port_str})")
-                    self._conn_firmware.setText(f"Mode: {fw_label}")
+        if connected:
+            dot_state = "connected"
+            port_str = self.state.port or "COM?"
+            status_text = f"● Connected ({port_str})"
+            status_color = COLORS.get("status_dot_on", COLORS["green"])
+            physical = getattr(self.state, "_physical", None)
+            fw_info = getattr(physical, "_firmware_info", None) if physical else None
+            if fw_info:
+                device_label = fw_info.get("device", "VLC_TX")
+                fw_label = fw_info.get("firmware", "tx_unknown")
+                if "non_dma" in fw_label or "nondma" in fw_label:
+                    fw_label = "Non-DMA"
+                elif "dma" in fw_label:
+                    fw_label = "DMA"
                 else:
-                    self._conn_device.setText(f"Device: VLC_TX ({port_str})")
-                    self._conn_firmware.setText("Mode: TX")
-                conn_status_text = f"Connected"
+                    fw_label = "TX"
+                self._conn_device.setText(f"Device: {device_label} ({port_str})")
+                self._conn_firmware.setText(f"Mode: {fw_label}")
             else:
-                dot_state = "disconnected"
-                status_text = "● Disconnected"
-                status_color = COLORS.get("status_dot_off", COLORS["red"])
-                self._conn_device.setText("Device: —")
-                self._conn_firmware.setText("Firmware: —")
-                conn_status_text = "Disconnected"
+                self._conn_device.setText(f"Device: VLC_TX ({port_str})")
+                self._conn_firmware.setText("Mode: TX")
+            conn_status_text = "Connected"
+        else:
+            dot_state = "disconnected"
+            status_text = "● Disconnected"
+            status_color = COLORS.get("status_dot_off", COLORS["red"])
+            self._conn_device.setText("Device: —")
+            self._conn_firmware.setText("Firmware: —")
+            conn_status_text = "Disconnected"
 
-        # Sidebar pulsing dot + label
         self._pulse_dot.set_state(dot_state)
         self._conn_status.setText(conn_status_text)
         self._conn_status.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {status_color}; background: transparent;")
-
-        # Footer mode
-        self._footer_mode.setText(f"Mode: {mode}")
-
-    def _on_mode_changed(self, mode: str) -> None:
-        """Handle mode toggle from the sidebar."""
-        self.state.set_mode(mode)  # type: ignore[arg-type]
-        self._settings_mgr.set("general/mode", mode)
-        self._update_status_indicators()
-        self._refresh_current_page()
+        self._footer_mode.setText("Mode: HARDWARE")
 
     def _refresh_current_page(self) -> None:
         """Call refresh() on the current page if it supports it."""

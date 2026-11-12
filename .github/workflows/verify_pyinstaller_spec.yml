@@ -2,12 +2,12 @@ name: Verify PyInstaller Spec
 
 on:
   push:
-    branches: ["refactor/**"]
+    branches: ["refactor/**", "redesign/**"]
     paths:
       - 'application-source/**'
       - '.github/workflows/verify_pyinstaller_spec.yml'
   pull_request:
-    branches: [main]
+    branches: ["main", "refactor/**"]
     paths:
       - 'application-source/**'
       - '.github/workflows/verify_pyinstaller_spec.yml'

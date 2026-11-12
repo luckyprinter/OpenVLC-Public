@@ -617,8 +617,9 @@ class RXPhysicalBackend:
                 strict_ber=None,
                 bit_accuracy=None,
                 bit_errors=None,
-                total_bits=len(file_bytes) * 8,
-                compared_bytes=len(file_bytes),
+                # CRC completion is not a Method 2 BER comparison.
+                total_bits=0,
+                compared_bytes=0,
                 missing_chunks=0,
                 missing_bytes=0,
                 first_issue="None" if crc_ok else "CRC mismatch",

@@ -96,8 +96,11 @@ class RXAppState:
 
     def set_mode(self, mode: str) -> None:
         """Compatibility guard: this application supports physical hardware only."""
+        if mode == self.mode:
+            return
         if mode != "physical":
             raise ValueError("Only physical hardware mode is supported.")
+        self.mode = "physical"
         self._refresh()
         self.notify()
 

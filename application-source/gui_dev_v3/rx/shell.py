@@ -22,6 +22,7 @@ from gui_dev_v3.rx.study_data_page import StudyDataPage
 from gui_dev_v3.rx.ber_analyzer_page import BERAnalyzerPage
 from gui_dev_v3.widgets import scrollable
 from gui_dev_v3.theme import COLORS
+from gui_dev_v3.ui_foundation import SidebarNavigationList, add_navigation_item
 
 
 class RXShell(QWidget):
@@ -74,13 +75,8 @@ class RXShell(QWidget):
         sidebar_layout.addWidget(subtitle)
 
         # Navigation list
-        self.nav = QListWidget()
-        self.nav.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.nav.setSpacing(2)
-        self.nav.setIconSize(QSize(18, 18))
+        self.nav = SidebarNavigationList("Receiver", self.sidebar)
         self._nav_items: list[tuple[QListWidgetItem, str]] = []
-        self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.nav.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         sidebar_layout.addWidget(self.nav, 1)
 
         # ── Connection Info Card (bottom of sidebar) ────────────────────
@@ -359,9 +355,7 @@ class RXShell(QWidget):
                 icon = qta.icon(icon_name)
             except Exception:
                 icon = qta.icon("fa5s.circle")  # Fallback
-            item = QListWidgetItem(icon, label)
-            item.setToolTip(label)
-            self.nav.addItem(item)
+            item = add_navigation_item(self.nav, icon, label)
             self._nav_items.append((item, label))
             page = page_map.get(page_key)
             if page:

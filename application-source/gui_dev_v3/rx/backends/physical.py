@@ -724,6 +724,10 @@ class RXPhysicalBackend:
                     if self._active_batch_group_id:
                         self._batch_assembler.discard(self._active_batch_group_id)
                     self._active_tid = None
+                    self._active_filename = ""
+                    self._active_total_size = 0
+                    self._active_total_chunks = 0
+                    self._active_received_chunks = 0
                     self._active_started_monotonic = None
                     self._active_batch_group_id = None
         except Exception as e:

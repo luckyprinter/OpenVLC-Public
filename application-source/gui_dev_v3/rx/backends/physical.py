@@ -26,7 +26,7 @@ from typing import Any
 from gui_dev_v3.data.records import load_real_transfer_history
 from gui_dev_v3.data.session import build_empty_session, build_session_from_status
 from gui_dev_v3.data.status import read_status
-from gui_dev_v3.models import SessionState, SignalState, TransferRecord, TransferStatus
+from gui_dev_v3.models import SessionState, SignalState, TransferRecord, TransferStatus\nfrom gui_dev_v3.logic.batch_assembler import BatchAssembler
 
 # Resolve beta state dir with VLC_DATA_DIR env var fallback
 def _resolve_beta_state_dir() -> Path:
@@ -129,7 +129,17 @@ class RXPhysicalBackend:
         self._pwm_autocal_iterations: int = 0
         self._active_started_monotonic: float | None = None
         # Batch reconstruction state for large files
-        self._batch_transfers: dict[str, dict] = {}
+        self._batch_assembler = BatchAssembler()
+
+    def _prune_expired_batches(self) -> None:
+        """Discard incomplete batches after their bounded retention period."""
+        expired = self._batch_assembler.prune_expired()
+        for group_id in expired:
+            self._log_queue.append({
+                "time": time.strftime("%H:%M:%S"),
+                "event": "Batch Expired",
+                "details": f"Incomplete batch {group_id} expired and was discarded",
+            })
 
     def log(self, event: str, details: str) -> None:
         if self._last_logged.get(event) == details:
@@ -515,49 +525,49 @@ class RXPhysicalBackend:
             # Save to disk
             self._save_dir.mkdir(parents=True, exist_ok=True)
             
-            # --- BATCH INTERCEPTION ---
+            # --- Validated, bounded batch assembly ---
             if filename.startswith("VLCB1~"):
-                b_parts = filename.split("~", 5)
-                if len(b_parts) == 6:
-                    group_id = b_parts[1]
-                    part_index = int(b_parts[2])
-                    part_count = int(b_parts[3])
-                    full_crc = int(b_parts[4], 16)
-                    orig_name = b_parts[5]
-                    
-                    batch = self._batch_transfers.setdefault(group_id, {
-                        "parts": {},
-                        "created": time.time(),
-                        "started_monotonic": time.monotonic(),
-                        "name": orig_name,
-                        "full_crc": full_crc,
-                        "part_count": part_count
-                    })
-                    batch["parts"][part_index] = file_bytes
-                    self._log_queue.append({
-                        "time": now,
-                        "event": "Batch Part",
-                        "details": f"Part {part_index}/{part_count} of '{orig_name}' (CRC {'OK' if crc_ok else 'FAIL'})"
-                    })
-                    
-                    if len(batch["parts"]) == part_count:
-                        # Measure the complete batch, not only the final part.
-                        batch_started = batch.get("started_monotonic")
-                        if isinstance(batch_started, (int, float)):
-                            self._active_started_monotonic = batch_started
-                        # Reconstruct the full file
-                        file_bytes = b"".join(batch["parts"][i] for i in range(1, part_count + 1))
-                        filename = orig_name
-                        calc_crc = crc16_ccitt(file_bytes)
-                        expected_crc = full_crc
-                        crc_ok = (calc_crc == expected_crc)
-                        del self._batch_transfers[group_id]
-                        # Continue below with the stitched file...
-                    else:
-                        # Wait for remaining parts
-                        self._active_tid = None
-                        return
-            # --------------------------
+                metadata = filename.split("~", 5)
+                if len(metadata) != 6:
+                    raise ValueError("Malformed VLCB1 batch metadata")
+                _, group_id, index_text, count_text, full_crc_text, original_name = metadata
+                assembled = self._batch_assembler.add_part(
+                    group_id=group_id,
+                    part_index=int(index_text),
+                    part_count=int(count_text),
+                    full_crc=int(full_crc_text, 16),
+                    filename=original_name,
+                    part_data=file_bytes,
+                    part_crc_ok=crc_ok,
+                    part_chunks=part_total_chunks,
+                    tid=tid,
+                    started_monotonic=self._active_started_monotonic,
+                )
+                self._prune_expired_batches()
+                self._log_queue.append({
+                    "time": now,
+                    "event": "Batch Part",
+                    "details": f"Part {index_text}/{count_text} of '{original_name}' validated",
+                })
+                if assembled is None:
+                    self._active_tid = None
+                    self._active_filename = ""
+                    self._active_started_monotonic = None
+                    return
+                file_bytes = assembled["data"]
+                filename = assembled["filename"]
+                full_crc_expected = assembled["full_crc"]
+                tid = assembled["last_tid"]
+                self._active_started_monotonic = assembled["started_monotonic"]
+                self._active_total_chunks = assembled["total_chunks"]
+                self._active_received_chunks = assembled["total_chunks"]
+                self._active_total_size = len(file_bytes)
+                calc_crc = crc16_ccitt(file_bytes)
+                crc_ok = calc_crc == full_crc_expected
+            else:
+                full_crc_expected = part_crc_expected
+            # ------------------------------------------
+
 
             # Sanitise filename
             safe_name = re.sub(r"[^\w.\-]", "_", filename) or f"rx_{tid}.bin"

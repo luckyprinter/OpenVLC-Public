@@ -50,14 +50,14 @@ class ChunkRecord:
 @dataclass(frozen=True)
 class TransferQuality:
     label: str
-    strict_ber: float
-    bit_accuracy: float
-    bit_errors: int
+    strict_ber: float | None
+    bit_accuracy: float | None
+    bit_errors: int | None
     total_bits: int
     compared_bytes: int
     missing_chunks: int
     missing_bytes: int
-    first_issue: str
+    first_issue: str | None
     crc_status: str
     recovery_rate: float
 

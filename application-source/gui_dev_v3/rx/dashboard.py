@@ -370,8 +370,8 @@ class RXDashboardPage(QWidget):
         splitter.setChildrenCollapsible(False)
         splitter.addWidget(detail_widget)
         splitter.addWidget(self._activity_log)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
+        splitter.setStretchFactor(0, 4)
+        splitter.setStretchFactor(1, 1)
         outer.addWidget(splitter, 1)
         self._splitter = splitter
         self._detail_widget = detail_widget
@@ -390,7 +390,9 @@ class RXDashboardPage(QWidget):
         self._perf.setVisible(not compact)
         self._signal_mon.setVisible(not compact)
         self._bit_decode.setVisible(not compact)
-        self._activity_log.setVisible(not compact)
+        # Keep the file/progress panel tall on ordinary laptop displays;
+        # recent activity is secondary and has its own dedicated logs view.
+        self._activity_log.setVisible(not compact and self.height() >= 720)
         self._file_info.filesize_row.setVisible(not compact)
         self._file_info.received_size_row.setVisible(not compact)
         if compact:

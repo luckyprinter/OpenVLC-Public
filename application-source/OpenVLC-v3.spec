@@ -58,7 +58,7 @@ def collect_runtime_license_files():
 
 
 datas += collect_runtime_license_files()
-notices_file = Path(__file__).resolve().parent / 'THIRD_PARTY_NOTICES.md'
+notices_file = Path(SPECPATH).resolve() / 'THIRD_PARTY_NOTICES.md'
 if notices_file.is_file():
     datas.append((str(notices_file), '.'))
 

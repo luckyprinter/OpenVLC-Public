@@ -826,3 +826,27 @@ def test_session_inspector_replays_telemetry_and_labels_legacy_threshold_samples
     assert "Legacy threshold-state samples" in inspector.bitstream_text.toPlainText()
     assert "NOT decoded symbol-rate OOK bits" in inspector.bitstream_text.toPlainText()
     inspector.close()
+
+
+
+def test_export_page_path_and_empty_inspector_are_honest(qapp, monkeypatch, tmp_path):
+    from gui_dev_v3.rx import export_page
+
+    history_dir = tmp_path / "history"
+    monkeypatch.setattr(export_page, "HISTORY_DIR", history_dir)
+    monkeypatch.setattr(export_page, "HISTORY_PATH", history_dir / "transfer_history.json")
+    monkeypatch.setattr(
+        export_page, "LEGACY_HISTORY_PATH", tmp_path / "legacy" / "transfer_history.json"
+    )
+
+    page = export_page.ExportPage()
+    full_path = page._folder_edit.text()
+    assert page._folder_edit.cursorPosition() == 0
+    assert page._folder_edit.toolTip() == full_path
+
+    inspector = page.inspector_card
+    inspector.show_empty()
+    description = inspector.empty_desc.text()
+    assert "PVo/Vref/margin telemetry" in description
+    assert "decoded bitstream" not in description.lower()
+    page.close()

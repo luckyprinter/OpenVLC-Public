@@ -70,16 +70,19 @@ def test_tx_batch_send_obeys_firmware_chunk_limit(tmp_path, monkeypatch):
     controller.is_connected = True
     sent_parts = []
 
-    def capture_part(_path, data, name_bytes, chunk_size, _tid, _crc, _rounds):
-        sent_parts.append((data, name_bytes, chunk_size))
+    def capture_part(
+        _path, data, name_bytes, chunk_size, _tid, _crc, _rounds, *, batch_part=False
+    ):
+        sent_parts.append((data, name_bytes, chunk_size, batch_part))
         return True
 
     controller._send_stream = capture_part
     assert controller.send_file(source, chunk_bytes=16) is True
     assert len(sent_parts) == 13
-    assert all(len(part) <= 16 * MAX_STREAM_CHUNKS for part, _, _ in sent_parts)
-    assert all((len(part) + 15) // 16 <= MAX_STREAM_CHUNKS for part, _, _ in sent_parts)
-    assert all(len(name) <= 80 for _, name, _ in sent_parts)
+    assert all(len(part) <= 16 * MAX_STREAM_CHUNKS for part, _, _, _ in sent_parts)
+    assert all((len(part) + 15) // 16 <= MAX_STREAM_CHUNKS for part, _, _, _ in sent_parts)
+    assert all(len(name) <= 80 for _, name, _, _ in sent_parts)
+    assert all(is_batch_part for _, _, _, is_batch_part in sent_parts)
 
 
 def test_tx_rejects_long_filenames_instead_of_truncating(tmp_path, monkeypatch):

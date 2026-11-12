@@ -66,7 +66,7 @@ Do not start by reading the largest backend file from top to bottom. First under
 | `tx_app_state.py` | Holds transmitter application state and coordinates refreshes from the physical ESP32 backend. |
 | `models.py` | Defines structured data objects used by the receiver, such as signal, session, and transfer information. |
 
-| `tx_mock_data.py` | Defines transmitter data structures used by the physical backend. Despite the legacy filename, it is not a simulation engine. |
+| `tx_models.py` | Defines transmitter data structures shared by the physical backend and GUI. |
 | `widgets.py` | Shared reusable visual components such as cards, badges, progress bars, and waveform widgets. |
 | `navigation.py` | Shared navigation definitions and labels. |
 | `theme.py` | Colors, themes, spacing/density choices, and Qt stylesheet generation. |
@@ -301,7 +301,7 @@ The most important methods are:
 | `__post_init__()` | Initializes capture bookkeeping and performs the first refresh. |
 | `subscribe(callback)` | Registers a GUI listener that wants to know when state changes. |
 | `notify()` | Calls a snapshot of the registered listeners. |
-| `set_mode(mode)` | Compatibility guard that accepts only `physical`; any other mode is rejected. |
+
 | `_refresh()` | Asks the physical ESP32 backend for the latest snapshot. |
 | `_apply_phy_snapshot(snapshot)` | Copies real-hardware results into RX state. |
 

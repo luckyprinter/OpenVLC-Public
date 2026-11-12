@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -217,21 +218,57 @@ LEGACY_CAPTURE_DIR = Path.home() / ".vlc_rx" / "captures"
 
 
 def save_session_capture(capture: SessionCapture) -> None:
+    """Atomically save a capture without replacing an unreadable existing file."""
     from dataclasses import asdict
-    import json
 
     CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
     path = CAPTURE_DIR / f"session_{capture.tid}.json"
-    temporary = path.with_suffix(".tmp")
+
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            required = {
+                "tid", "timestamp", "filename", "ber", "crc_status",
+                "throughput_kbps", "analog_time", "pvo_samples",
+                "vref_samples", "margin_samples", "ook_bits", "protocol_events",
+            }
+            if (
+                not isinstance(existing, dict)
+                or not required.issubset(existing)
+                or int(existing.get("tid", -1)) != capture.tid
+            ):
+                raise ValueError("existing capture has an invalid structure or TID")
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            print(
+                f"Refusing to overwrite unreadable session capture {capture.tid}; "
+                f"original data was preserved: {exc}"
+            )
+            return
+
+    temporary_path: Path | None = None
     try:
-        temporary.write_text(json.dumps(asdict(capture), indent=2), encoding="utf-8")
-        temporary.replace(path)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=CAPTURE_DIR,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            json.dump(asdict(capture), temporary, indent=2)
+            temporary.write("\\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, path)
     except OSError as exc:
         print(f"Failed to save session capture {capture.tid}: {exc}")
-        try:
-            temporary.unlink(missing_ok=True)
-        except OSError:
-            pass
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            try:
+                temporary_path.unlink()
+            except OSError:
+                pass
 
 
 def load_session_capture(tid: int) -> SessionCapture | None:

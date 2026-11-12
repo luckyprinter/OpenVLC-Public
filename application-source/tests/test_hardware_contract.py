@@ -149,8 +149,11 @@ def test_non_dma_large_file_batching_uses_configured_chunk_and_rounds(
         _tid: int,
         _crc: int,
         rounds: int,
+        *,
+        batch_part: bool = False,
     ) -> bool:
-        sent_parts.append((len(part), chunk_size))
+        sent_parts.append((len(part), chunk_size, batch_part))
+        assert batch_part is True
         assert rounds == 3
         return True
 

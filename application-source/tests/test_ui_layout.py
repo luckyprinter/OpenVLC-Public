@@ -6,12 +6,16 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QWidget
 
 from gui_dev_v3.app import VLCMainWindow
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.rx.dashboard import RXDashboardPage
+from gui_dev_v3.rx.inspect_page import InspectPage
+from gui_dev_v3.rx.signal_page import SignalMonitorPage
 from gui_dev_v3.settings import SettingsContainer, ThemePickerGrid
+from gui_dev_v3.tx.placeholders import TransmitPage
 
 
 @pytest.fixture(scope="module")
@@ -163,3 +167,64 @@ def test_settings_container_reduces_gutters_on_compact_width(qapp):
         24, 20, 24, 24
     )
     settings.close()
+
+
+def test_tx_transmission_queue_hides_secondary_panels_on_compact_display(qapp):
+    page = TransmitPage()
+    page.resize(680, 500)
+    page.show()
+    qapp.processEvents()
+
+    assert page._compact_layout
+    assert page._queue_card.isVisible()
+    assert page._controls_card.isVisible()
+    assert not page._config_card.isVisible()
+    assert not page._history_card.isVisible()
+
+    page.resize(1100, 700)
+    qapp.processEvents()
+    assert not page._compact_layout
+    assert page._config_card.isVisible()
+    assert page._history_card.isVisible()
+    page.close()
+
+
+def test_rx_inspect_stacks_explorers_on_compact_display(qapp):
+    page = InspectPage()
+    page.resize(680, 500)
+    page.show()
+    qapp.processEvents()
+
+    assert page._compact_layout
+    assert page._bottom_layout.direction() == page._bottom_layout.Direction.TopToBottom
+    assert page._ref_status_layout.direction() == page._ref_status_layout.Direction.TopToBottom
+
+    page.resize(1100, 700)
+    qapp.processEvents()
+    assert not page._compact_layout
+    assert page._bottom_layout.direction() == page._bottom_layout.Direction.LeftToRight
+    page.close()
+
+
+def test_rx_signal_page_reflows_metrics_and_diagnostics_on_compact_display(qapp):
+    page = SignalMonitorPage(RXAppState())
+    page.resize(680, 500)
+    page.show()
+    qapp.processEvents()
+
+    assert page._compact_layout
+    assert page._middle_splitter.orientation() == Qt.Orientation.Vertical
+    assert page._bottom_splitter.orientation() == Qt.Orientation.Vertical
+    positions = [
+        page._metric_grid.getItemPosition(index)
+        for index in range(page._metric_grid.count())
+    ]
+    assert max(column for _row, column, _row_span, _column_span in positions) < 2
+
+    page.resize(1100, 700)
+    qapp.processEvents()
+    assert not page._compact_layout
+    assert page._middle_splitter.orientation() == Qt.Orientation.Horizontal
+    assert page._bottom_splitter.orientation() == Qt.Orientation.Horizontal
+    page.shutdown()
+    page.close()

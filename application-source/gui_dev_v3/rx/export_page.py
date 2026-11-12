@@ -537,11 +537,12 @@ class ExportPage(QWidget):
             self.table.setItem(row, 5, chunks_item)
 
             # BER
-            ber = entry.get("ber", 0.0)
-            ber_txt = f"{ber:.2%}" if ber > 0 else "0.00%"
+            ber = entry.get("ber")
+            ber_is_measured = isinstance(ber, (int, float))
+            ber_txt = f"{ber:.4%}" if ber_is_measured else "N/A"
             ber_item = QTableWidgetItem(ber_txt)
             ber_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            if ber > 0:
+            if ber_is_measured and ber > 0:
                 ber_item.setForeground(QColor(COLORS["red"]))
             self.table.setItem(row, 6, ber_item)
 
@@ -600,7 +601,9 @@ class ExportPage(QWidget):
         tid = entry.get("tid", 0)
         filename = entry.get("filename", "unknown.txt")
         time_label = entry.get("time_label", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        ber = entry.get("ber", 0.0)
+        raw_ber = entry.get("ber")
+        ber = float(raw_ber) if isinstance(raw_ber, (int, float)) else None
+        ber_label = f"{ber:.2%}" if ber is not None else "not measured"
         status = entry.get("status", "Complete")
         crc_status = "PASS" if status == "Complete" else "FAIL"
 

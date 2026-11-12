@@ -5,9 +5,9 @@ from gui_dev_v3.data import records
 
 
 def test_load_session_capture_preserves_unavailable_ber(tmp_path, monkeypatch):
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    capture_dir = tmp_path / ".vlc_rx" / "captures"
+    capture_dir = tmp_path / "captures"
     capture_dir.mkdir(parents=True)
+    monkeypatch.setattr(records, "CAPTURE_DIR", capture_dir)
     (capture_dir / "session_42.json").write_text(
         json.dumps({
             "tid": 42,

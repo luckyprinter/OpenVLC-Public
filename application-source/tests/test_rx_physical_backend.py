@@ -47,3 +47,36 @@ def test_rejected_batch_fragment_clears_active_rx_transfer(tmp_path, monkeypatch
     assert backend._active_filename == ""
     assert backend._active_started_monotonic is None
     assert not list(tmp_path.iterdir())
+
+def test_crc_pass_does_not_create_a_ber_comparison(tmp_path, monkeypatch):
+    import time
+    from gui_dev_v3.rx.backends.physical import crc16_ccitt
+
+    monkeypatch.setattr(logger, "file_log", lambda *_args, **_kwargs: None)
+    backend = RXPhysicalBackend()
+    backend._record_diag = lambda *_args, **_kwargs: None
+    backend._save_dir = tmp_path
+    backend._active_tid = 13
+    backend._active_filename = "received.bin"
+    backend._active_total_size = 3
+    backend._active_total_chunks = 1
+    backend._active_received_chunks = 1
+    backend._active_started_monotonic = time.monotonic()
+
+    payload = b"VLC"
+    filename_hex = "received.bin".encode("utf-8").hex()
+    line = (
+        f"RX_FILE_HEX:13:DATA:1:1:{crc16_ccitt(payload):04X}:"
+        f"{filename_hex}:{payload.hex()}"
+    )
+    backend._handle_file_hex(line)
+
+    record = backend._last_completed_transfer
+    assert record is not None
+    assert record.quality.crc_status == "PASS"
+    assert record.quality.strict_ber is None
+    assert record.quality.bit_accuracy is None
+    assert record.quality.bit_errors is None
+    assert record.quality.total_bits == 0
+    assert record.quality.compared_bytes == 0
+    assert record.received_path is not None

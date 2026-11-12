@@ -552,9 +552,9 @@ class SignalWaveform(QWidget):
         else:
             self._times.append(len(self._buffer) * self._dt)
             
-        if len(self._buffer) > 10000:
-            self._buffer = self._buffer[-10000:]
-            self._times = self._times[-10000:]
+        if len(self._buffer) > self.MAX_SAMPLES:
+            del self._buffer[:-self.MAX_SAMPLES]
+            del self._times[:-self.MAX_SAMPLES]
             
         self._redraw()
 
@@ -572,6 +572,9 @@ class SignalWaveform(QWidget):
         self._pvo_curve.setData([], [])
         self._vref_curve.setData([], [])
         self._margin_curve.setData([], [])
+        self._updating_range = True
+        self._plot_widget.setXRange(0, self._time_window, padding=0)
+        self._updating_range = False
         self._update_empty_state()
 
     def set_time_window(self, seconds: float) -> None:

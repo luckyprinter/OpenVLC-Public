@@ -278,11 +278,15 @@ def load_session_capture(tid: int) -> SessionCapture | None:
         )
         if source_path == legacy_path:
             # Keep the old file intact; copy it into the current app-data
-            # location only after parsing it successfully.
-            CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_suffix(".tmp")
-            temporary.write_text(raw_text, encoding="utf-8")
-            temporary.replace(path)
+            # location only after parsing it successfully. A copy failure
+            # must not prevent the existing capture from being viewed.
+            try:
+                CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+                temporary = path.with_suffix(".tmp")
+                temporary.write_text(raw_text, encoding="utf-8")
+                temporary.replace(path)
+            except OSError as migration_error:
+                print(f"Could not migrate legacy capture {tid}: {migration_error}")
         return capture
     except Exception as exc:
         print(f"Failed to load session capture {tid}: {exc}")

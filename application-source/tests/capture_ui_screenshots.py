@@ -98,6 +98,8 @@ def _capture_nested_views(window, app, mode: str, page_name: str, shell, width: 
             if content is not None and hasattr(content, "_compact_layout"):
                 if tabs.tabText(index) == "Experiments":
                     expected_compact = content.width() < 1100 or content.height() < 740
+                elif tabs.tabText(index) == "Table Builder":
+                    expected_compact = content.width() < 1000 or content.height() < 620
                 else:
                     expected_compact = content.width() < 900 or content.height() < 620
                 if content._compact_layout != expected_compact:

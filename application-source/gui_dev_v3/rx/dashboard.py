@@ -17,6 +17,7 @@ from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
+    QGridLayout,
     QLabel,
     QVBoxLayout,
     QWidget,
@@ -251,21 +252,29 @@ class _BitDecodePanel(Card):
 
 
 class _FileInfoPanel(Card):
-    """Received File Info — right middle panel."""
+    """Received File Info — compact two-column summary."""
 
     def __init__(self, state: RXAppState, parent: QWidget | None = None) -> None:
         super().__init__("Received File Info", parent)
+        self.body.setContentsMargins(12, 8, 12, 8)
+        self.body.setSpacing(6)
+
         self.filename_row = MetricRow("File Name")
         self.filesize_row = MetricRow("File Size")
         self.received_size_row = MetricRow("Received Size")
         self.pct_row = MetricRow("Completion")
         self.progress_bar = ProgressBar(0)
 
-        self.body.addWidget(self.filename_row)
-        self.body.addWidget(self.filesize_row)
-        self.body.addWidget(self.received_size_row)
-        self.body.addWidget(self.pct_row)
-        self.body.addWidget(self.progress_bar)
+        metrics = QGridLayout()
+        metrics.setContentsMargins(0, 0, 0, 0)
+        metrics.setHorizontalSpacing(18)
+        metrics.setVerticalSpacing(4)
+        metrics.addWidget(self.filename_row, 0, 0, 1, 2)
+        metrics.addWidget(self.filesize_row, 1, 0)
+        metrics.addWidget(self.received_size_row, 1, 1)
+        metrics.addWidget(self.pct_row, 2, 0)
+        metrics.addWidget(self.progress_bar, 2, 1, Qt.AlignmentFlag.AlignVCenter)
+        self.body.addLayout(metrics)
 
     def refresh(self, state: RXAppState) -> None:
         transfer = state.transfer

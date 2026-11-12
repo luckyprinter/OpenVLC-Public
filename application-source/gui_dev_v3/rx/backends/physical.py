@@ -503,6 +503,7 @@ class RXPhysicalBackend:
         Format: RX_FILE_HEX:<tid>:<frame_type>:<total_size>:<total_chunks>:<crc_hex>:<name_hex>:<data_hex>
         """
         now = time.strftime("%H:%M:%S")
+        batch_group_id: str | None = None
         try:
             parts = line.split(":")
             if len(parts) < 8:
@@ -534,6 +535,7 @@ class RXPhysicalBackend:
                 if len(metadata) != 6:
                     raise ValueError("Malformed VLCB1 batch metadata")
                 _, group_id, index_text, count_text, full_crc_text, original_name = metadata
+                batch_group_id = group_id
                 self._prune_expired_batches()
                 assembled = self._batch_assembler.add_part(
                     group_id=group_id,
@@ -569,6 +571,7 @@ class RXPhysicalBackend:
                 crc_ok = calc_crc == full_crc_expected
             else:
                 full_crc_expected = part_crc_expected
+            expected_crc_for_message = full_crc_expected
             # ------------------------------------------
 
 
@@ -585,7 +588,7 @@ class RXPhysicalBackend:
 
             out_path.write_bytes(file_bytes)
 
-            crc_label = "CRC OK" if crc_ok else f"CRC MISMATCH (got {calc_crc:08X} expected {expected_crc:08X})"
+            crc_label = "CRC OK" if crc_ok else f"CRC MISMATCH (got {calc_crc:04X} expected {expected_crc_for_message:04X})"
             self._log_queue.append({
                 "time": now,
                 "event": "File Received!",
@@ -651,6 +654,16 @@ class RXPhysicalBackend:
             self._active_tid = None
             self._active_started_monotonic = None
         except Exception as e:
+            if batch_group_id is not None:
+                self._batch_assembler.discard(batch_group_id)
+            # A rejected or malformed completed-file record must not leave a
+            # phantom active transfer in the dashboard.
+            self._active_tid = None
+            self._active_filename = ""
+            self._active_total_size = 0
+            self._active_total_chunks = 0
+            self._active_received_chunks = 0
+            self._active_started_monotonic = None
             self._log_queue.append({"time": now, "event": "RX File Error", "details": str(e)[:120]})
 
     def _handle_file_crc_fail(self, line: str) -> None:
@@ -1333,7 +1346,7 @@ def _list_usb_serial_ports() -> list[str]:
     """
     try:
         import serial.tools.list_ports
-        usb_ports: list[str] = ["/tmp/esp32_tx", "/tmp/esp32_rx"]
+        usb_ports: list[str] = []
         other_ports: list[str] = []
         for port in serial.tools.list_ports.comports():
             dev = port.device or ""

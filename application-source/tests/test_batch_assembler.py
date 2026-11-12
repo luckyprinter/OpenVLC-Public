@@ -45,3 +45,28 @@ def test_batch_byte_limit_discards_group():
     with pytest.raises(ValueError,match="byte limit"):
         _add(a,2,b"b",now=2)
     assert a.pending_count==0
+
+def test_invalid_part_index_discards_existing_group():
+    a=BatchAssembler()
+    _add(a,1,b"a")
+    with pytest.raises(ValueError,match="outside its declared range"):
+        a.add_part(group_id="g",part_index=3,part_count=2,full_crc=0x1234,
+            filename="capture.bin",part_data=b"b",part_crc_ok=True,
+            part_chunks=1,tid=2,now=2)
+    assert a.pending_count==0
+
+def test_empty_part_discards_existing_group():
+    a=BatchAssembler()
+    _add(a,1,b"a")
+    with pytest.raises(ValueError,match="empty batch parts"):
+        _add(a,2,b"",now=2)
+    assert a.pending_count==0
+
+def test_metadata_change_discards_existing_group():
+    a=BatchAssembler()
+    _add(a,1,b"a")
+    with pytest.raises(ValueError,match="metadata changed"):
+        a.add_part(group_id="g",part_index=2,part_count=2,full_crc=0x5678,
+            filename="capture.bin",part_data=b"b",part_crc_ok=True,
+            part_chunks=1,tid=2,now=2)
+    assert a.pending_count==0

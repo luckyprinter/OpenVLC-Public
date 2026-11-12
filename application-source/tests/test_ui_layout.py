@@ -23,7 +23,7 @@ from gui_dev_v3.rx import export_page as export_page_module
 from gui_dev_v3.rx.inspect_page import InspectPage
 from gui_dev_v3.rx.signal_page import SignalMonitorPage
 from gui_dev_v3.settings import SettingsContainer, ThemePickerGrid, SpinSetting
-from gui_dev_v3.tx.dashboard import TXDashboardPage
+from gui_dev_v3.tx.dashboard import FileDetailsWidget, TXDashboardPage
 from gui_dev_v3.tx_app_state import TXAppState
 from gui_dev_v3.tx.placeholders import TransmitPage
 from gui_dev_v3.tx.file_manager_page import FileManagerPage
@@ -471,3 +471,23 @@ def test_tx_dashboard_hides_secondary_panels_on_compact_display(qapp):
     assert page._pipeline.isVisible()
     assert page._logs.isVisible()
     page.close()
+
+
+def test_tx_start_requires_selected_file_and_connected_hardware(qapp):
+    widget = FileDetailsWidget()
+    state = SimpleNamespace(
+        filename="",
+        file_size_bytes=0,
+        total_chunks=0,
+        status_text="Idle",
+        elapsed_time="",
+        estimated_time="",
+        serial_connected=True,
+    )
+    widget.refresh(state)
+    assert not widget.start_btn.isEnabled()
+
+    state.filename = "measured-data.bin"
+    widget.refresh(state)
+    assert widget.start_btn.isEnabled()
+    widget.close()

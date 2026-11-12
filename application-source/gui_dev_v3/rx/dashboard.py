@@ -134,7 +134,7 @@ class _PerformanceMetricsPanel(Card):
 
     def __init__(self, state: RXAppState, parent: QWidget | None = None) -> None:
         super().__init__("Performance", parent)
-        self.ber_row = MetricRow("BER")
+        self.ber_row = MetricRow("Method 2 BER")
         self.strict_ber_row = MetricRow("Strict BER")
         self.crc_row = StatusRow("CRC")
         self.margin_row = MetricRow("Margin")
@@ -148,9 +148,15 @@ class _PerformanceMetricsPanel(Card):
 
     def refresh(self, state: RXAppState) -> None:
         sig = state.signal
-        self.ber_row.setValue(f"{sig.ber:.4f}")
-        self.strict_ber_row.setValue(f"{sig.strict_ber:.4f}")
-        crc_status = (sig.crc_status or "").strip().upper()
+        comparison = state.get_method2_comparison()
+        if comparison is None:
+            self.ber_row.setValue("Awaiting reference")
+            self.strict_ber_row.setValue("Not measured")
+        else:
+            self.ber_row.setValue(f"{comparison['overlap_ber'] * 100:.4f} %")
+            self.strict_ber_row.setValue(f"{comparison['strict_ber'] * 100:.4f} %")
+        transfer = state.transfer
+        crc_status = (transfer.quality.crc_status if transfer.quality else "Unknown").strip().upper()
         crc_color = (
             COLORS["green"] if crc_status == "PASS"
             else COLORS["red"] if crc_status in {"FAIL", "FAILED", "CRC FAILED"}

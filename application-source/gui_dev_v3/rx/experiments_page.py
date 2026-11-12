@@ -142,6 +142,15 @@ class ExperimentsPage(QWidget):
         self._table.setMinimumHeight(220)
         self._table.setMinimumWidth(0)
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
+
+        self._empty_state = QLabel(
+            "No experiments yet. Create your first experiment to organize test records."
+        )
+        self._empty_state.setWordWrap(True)
+        self._empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_state.setMinimumHeight(100)
+        self._empty_state.setObjectName("Muted")
+        table_card.body.addWidget(self._empty_state)
         table_card.body.addWidget(self._table)
 
         # Action buttons row
@@ -197,11 +206,20 @@ class ExperimentsPage(QWidget):
         self._main_layout.setSpacing(12 if compact else 24)
 
     def _reload_table(self, filter_text: str = "") -> None:
-        experiments = list_experiments()
+        all_experiments = list_experiments()
+        experiments = all_experiments
         if filter_text:
             ft = filter_text.lower()
-            experiments = [e for e in experiments if ft in e.name.lower() or ft in e.type.lower()]
+            experiments = [e for e in all_experiments if ft in e.name.lower() or ft in e.type.lower()]
 
+        if not experiments:
+            self._empty_state.setText(
+                "No experiments match your search."
+                if all_experiments
+                else "No experiments yet. Create your first experiment to organize test records."
+            )
+        self._empty_state.setVisible(not experiments)
+        self._table.setVisible(bool(experiments))
         self._table.setRowCount(len(experiments))
         for row, exp in enumerate(experiments):
             self._table.setItem(row, 0, QTableWidgetItem(str(exp.id)))

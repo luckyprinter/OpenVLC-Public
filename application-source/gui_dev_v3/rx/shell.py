@@ -32,11 +32,6 @@ class RXShell(QWidget):
         self.state = state or build_default_state()
         self._settings_mgr = SettingsManager("rx")
 
-        # Restore saved mode
-        saved_mode: str = str(self._settings_mgr.get("general/mode", "physical"))
-        if saved_mode in ("physical", "simulated") and saved_mode != self.state.mode:
-            self.state.set_mode(saved_mode)  # type: ignore[arg-type]
-
         # Outer vertical layout: content | footer
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -222,7 +217,7 @@ class RXShell(QWidget):
         layout.setSpacing(24)
 
         # Mode indicator (left)
-        self._footer_mode = QLabel("Mode: SIMULATED")
+        self._footer_mode = QLabel("Mode: HARDWARE")
         self._footer_mode.setStyleSheet(
             "font-size: 11px; font-weight: 600; background: transparent;"
         )
@@ -252,63 +247,36 @@ class RXShell(QWidget):
         self._footer_time.setText(now.strftime("%H:%M:%S"))
 
     def _update_status_indicators(self) -> None:
-        """Update connection and mode indicators from current state."""
+        """Update receiver connection indicators from the physical ESP32 state."""
         connected = self.state.serial_connected
-        mode = self.state.mode.upper() if hasattr(self.state, 'mode') else "SIMULATED"
-
-        # Determine dot state and status text
-        if self.state.mode == "simulated":
-            if connected:
-                dot_state = "connected"
-                status_text = "Connected (Sim)"
-                status_color = COLORS.get("status_dot_on", COLORS["green"])
-                self._conn_device.setText("Device: Simulated TX")
-                self._conn_firmware.setText("Firmware: Virtual")
+        if connected:
+            dot_state = "connected"
+            status_text = "Connected"
+            status_color = COLORS.get("status_dot_on", COLORS["green"])
+            physical = getattr(self.state, "_physical", None)
+            port = getattr(physical, "port", None) if physical else None
+            firmware_info = getattr(physical, "_firmware_info", None) if physical else None
+            firmware_name = (firmware_info or {}).get("firmware", "")
+            if firmware_name and firmware_name not in ("rx_unknown", "rx_forced"):
+                firmware_label = firmware_name
+            elif firmware_name == "rx_forced":
+                firmware_label = "Force-connected · version unknown"
             else:
-                dot_state = "simulated"
-                status_text = "Listening (Sim)"
-                status_color = COLORS.get("status_dot_sim", COLORS["amber"])
-                self._conn_device.setText("Device: —")
-                self._conn_firmware.setText("Firmware: —")
+                firmware_label = "Detected · version not reported"
+            device_suffix = f" ({port})" if port else ""
+            self._conn_device.setText(f"Device: VLC_RX{device_suffix}")
+            self._conn_firmware.setText(f"Firmware: {firmware_label}")
         else:
-            if connected:
-                dot_state = "connected"
-                status_text = "Connected"
-                status_color = COLORS.get("status_dot_on", COLORS["green"])
-                physical = getattr(self.state, "_physical", None)
-                port = getattr(physical, "port", None) if physical else None
-                firmware_info = getattr(physical, "_firmware_info", None) if physical else None
-                firmware_name = (firmware_info or {}).get("firmware", "")
-                if firmware_name and firmware_name not in ("rx_unknown", "rx_forced"):
-                    firmware_label = firmware_name
-                elif firmware_name == "rx_forced":
-                    firmware_label = "Force-connected · version unknown"
-                else:
-                    firmware_label = "Detected · version not reported"
-                device_suffix = f" ({port})" if port else ""
-                self._conn_device.setText(f"Device: VLC_RX{device_suffix}")
-                self._conn_firmware.setText(f"Firmware: {firmware_label}")
-            else:
-                dot_state = "disconnected"
-                status_text = "Disconnected"
-                status_color = COLORS.get("status_dot_off", COLORS["red"])
-                self._conn_device.setText("Device: —")
-                self._conn_firmware.setText("Firmware: —")
+            dot_state = "disconnected"
+            status_text = "Disconnected"
+            status_color = COLORS.get("status_dot_off", COLORS["red"])
+            self._conn_device.setText("Device: —")
+            self._conn_firmware.setText("Firmware: —")
 
         self._pulse_dot.set_state(dot_state)
         self._conn_status.setText(status_text)
         self._conn_status.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {status_color}; background: transparent;")
-
-        # Footer mode
-        self._footer_mode.setText(f"Mode: {mode}")
-
-    def _on_mode_changed(self, mode: str) -> None:
-        """Handle mode toggle from the sidebar — switch mode and refresh current page."""
-        self.state.set_mode(mode)  # type: ignore[arg-type]
-        self._settings_mgr.set("general/mode", mode)
-        self._update_status_indicators()
-        # Refresh the current page after mode switch
-        self._refresh_current_page()
+        self._footer_mode.setText("Mode: HARDWARE")
 
     def _refresh_current_page(self) -> None:
         """Call refresh() on the current page if it supports it."""

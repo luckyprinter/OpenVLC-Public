@@ -36,7 +36,7 @@ from gui_dev_v3.widgets import (
     panel_header,
     value_label,
 )
-from gui_dev_v3.rx.signal_widgets import OOKWaveformWidget, SignalWaveform
+from gui_dev_v3.rx.signal_widgets import SignalWaveform
 from gui_dev_v3.ui_foundation import PageIntro
 
 
@@ -228,19 +228,12 @@ class _SignalWaveformPanel(Card):
         self.body.addWidget(self._ook, 1)
 
     def refresh(self, state: RXAppState) -> None:
-        # Handled at 100 ms via refresh_telemetry
-        pass
-
-    def refresh_telemetry(self, state: RXAppState, last_sample_index: int) -> int:
-        """Fetch new high-frequency samples and feed OOK widget."""
+        """Append one measured telemetry point to the trend chart."""
+        if not state.serial_connected:
+            self._waveform.clear_data()
+            return
         sig = state.signal
-        if not state.serial_connected or sig.pvo <= 0.01:
-            self._ook.clear()
-            return last_sample_index
-
-        # The physical backend exposes the latest measured PVo/Vref snapshot.
-        self._ook.set_from_pvo_vref(sig.pvo, sig.vref)
-        return last_sample_index
+        self._waveform.add_sample(sig.pvo, sig.vref, sig.margin)
 
 
 class _BitDecodePanel(Card):

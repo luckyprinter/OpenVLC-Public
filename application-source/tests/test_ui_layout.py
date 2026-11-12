@@ -607,3 +607,22 @@ def test_offline_dashboard_metrics_are_unavailable_not_zero_or_perfect(qapp):
     assert rx_page._file_info.pct_row.val.text() == "—"
     tx_panel.close()
     rx_page.close()
+
+def test_rx_export_does_not_treat_legacy_ber_label_as_method2_proof(qapp, monkeypatch, tmp_path):
+    monkeypatch.setattr(export_page_module, "HISTORY_DIR", tmp_path)
+    monkeypatch.setattr(export_page_module, "HISTORY_PATH", tmp_path / "history.json")
+    page = ExportPage()
+    page._history_data = [{
+        "tid": 5,
+        "filename": "old.bin",
+        "status": "Complete",
+        "time_label": "09:00:00",
+        "size_bytes": 8,
+        "total_chunks": 1,
+        "received_chunks": 1,
+        "ber": 0.0,
+        "ber_method": "method2",
+    }]
+    page._populate_table()
+    assert page.table.item(0, 6).text() == "N/A"
+    page.close()

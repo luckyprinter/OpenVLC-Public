@@ -24,6 +24,7 @@ def qapp() -> QApplication:
     ("width", "height", "expected_sidebar_width", "labels_visible"),
     [
         (1366, 768, 224, True),
+        (1280, 720, 224, True),
         (1024, 700, 72, False),
     ],
 )

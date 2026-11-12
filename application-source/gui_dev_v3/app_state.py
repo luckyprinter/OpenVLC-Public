@@ -99,7 +99,7 @@ class RXAppState:
         """Return a cached byte-for-byte comparison against the selected reference file."""
         with self._lock:
             expected_path = self.expected_file_path
-            transfer = self._session.latest_transfer if self._session else None
+            transfer = self.session.latest_transfer if self.session else None
         if not expected_path or transfer is None or not transfer.received_path:
             return None
         expected, received = Path(expected_path), Path(transfer.received_path)

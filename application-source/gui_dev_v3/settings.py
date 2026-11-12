@@ -196,7 +196,7 @@ class SpinSetting(QSpinBox):
         self.setValue(value)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
 
 
@@ -211,7 +211,7 @@ class FreeformSpinSetting(QSpinBox):
         self._rec_max = rec_max
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.setValue(value)
         
@@ -239,7 +239,7 @@ class FreeformDoubleSpinSetting(QDoubleSpinBox):
         self.setDecimals(decimals)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.setValue(value)
         
@@ -301,7 +301,7 @@ class DoubleSpinSetting(QDoubleSpinBox):
         self.setDecimals(decimals)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
 
 
@@ -351,7 +351,7 @@ class SliderSpinSetting(QDoubleSpinBox):
         self.setValue(value)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
 
 def bind_double_spin(setting: FreeformDoubleSpinSetting | DoubleSpinSetting, mgr: SettingsManager, key: str, default: float = 0.0) -> None:

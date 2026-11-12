@@ -97,7 +97,7 @@ class FileManagerPage(QWidget):
         self.file_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.file_table.setMinimumWidth(0)
         self.file_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        for i in range(1, 5):
+        for i in range(1, 4):
             self.file_table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
         self.file_table.verticalHeader().setDefaultSectionSize(32)
         self.file_table.verticalHeader().setVisible(False)

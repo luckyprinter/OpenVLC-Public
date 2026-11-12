@@ -21,8 +21,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
 )
 
-import os
-from gui_dev_v3.logic.ber_bridge import parse_ber_test_name
 
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.models import ChunkRecord, ChunkStatus
@@ -354,7 +352,7 @@ class InspectPage(QWidget):
         ref_status_lo.setContentsMargins(4, 4, 4, 4)
         ref_status_lo.setSpacing(12)
         
-        self.ref_status_lbl = QLabel("No reference file loaded (BERTEST files will auto-compare)")
+        self.ref_status_lbl = QLabel("No original reference file selected")
         self.ref_status_lbl.setStyleSheet("font-weight: 600; font-size: 11px; color: #8c99aa;")
         ref_status_lo.addWidget(self.ref_status_lbl, 1)
         
@@ -466,18 +464,19 @@ class InspectPage(QWidget):
         self._last_expected_path = expected_path
         self._current_chunks = transfer.chunks
 
-        # Update Reference File status label in InspectPage
-        filename_raw = transfer.filename or ""
-        ber_params = parse_ber_test_name(filename_raw)
-        if ber_params:
-            size, seed = ber_params
-            self.ref_status_lbl.setText(f"BERTEST Auto Mode: Generated seed {seed:08X} ({size} B)")
-            self.ref_status_lbl.setStyleSheet("font-weight: 600; font-size: 11px; color: #22c55e;")
-        elif state.expected_file_data is not None:
-            self.ref_status_lbl.setText(f"Reference Loaded: {os.path.basename(expected_path)} ({len(state.expected_file_data)} B)")
-            self.ref_status_lbl.setStyleSheet("font-weight: 600; font-size: 11px; color: #22c55e;")
+        # Reference-file selection is path-based to avoid loading large files into RAM.
+        if expected_path:
+            from pathlib import Path
+            try:
+                ref_file = Path(expected_path)
+                ref_size = ref_file.stat().st_size
+                self.ref_status_lbl.setText(f"Reference loaded: {ref_file.name} ({ref_size:,} B)")
+                self.ref_status_lbl.setStyleSheet("font-weight: 600; font-size: 11px; color: #22c55e;")
+            except OSError:
+                self.ref_status_lbl.setText("Selected reference file is unavailable")
+                self.ref_status_lbl.setStyleSheet("font-weight: 600; font-size: 11px; color: #ef4444;")
         else:
-            self.ref_status_lbl.setText("No reference file loaded (BERTEST files auto-compare; others show cyan RECEIVED)")
+            self.ref_status_lbl.setText("No original reference file selected")
             self.ref_status_lbl.setStyleSheet("font-weight: 600; font-size: 11px; color: #8c99aa;")
 
         # Update snapshot label

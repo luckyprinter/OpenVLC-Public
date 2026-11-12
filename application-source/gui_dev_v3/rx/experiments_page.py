@@ -233,6 +233,7 @@ class ExperimentsPage(QWidget):
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
         self._table.resizeRowsToContents()
+        self._on_selection_changed()
 
     def _on_create(self) -> None:
         name = self._exp_name.text().strip()

@@ -277,8 +277,8 @@ def test_tx_settings_apply_rejects_firmware_configuration_mismatch(fake_serial):
         result = original_send(command)
         if result and command == "CONFIG?":
             controller._append_line(
-                "TX 4B5B CONFIG: MODE=4B5B, FREQ=10000, ACTIVE_LOW=1, "
-                "IDLE_ON=1, QUIET=1, GAP=0, FGAP=1"
+                "TX 4B5B CONFIG: MODE=4B5B, FREQ=15000, ACTIVE_LOW=1, "
+                "IDLE_ON=1, QUIET=0, GAP=0, FGAP=1"
             )
         return result
 

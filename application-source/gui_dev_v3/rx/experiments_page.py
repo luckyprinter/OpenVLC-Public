@@ -211,6 +211,8 @@ class ExperimentsPage(QWidget):
             12 if compact else 28,
         )
         self._main_layout.setSpacing(12 if compact else 24)
+        if self._overlay:
+            self._overlay.setGeometry(self.rect())
 
     def _reload_table(self, filter_text: str = "") -> None:
         all_experiments = list_experiments()
@@ -338,10 +340,6 @@ class ExperimentsPage(QWidget):
     def _on_search(self, text: str) -> None:
         self._reload_table(text)
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        if self._overlay:
-            self._overlay.setGeometry(self.rect())
 
 
 def _add_form_row(layout, label: str, widget) -> None:

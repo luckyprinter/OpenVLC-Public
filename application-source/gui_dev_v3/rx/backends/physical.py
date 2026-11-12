@@ -134,6 +134,16 @@ class RXPhysicalBackend:
         from gui_dev_v3.logger import file_log
         file_log("RX", event, details)
 
+    def _prune_expired_batches(self) -> None:
+        """Release memory held by incomplete batches after their TTL expires."""
+        expired = self._batch_assembler.prune_expired()
+        for group_id in expired:
+            self._log_queue.append({
+                "time": time.strftime("%H:%M:%S"),
+                "event": "Batch Expired",
+                "details": f"Incomplete batch {group_id} expired and was discarded",
+            })
+
     # ── Port detection ──
 
     def _record_diag(self, event: str, **fields: Any) -> None:
@@ -820,6 +830,7 @@ class RXPhysicalBackend:
 
     def refresh(self) -> RXPhysicalSnapshot:
         """Read current state from the live ESP32 serial connection."""
+        self._prune_expired_batches()
         if not self._connected:
             from gui_dev_v3.settings import SettingsManager
             mgr = SettingsManager("rx")

@@ -1,8 +1,12 @@
 import json
+import threading
+from types import SimpleNamespace
 
 import pytest
 
 from gui_dev_v3.data import records
+from gui_dev_v3.app_state import RXAppState
+from gui_dev_v3.models import SessionCapture
 
 
 @pytest.fixture(autouse=True)
@@ -122,3 +126,51 @@ def test_legacy_capture_is_readable_and_copied_without_deleting_source(tmp_path,
     assert capture.filename == "old.bin"
     assert (current_dir / "session_88.json").read_text(encoding="utf-8") == raw
     assert legacy_path.read_text(encoding="utf-8") == raw
+
+
+def test_method2_result_is_persisted_only_for_matching_capture(monkeypatch):
+    import gui_dev_v3.data as data_module
+
+    capture = SessionCapture(
+        tid=42,
+        timestamp="2026-11-13 12:00:00",
+        filename="received.bin",
+        ber=None,
+        ber_method="unavailable",
+        crc_status="PASS",
+        throughput_kbps=10.0,
+        analog_time=[],
+        pvo_samples=[],
+        vref_samples=[],
+        margin_samples=[],
+        ook_bits=[],
+        protocol_events=[],
+    )
+    saved = []
+    monkeypatch.setattr(data_module, "save_session_capture", saved.append)
+
+    state = RXAppState.__new__(RXAppState)
+    state._lock = threading.Lock()
+    state.transfer = SimpleNamespace(tid=42)
+    state.current_capture = capture
+    state._method2_comparison = None
+
+    result = {
+        "overlap_ber": 0.0,
+        "strict_ber": 11 / 24,
+        "bit_accuracy": 13 / 24,
+        "strict_bit_errors": 11,
+        "overlap_bytes": 2,
+        "expected_bytes": 3,
+        "length_delta": -1,
+    }
+    state.set_method2_comparison(42, result)
+
+    assert state.current_capture.ber == 11 / 24
+    assert state.current_capture.ber_method == "method2_reference_file"
+    assert saved == [state.current_capture]
+    assert state.get_method2_comparison()["strict_ber"] == 11 / 24
+
+    state.set_method2_comparison(99, {**result, "strict_ber": 0.0})
+    assert state.current_capture.ber == 11 / 24
+    assert state.get_method2_comparison()["strict_ber"] == 11 / 24

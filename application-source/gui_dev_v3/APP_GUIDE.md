@@ -66,7 +66,7 @@ Do not start by reading the largest backend file from top to bottom. First under
 | `tx_app_state.py` | Holds transmitter application state and coordinates refreshes from the physical ESP32 backend. |
 | `models.py` | Defines structured data objects used by the receiver, such as signal, session, and transfer information. |
 
-| `tx_models.py` | Defines transmitter data structures shared by the physical backend and GUI. |
+
 | `widgets.py` | Shared reusable visual components such as cards, badges, progress bars, and waveform widgets. |
 | `navigation.py` | Shared navigation definitions and labels. |
 | `theme.py` | Colors, themes, spacing/density choices, and Qt stylesheet generation. |

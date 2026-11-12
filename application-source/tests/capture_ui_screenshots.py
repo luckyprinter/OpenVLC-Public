@@ -87,21 +87,31 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
                 if label.fontMetrics().horizontalAdvance(label.text()) > label.width() + 2:
                     raise RuntimeError(f"TX link-profile text overflows at {width}x{height}: {label.text()}")
 
+        # Secondary dashboard panels are intentionally hidden when the
+        # dashboard enters its compact layout. Validate their geometry only
+        # when the UI says they should be visible.
         pipeline = getattr(page, "_pipeline", None)
-        if pipeline is None or pipeline.height() < 112:
-            raise RuntimeError(f"TX pipeline panel is too short at {width}x{height}")
-        for stage_name in ("stage_file", "stage_chunk", "stage_enc", "stage_mod", "stage_esp", "stage_optical"):
-            stage = getattr(pipeline, stage_name, None)
-            desc = getattr(stage, "desc_lbl", None) if stage is not None else None
-            if stage is None or stage.height() < 38 or desc is None or desc.height() < 12:
-                raise RuntimeError(f"TX pipeline stage {stage_name} is clipped at {width}x{height}")
+        if not getattr(page, "_compact_layout", False):
+            if pipeline is None or pipeline.height() < 112:
+                raise RuntimeError(f"TX pipeline panel is too short at {width}x{height}")
+            for stage_name in ("stage_file", "stage_chunk", "stage_enc", "stage_mod", "stage_esp", "stage_optical"):
+                stage = getattr(pipeline, stage_name, None)
+                desc = getattr(stage, "desc_lbl", None) if stage is not None else None
+                if stage is None or stage.height() < 38 or desc is None or desc.height() < 12:
+                    raise RuntimeError(f"TX pipeline stage {stage_name} is clipped at {width}x{height}")
 
     if mode == "rx" and page_name == "dashboard":
         page = shell._page_widgets.get("dashboard")
         file_panel = getattr(page, "_file_info", None)
         if file_panel is None or file_panel.height() < 180:
             raise RuntimeError(f"RX received-file panel is too short at {width}x{height}")
-        for row_name in ("filename_row", "filesize_row", "received_size_row", "pct_row", "progress_bar"):
+        compact = getattr(page, "_compact_layout", False)
+        required_rows = (
+            ("filename_row", "pct_row", "progress_bar")
+            if compact else
+            ("filename_row", "filesize_row", "received_size_row", "pct_row", "progress_bar")
+        )
+        for row_name in required_rows:
             row = getattr(file_panel, row_name, None)
             if row is None or not row.isVisible():
                 raise RuntimeError(f"RX received-file row {row_name} is missing at {width}x{height}")

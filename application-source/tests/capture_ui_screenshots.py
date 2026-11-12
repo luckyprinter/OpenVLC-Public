@@ -73,19 +73,20 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
 
     if mode == "tx" and page_name == "dashboard":
         page = shell._page_widgets.get("dashboard")
-        profile = getattr(page, "_link_profile", None)
-        status = getattr(profile, "_status", None) if profile is not None else None
-        if status is None or status.height() < 12:
-            raise RuntimeError(f"TX link-profile status is clipped at {width}x{height}")
-        if status.fontMetrics().horizontalAdvance(status.text()) > status.width() + 2:
-            raise RuntimeError(f"TX link-profile status text overflows at {width}x{height}")
-        for row_name in ("row_protocol", "row_rate", "row_gpio", "row_drive", "row_driver", "row_gap"):
-            row = getattr(profile, row_name, None)
-            if row is None:
-                raise RuntimeError(f"TX link-profile row {row_name} is missing at {width}x{height}")
-            for label in (row.lbl, row.val):
+        device_status = getattr(page, "_device_status", None)
+        if device_status is None or device_status.height() < 48:
+            raise RuntimeError(f"TX device-status panel is clipped at {width}x{height}")
+        for column_name in ("box_connection", "box_firmware", "box_protocol", "box_usb"):
+            column = getattr(device_status, column_name, None)
+            if column is None:
+                raise RuntimeError(f"TX device-status column {column_name} is missing at {width}x{height}")
+            for label in (column.title_lbl, column.val_lbl):
+                if label.height() < 12:
+                    raise RuntimeError(f"TX device-status label is clipped at {width}x{height}")
                 if label.fontMetrics().horizontalAdvance(label.text()) > label.width() + 2:
-                    raise RuntimeError(f"TX link-profile text overflows at {width}x{height}: {label.text()}")
+                    raise RuntimeError(
+                        f"TX device-status text overflows at {width}x{height}: {label.text()}"
+                    )
 
         # Secondary dashboard panels are intentionally hidden when the
         # dashboard enters its compact layout. Validate their geometry only

@@ -499,3 +499,13 @@ def test_tx_auto_connect_prioritizes_only_tx_saved_port(monkeypatch):
     assert backend.port == "TX_PREFERRED"
     assert saved == [("tx", "connection/port", "TX_PREFERRED")]
     backend._connected = False
+
+
+
+def test_legacy_rx_serial_controller_uses_application_owned_receive_directory(monkeypatch, tmp_path):
+    from gui_dev_v3.serial.controllers import RXSerialController
+
+    monkeypatch.setenv("VLC_DATA_DIR", str(tmp_path / "openvlc-data"))
+    controller = RXSerialController()
+
+    assert controller._save_dir == tmp_path / "openvlc-data" / "received"

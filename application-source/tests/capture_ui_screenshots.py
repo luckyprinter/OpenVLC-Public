@@ -25,6 +25,47 @@ PAGES = {
 
 def validate_page_geometry(mode: str, page_name: str, shell, width: int, height: int) -> None:
     """Catch clipped TX controls and table headers before screenshot capture."""
+    if page_name == "settings":
+        settings_page = shell._page_widgets.get("settings")
+        nav_panel = getattr(settings_page, "_nav_panel", None)
+        stack = getattr(settings_page, "_stack", None)
+        if nav_panel is not None and stack is not None:
+            compact = width < 900
+            expected_nav_width = 160 if compact else 200
+            if nav_panel.width() != expected_nav_width:
+                raise RuntimeError(
+                    f"{mode.upper()} settings navigation width is {nav_panel.width()} "
+                    f"instead of {expected_nav_width} at {width}x{height}"
+                )
+            if stack.width() <= 0:
+                raise RuntimeError(f"{mode.upper()} settings form has no usable width at {width}x{height}")
+            # RX General & Display includes a directory editor with both a
+            # path field and Browse button. Check that the full control remains
+            # inside the scroll viewport rather than silently clipping at the
+            # right edge on compact windows.
+            if mode == "rx":
+                sections = getattr(settings_page, "_sections", [])
+                general_page = sections[0][1] if sections else None
+                directory = getattr(general_page, "export_dir_setting", None)
+                scroll = stack.currentWidget()
+                viewport = scroll.viewport() if scroll is not None else None
+                if directory is not None and viewport is not None:
+                    right = directory.mapTo(
+                        viewport, QPoint(directory.width(), 0)
+                    ).x()
+                    if right > viewport.width() + 1:
+                        raise RuntimeError(
+                            f"RX settings directory editor is clipped at {width}x{height}: "
+                            f"right={right}, viewport={viewport.width()}"
+                        )
+                    browse_right = directory.btn.mapTo(
+                        viewport, QPoint(directory.btn.width(), 0)
+                    ).x()
+                    if directory.btn.width() < 64 or browse_right > viewport.width() + 1:
+                        raise RuntimeError(
+                            f"RX settings Browse button is clipped at {width}x{height}"
+                        )
+
     if mode == "tx" and page_name == "dashboard":
         page = shell._page_widgets.get("dashboard")
         file_panel = getattr(page, "_file_details", None)

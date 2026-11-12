@@ -17,6 +17,11 @@ from gui_dev_v3.tx.settings import build_tx_settings
 from gui_dev_v3.tx_app_state import POLL_INTERVAL_MS, TXAppState, build_default_tx_state
 from gui_dev_v3.widgets import scrollable
 from gui_dev_v3.theme import COLORS
+from gui_dev_v3.ui_foundation import (
+    SidebarNavigationList,
+    WorkspaceHeader,
+    add_navigation_item,
+)
 
 from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QStackedWidget, QVBoxLayout, QWidget
@@ -65,10 +70,7 @@ class TXShell(QWidget):
         sidebar_layout.addWidget(subtitle)
 
         # Navigation list
-        self.nav = QListWidget()
-        self.nav.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.nav.setSpacing(2)
-        self.nav.setIconSize(QSize(18, 18))
+        self.nav = SidebarNavigationList("Transmitter", self.sidebar)
         self._nav_items: list[tuple[QListWidgetItem, str]] = []
         sidebar_layout.addWidget(self.nav, 1)
 
@@ -119,23 +121,9 @@ class TXShell(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        header = QWidget()
-        header.setObjectName("HeaderBar")
-        header.setFixedHeight(52)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(20, 0, 20, 0)
-        header_layout.setSpacing(10)
-
-        self._page_heading = QLabel("Dashboard")
-        self._page_heading.setStyleSheet("font-size: 15px; font-weight: 700; background: transparent;")
-        header_layout.addWidget(self._page_heading)
-        header_layout.addStretch(1)
-
-        workspace_label = QLabel("TRANSMITTER WORKSPACE")
-        workspace_label.setObjectName("Muted")
-        workspace_label.setStyleSheet("font-size: 10px; font-weight: 700; letter-spacing: 1px; background: transparent;")
-        header_layout.addWidget(workspace_label)
-        main_layout.addWidget(header)
+        self._workspace_header = WorkspaceHeader("TRANSMITTER WORKSPACE")
+        self._page_heading = self._workspace_header.page_heading
+        main_layout.addWidget(self._workspace_header)
 
         self.pages = QStackedWidget()
         main_layout.addWidget(self.pages, 1)
@@ -315,17 +303,16 @@ class TXShell(QWidget):
         for label, page_key, icon_name in TX_SIDEBAR_TABS:
             # Add icon + text to nav
             try:
-                icon = qta.icon(icon_name)
+                icon = qta.icon(icon_name, color=COLORS["text"])
             except Exception:
-                icon = qta.icon("fa5s.circle")  # Fallback
-            item = QListWidgetItem(icon, label)
-            item.setToolTip(label)
-            self.nav.addItem(item)
+                icon = qta.icon("fa5s.circle", color=COLORS["text"])  # Fallback
+            item = add_navigation_item(self.nav, icon, label)
             self._nav_items.append((item, label))
             page = page_map.get(page_key)
             if page:
-                self._page_widgets[page_key] = page
-                self.pages.addWidget(page)
+                page_container = scrollable(page) if page_key == "file_manager" else page
+                self._page_widgets[page_key] = page_container
+                self.pages.addWidget(page_container)
 
         self.nav.blockSignals(False)
 

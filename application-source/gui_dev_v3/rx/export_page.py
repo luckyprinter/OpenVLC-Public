@@ -46,6 +46,7 @@ def _resolve_history_dir() -> Path:
 
 HISTORY_DIR = _resolve_history_dir()
 HISTORY_PATH = HISTORY_DIR / "transfer_history.json"
+LEGACY_HISTORY_PATH = Path.home() / ".vlc_rx" / "transfer_history.json"
 
 
 def _default_history() -> list[dict]:
@@ -492,11 +493,16 @@ class ExportPage(QWidget):
         # Never seed fake transfers or overwrite unreadable user history.
         self._history_data = []
         self._history_corrupt = False
-        if not HISTORY_PATH.exists():
+        source_path = HISTORY_PATH
+        if not source_path.exists() and LEGACY_HISTORY_PATH.exists():
+            # Read old user history in place; a later successful save writes
+            # the current app-data copy without deleting the original.
+            source_path = LEGACY_HISTORY_PATH
+        if not source_path.exists():
             return
         try:
-            data = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            data = json.loads(source_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             self._history_corrupt = True
             return
         if isinstance(data, list) and all(isinstance(item, dict) for item in data):

@@ -538,7 +538,7 @@ class SettingsContainer(QWidget):
         # width needed by the active form. Keep category labels readable while
         # giving the stacked page enough room for controls such as directory
         # pickers and theme choices.
-        self._nav_panel.setFixedWidth(160 if compact else 200)
+        self._nav_panel.setFixedWidth(180 if compact else 200)
         # Long category labels need a second line at high scaling; a fixed
         # 42px row clips them even though word wrapping is enabled.
         for index in range(self._nav_list.count()):

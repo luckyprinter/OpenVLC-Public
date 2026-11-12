@@ -159,7 +159,8 @@ class TXPhysicalBackend:
         # Keep TX's saved preference separate from RX's and fall back to all
         # currently enumerated devices when the saved port is no longer present.
         from gui_dev_v3.settings import SettingsManager
-        preferred = SettingsManager("tx").get("connection/port", "")
+        settings = SettingsManager("tx")
+        preferred = settings.get("connection/port", "")
         ports = prioritize_preferred_port(ports, str(preferred or ""))
         if ports:
             self.log("Scan", f"Found {len(ports)} ports: {', '.join(ports)}")
@@ -180,6 +181,8 @@ class TXPhysicalBackend:
                     self._port = None
                     continue
                 self._connected = True
+                # Remember only a successfully identified, ready, and opened TX device.
+                settings.set("connection/port", port)
                 fw = info.get("firmware", "tx_unknown")
                 family = "tx_non_dma" if ("non_dma" in fw or "nondma" in fw) else ("tx_dma" if "dma" in fw else "unknown")
                 self._record_diag("serial_connected", role="tx", baud_rate=115200,

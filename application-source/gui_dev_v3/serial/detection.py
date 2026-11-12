@@ -102,13 +102,9 @@ def list_serial_ports() -> list[SerialPortInfo]:
             )
         return ports
     except ImportError:
-        return [
-            SerialPortInfo(
-                device="/dev/ttyUSB0",
-                label="/dev/ttyUSB0 — Mock port",
-                description="Mock serial port for dev",
-            )
-        ]
+        # pyserial is an application dependency. Do not advertise a fake port
+        # if it is missing; report no available ports and let the UI explain why.
+        return []
 
 
 def probe_serial_port(device: str) -> tuple[str, list[str]]:

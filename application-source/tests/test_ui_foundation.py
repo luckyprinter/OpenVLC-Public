@@ -6,9 +6,15 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from gui_dev_v3.ui_foundation import PageIntro
+from gui_dev_v3.ui_foundation import (
+    PageIntro,
+    SidebarNavigationList,
+    add_navigation_item,
+)
 
 
 @pytest.fixture(scope="module")
@@ -52,3 +58,17 @@ def test_page_intro_keeps_labels_expandable_at_narrow_width(qapp: QApplication) 
     assert intro.description_label.wordWrap()
 
     intro.close()
+
+
+def test_sidebar_navigation_is_keyboard_accessible(qapp: QApplication) -> None:
+    navigation = SidebarNavigationList("Receiver")
+    item = add_navigation_item(navigation, QIcon(), "Signal")
+
+    assert navigation.accessibleName() == "Receiver navigation"
+    assert navigation.focusPolicy() == Qt.FocusPolicy.StrongFocus
+    assert navigation.selectionMode() == navigation.SelectionMode.SingleSelection
+    assert item.data(Qt.ItemDataRole.AccessibleTextRole) == "Signal"
+    assert item.data(Qt.ItemDataRole.AccessibleDescriptionRole) == "Open Signal."
+    assert item.toolTip() == "Signal"
+
+    navigation.close()

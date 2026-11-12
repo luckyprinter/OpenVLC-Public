@@ -264,7 +264,8 @@ class TransmissionPipelineWidget(Card):
 class CurrentSessionWidget(Card):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("CURRENT SESSION", parent)
-        self.body.setSpacing(6)
+        self.body.setContentsMargins(12, 10, 12, 10)
+        self.body.setSpacing(4)
         
         self.row_sent = _DetailRow("Files Sent", "0")
         self.row_success = _DetailRow("Success Rate", "100 %", val_color=COLORS["green"])
@@ -343,10 +344,10 @@ class FileDetailsWidget(Card):
         
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
-        btn_row.setContentsMargins(0, 4, 0, 0)
+        btn_row.setContentsMargins(0, 2, 0, 0)
         
         self.select_btn = QPushButton("Select File...")
-        self.select_btn.setMinimumHeight(30)
+        self.select_btn.setMinimumHeight(28)
         self.select_btn.setStyleSheet(
             f"QPushButton {{ background-color: {COLORS['panel_alt']}; color: {COLORS['text']}; border: 1px solid {COLORS['border']}; border-radius: 6px; padding: 6px 12px; font-weight: 600; font-size: 11px; }}"
             f"QPushButton:hover {{ border-color: {COLORS['accent']}; background-color: {COLORS['sidebar_active']}; }}"
@@ -354,7 +355,7 @@ class FileDetailsWidget(Card):
         )
         
         self.start_btn = primary_button("Start")
-        self.start_btn.setMinimumHeight(30)
+        self.start_btn.setMinimumHeight(28)
         self.start_btn.setStyleSheet(
             f"QPushButton {{ background-color: {COLORS['accent']}; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-weight: 700; font-size: 11px; }}"
             f"QPushButton:hover {{ background-color: {COLORS['header']}; }}"

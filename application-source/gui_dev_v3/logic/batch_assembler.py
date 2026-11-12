@@ -91,7 +91,16 @@ class BatchAssembler:
             self._pending[group_id] = batch
 
         previous = batch.parts.get(part_index)
-        next_total = batch.total_bytes - (len(previous) if previous is not None else 0) + len(part_data)
+        if previous is not None:
+            # Retransmission of an identical part is harmless. A different payload
+            # for the same index is ambiguous and must not silently overwrite data.
+            if previous != part_data or batch.part_chunks[part_index] != part_chunks:
+                self._pending.pop(group_id, None)
+                raise ValueError(f"conflicting duplicate part {part_index} for group {group_id}")
+            batch.last_seen = current
+            return None
+
+        next_total = batch.total_bytes + len(part_data)
         if next_total > self.max_batch_bytes:
             self._pending.pop(group_id, None)
             raise ValueError(f"batch exceeds {self.max_batch_bytes} byte safety limit")

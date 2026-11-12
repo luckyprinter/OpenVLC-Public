@@ -513,6 +513,8 @@ class RXPhysicalBackend:
                     "details": f"Part {tid}: expected {part_size} B, received {len(file_bytes)} B",
                 })
                 self._active_tid = None
+                self._active_is_batch = False
+                self._active_started_monotonic = None
                 return
 
             part_crc_ok = crc16_ccitt(file_bytes) == part_crc_expected
@@ -523,6 +525,8 @@ class RXPhysicalBackend:
                     "details": f"Part {tid} failed its CRC and was not added to the batch",
                 })
                 self._active_tid = None
+                self._active_is_batch = False
+                self._active_started_monotonic = None
                 return
 
             full_crc_expected = part_crc_expected
@@ -545,6 +549,8 @@ class RXPhysicalBackend:
                 if assembled is None:
                     self._active_tid = None
                     self._active_filename = None
+                    self._active_is_batch = False
+                    self._active_started_monotonic = None
                     return
                 file_bytes = assembled["data"]
                 filename = assembled["filename"]
@@ -658,8 +664,10 @@ class RXPhysicalBackend:
                         self._active_tid = None
                         self._active_filename = None
                         self._active_is_batch = False
+                        self._active_started_monotonic = None
                         self._active_total_chunks = 0
                         self._active_received_chunks = 0
+                        self._active_total_size = 0
                         return
                     from gui_dev_v3.models import TransferQuality, TransferStatus, TransferRecord
                     import time as _time

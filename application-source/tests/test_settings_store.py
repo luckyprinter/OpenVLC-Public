@@ -104,7 +104,7 @@ def test_reset_clears_console_and_shared_display_settings(
     manager = FakeManager()
     window = FakeWindow()
 
-    reset_all_settings(manager, window)
+    assert reset_all_settings(manager, window) is True
 
     assert manager.cleared is True
     assert cleared_scopes == ["tx"]
@@ -197,3 +197,48 @@ def test_corrupt_legacy_settings_are_preserved_until_explicit_recovery(
     assert backups[0].read_bytes() == original
     assert legacy_path.read_bytes() == original
     assert settings_paths.exists()
+
+
+
+def test_reset_does_not_clear_preferences_when_default_settings_cannot_be_saved(
+    settings_paths: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from gui_dev_v3.settings import reset_all_settings
+
+    class FakeManager:
+        scope = "rx"
+
+        def __init__(self) -> None:
+            self.cleared = False
+
+        def clear(self) -> None:
+            self.cleared = True
+
+    class FakeWindow:
+        settings = settings_store.AppSettings(
+            theme="synthwave",
+            resolution="1366x768",
+            fullscreen=True,
+            borderless=True,
+        )
+
+    manager = FakeManager()
+    window = FakeWindow()
+    original_window_settings = window.settings
+    cleared_scopes: list[str] = []
+
+    class FakeScopedManager:
+        def __init__(self, scope: str = "rx") -> None:
+            self.scope = scope
+
+        def clear(self) -> None:
+            cleared_scopes.append(self.scope)
+
+    monkeypatch.setattr("gui_dev_v3.settings.SettingsManager", FakeScopedManager)
+    monkeypatch.setattr(settings_store, "save_settings", lambda *_args, **_kwargs: False)
+
+    assert reset_all_settings(manager, window) is False
+    assert manager.cleared is False
+    assert cleared_scopes == []
+    assert window.settings == original_window_settings

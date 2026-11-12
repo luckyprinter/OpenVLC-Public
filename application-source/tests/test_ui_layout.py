@@ -557,3 +557,30 @@ def test_tx_batch_start_requires_connected_hardware_and_queued_files(qapp):
     page.refresh(state)
     assert not page.start_btn.isEnabled()
     page.close()
+
+def test_rx_export_reads_legacy_history_without_deleting_it(qapp, monkeypatch, tmp_path):
+    legacy_path = tmp_path / "legacy-history.json"
+    original = [{
+        "tid": 12,
+        "filename": "previous.bin",
+        "status": "Complete",
+        "time_label": "10:00:00",
+        "size_bytes": 4,
+        "total_chunks": 1,
+        "received_chunks": 1,
+        "ber": "N/A",
+        "ber_method": None,
+    }]
+    import json
+    raw = json.dumps(original)
+    legacy_path.write_text(raw, encoding="utf-8")
+    current_path = tmp_path / "app-data" / "transfer_history.json"
+    monkeypatch.setattr(export_page_module, "HISTORY_DIR", current_path.parent)
+    monkeypatch.setattr(export_page_module, "HISTORY_PATH", current_path)
+    monkeypatch.setattr(export_page_module, "LEGACY_HISTORY_PATH", legacy_path)
+
+    page = ExportPage()
+    assert page._history_data == original
+    assert not current_path.exists()
+    assert legacy_path.read_text(encoding="utf-8") == raw
+    page.close()

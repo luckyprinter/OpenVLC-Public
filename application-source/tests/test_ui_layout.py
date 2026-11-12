@@ -375,6 +375,7 @@ def test_rx_table_builder_stacks_column_lists_on_compact_display(qapp):
     assert page._compact_layout
     assert page._narrow_layout
     assert page._three_col_layout.direction() == QBoxLayout.Direction.TopToBottom
+    assert page.minimumHeight() >= 900
     assert all(
         card.minimumHeight() >= 220
         for card in (page._available_card, page._selected_card, page._manual_card)
@@ -383,6 +384,7 @@ def test_rx_table_builder_stacks_column_lists_on_compact_display(qapp):
     page.resize(1200, 800)
     qapp.processEvents()
     assert not page._compact_layout
+    assert page.minimumHeight() == 0
     assert page._three_col_layout.direction() == QBoxLayout.Direction.LeftToRight
     assert page._arrow_layout.direction() == QBoxLayout.Direction.TopToBottom
     page.close()

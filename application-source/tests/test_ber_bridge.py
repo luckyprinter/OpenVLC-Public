@@ -56,3 +56,27 @@ def test_compare_files_handles_empty_reference(tmp_path):
     assert result["strict_bits"] == 0
     assert result["strict_ber"] == 0.0
     assert result["bit_accuracy"] == 1.0
+
+
+
+def test_app_state_method2_uses_selected_reference_and_received_path(tmp_path):
+    expected = tmp_path / "original.bin"
+    received = tmp_path / "received.bin"
+    expected.write_bytes(bytes([0x00, 0x0F, 0xAA]))
+    received.write_bytes(bytes([0x01, 0x03]))
+
+    # Avoid constructing a serial backend; exercise only the comparison method.
+    state = RXAppState.__new__(RXAppState)
+    state._lock = threading.Lock()
+    state.expected_file_path = str(expected)
+    state.session = SimpleNamespace(
+        latest_transfer=SimpleNamespace(tid=42, received_path=str(received))
+    )
+    state._method2_cache_key = None
+    state._method2_cache = None
+
+    result = state.get_method2_comparison()
+
+    assert result is not None
+    assert result["strict_bit_errors"] == 11
+    assert result["strict_ber"] == 11 / 24

@@ -823,8 +823,8 @@ def test_session_inspector_replays_telemetry_and_labels_legacy_threshold_samples
     inspector.show_capture(capture, {"status": "Complete", "size_bytes": 3})
 
     assert len(inspector.signal_waveform._buffer) == 3
-    assert "Legacy threshold-state samples" in inspector.bitstream_text.toPlainText()
-    assert "NOT decoded symbol-rate OOK bits" in inspector.bitstream_text.toPlainText()
+    assert "Legacy threshold-state samples" in inspector.ook_data_text.toPlainText()
+    assert "NOT decoded symbol-rate OOK bits" in inspector.ook_data_text.toPlainText()
     inspector.close()
 
 

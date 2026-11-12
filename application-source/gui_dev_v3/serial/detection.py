@@ -87,6 +87,17 @@ class SerialPortInfo:
     description: str = ""
 
 
+def prioritize_preferred_port(
+    ports: list[str], preferred_port: str | None
+) -> list[str]:
+    """Try the last working port first, but retain every discovered fallback."""
+    ordered = list(dict.fromkeys(str(port) for port in ports if str(port)))
+    preferred = str(preferred_port or "").strip()
+    if preferred and preferred in ordered:
+        return [preferred, *(port for port in ordered if port != preferred)]
+    return ordered
+
+
 def list_serial_ports() -> list[SerialPortInfo]:
     try:
         import serial.tools.list_ports  # type: ignore[import-untyped]

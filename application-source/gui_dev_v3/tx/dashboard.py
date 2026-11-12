@@ -687,6 +687,7 @@ class TXDashboardPage(QWidget):
         work_row = QHBoxLayout()
         work_row.setSpacing(14)
         self._file_details = FileDetailsWidget()
+        self._file_details.setMinimumHeight(180)
         self._file_details.select_btn.clicked.connect(self._on_select_file_clicked)
         self._file_details.start_btn.clicked.connect(self._on_start_clicked)
         self._session = CurrentSessionWidget()
@@ -699,9 +700,11 @@ class TXDashboardPage(QWidget):
         # Keep the progress strip compact so file controls retain usable height
         # on short displays and at increased system display scaling.
         self._pipeline = TransmissionPipelineWidget()
+        self._pipeline.setMaximumHeight(100)
         outer.addWidget(self._pipeline, 1)
 
         self._logs = _TXLogPanel(state)
+        self._logs.setMaximumHeight(108)
         outer.addWidget(self._logs, 1)
 
         self.refresh()

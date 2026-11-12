@@ -96,49 +96,50 @@ class BERAnalyzerPage(QWidget):
         return None
 
     def refresh(self, state: RXAppState) -> None:
-        """Compare the saved original reference file with the reconstructed RX file."""
+        """Show Method 2 BER from the selected original and reconstructed RX file.
+
+        A valid CRC is a transport-integrity result, not a substitute for
+        comparing the received file against the user's original reference.
+        """
         transfer = state.transfer
         expected_path = state.expected_file_path or ""
         received_path = transfer.received_path or ""
 
-        if (
-            transfer.tid == self._last_tid
-            and len(transfer.chunks) == self._last_chunk_count
-            and expected_path == self._last_expected_path
-            and received_path == self._last_received_path
-        ):
-            return
-
-        self._last_tid = transfer.tid
-        self._last_chunk_count = len(transfer.chunks)
-        self._last_expected_path = expected_path
-        self._last_received_path = received_path
-
         if not expected_path:
-            self._show_unavailable("Load the original file under Inspect to calculate Method 2 BER.")
-            return
-        if not received_path:
-            self._show_unavailable("No reconstructed receive file is available for this transfer yet.")
-            return
-
-        expected_file = os.path.abspath(expected_path)
-        received_file = os.path.abspath(received_path)
-        if not os.path.isfile(expected_file):
-            self._show_unavailable("The selected original reference file is no longer available.")
-            return
-        if not os.path.isfile(received_file):
-            self._show_unavailable("The reconstructed receive file could not be found.")
+            self.ref_label.setText(
+                "No original reference loaded. Use Inspect > Load Reference."
+            )
+            self.ref_label.setStyleSheet(
+                "font-weight: 600; font-size: 12px; color: #8c99aa;"
+            )
+            self._reset_results()
             return
 
-        self.ref_label.setText(
-            f"Method 2: {os.path.basename(expected_file)}  ↔  {os.path.basename(received_file)}"
+        self.ref_label.setText(f"Reference: {os.path.basename(expected_path)}")
+        self.ref_label.setStyleSheet(
+            "font-weight: 600; font-size: 12px; color: #22c55e;"
         )
-        self.ref_label.setStyleSheet("font-weight: 600; font-size: 12px; color: #22c55e;")
 
-        try:
-            result = compare_files(expected_file, received_file, mismatch_limit=50)
-        except (OSError, ValueError) as exc:
-            self._show_unavailable(f"Method 2 comparison failed: {exc}")
+        if not received_path:
+            self._reset_results()
+            self.lbl_compared.setText("Waiting for received file")
+            self.lbl_ber.setText("Not measured")
+            self.lbl_strict_ber.setText("Not measured")
+            return
+
+        result = state.get_method2_comparison()
+        if result is None:
+            self._reset_results()
+            self.lbl_compared.setText("Comparison unavailable")
+            self.lbl_ber.setText("Not measured")
+            self.lbl_strict_ber.setText("Not measured")
+            self.ref_label.setText(
+                f"Reference: {os.path.basename(expected_path)} · "
+                f"Received: {os.path.basename(received_path)} · comparison unavailable"
+            )
+            self.ref_label.setStyleSheet(
+                f"font-weight: 600; font-size: 12px; color: {COLORS['red']};"
+            )
             return
 
         self.lbl_compared.setText(
@@ -152,39 +153,57 @@ class BERAnalyzerPage(QWidget):
         delta = result["length_delta"]
         if delta > 0:
             self.lbl_delta.setText(f"+{delta:,} bytes (Extra)")
-            self.lbl_delta.setStyleSheet(f"color: {COLORS['red']}; font-weight: 700;")
+            self.lbl_delta.setStyleSheet(
+                f"color: {COLORS['red']}; font-weight: 700;"
+            )
         elif delta < 0:
             self.lbl_delta.setText(f"{delta:,} bytes (Missing)")
-            self.lbl_delta.setStyleSheet(f"color: {COLORS['red']}; font-weight: 700;")
+            self.lbl_delta.setStyleSheet(
+                f"color: {COLORS['red']}; font-weight: 700;"
+            )
         else:
             self.lbl_delta.setText("0 bytes (Exact length match)")
-            self.lbl_delta.setStyleSheet(f"color: {COLORS['green']}; font-weight: 700;")
+            self.lbl_delta.setStyleSheet(
+                f"color: {COLORS['green']}; font-weight: 700;"
+            )
 
-        self.mismatch_table.setRowCount(len(result["preview"]))
-        for row, mismatch in enumerate(result["preview"]):
+        preview = result["preview"]
+        self.mismatch_table.setRowCount(len(preview))
+        for row, mismatch in enumerate(preview):
             offset_item = QTableWidgetItem(
                 f"+0x{mismatch['offset']:04X} ({mismatch['offset']:,})"
             )
             offset_item.setForeground(QColor(COLORS["muted"]))
-            expected = mismatch["expected"]
-            received = mismatch["received"]
-            expected_text = f"0x{expected:02X}" if isinstance(expected, int) else str(expected)
-            received_text = f"0x{received:02X}" if isinstance(received, int) else str(received)
+
+            expected_value = mismatch["expected"]
+            received_value = mismatch["received"]
+            expected_text = (
+                f"0x{expected_value:02X}"
+                if isinstance(expected_value, int) else str(expected_value)
+            )
+            received_text = (
+                f"0x{received_value:02X}"
+                if isinstance(received_value, int) else str(received_value)
+            )
             expected_item = QTableWidgetItem(expected_text)
             received_item = QTableWidgetItem(received_text)
             errors_item = QTableWidgetItem(f"{mismatch['bit_errors']:,} bits")
             errors_item.setForeground(QColor(COLORS["red"]))
+
             self.mismatch_table.setItem(row, 0, offset_item)
             self.mismatch_table.setItem(row, 1, expected_item)
             self.mismatch_table.setItem(row, 2, received_item)
             self.mismatch_table.setItem(row, 3, errors_item)
 
-    def _show_unavailable(self, message: str) -> None:
-        self.ref_label.setText(message)
-        self.ref_label.setStyleSheet("font-weight: 600; font-size: 12px; color: #8c99aa;")
+    def _reset_results(self) -> None:
+        """Clear prior transfer metrics so stale BER is never shown."""
         for label in (
-            self.lbl_compared, self.lbl_bit_errors, self.lbl_ber,
-            self.lbl_strict_ber, self.lbl_accuracy, self.lbl_delta,
+            self.lbl_compared,
+            self.lbl_bit_errors,
+            self.lbl_ber,
+            self.lbl_strict_ber,
+            self.lbl_accuracy,
+            self.lbl_delta,
         ):
             label.setText("—")
         self.lbl_delta.setStyleSheet(f"color: {COLORS['text']};")

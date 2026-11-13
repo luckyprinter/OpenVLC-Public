@@ -466,9 +466,11 @@ class RXPhysicalBackend:
             tid = int(parts[1])
             total_size = int(parts[2])
             total_chunks = int(parts[3])
-            int(parts[4], 16)  # Validate the firmware CRC field even though RX_FILE_HEX carries it again.
-            if tid < 0 or total_size < 0:
-                raise ValueError("transfer notice contains a negative identifier or size")
+            notice_crc = int(parts[4], 16)  # RX_FILE_HEX carries the CRC again.
+            if not 1 <= tid <= 0xFFFF or total_size < 0:
+                raise ValueError("transfer notice contains an invalid identifier or size")
+            if not 0 <= notice_crc <= 0xFFFF:
+                raise ValueError("transfer notice CRC must be 16-bit")
             if not 0 <= total_chunks <= MAX_STREAM_CHUNKS:
                 raise ValueError("transfer notice chunk count exceeds the firmware limit")
 
@@ -483,10 +485,11 @@ class RXPhysicalBackend:
                 _, group_id, index_text, count_text, full_crc_text, original_name = b_parts
                 part_index = int(index_text)
                 part_count = int(count_text)
-                int(full_crc_text, 16)
+                full_crc = int(full_crc_text, 16)
                 if (
                     not group_id
                     or not original_name
+                    or not 0 <= full_crc <= 0xFFFF
                     or not 1 <= part_index <= part_count <= MAX_BATCH_PARTS
                 ):
                     raise ValueError("invalid VLCB1 transfer-notice part metadata")

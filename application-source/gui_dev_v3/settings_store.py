@@ -158,9 +158,9 @@ def save_settings(
         except OSError:
             return False
 
-    SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
     temp_path: Path | None = None
     try:
+        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",

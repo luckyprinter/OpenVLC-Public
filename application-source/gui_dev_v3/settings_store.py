@@ -176,7 +176,9 @@ def save_settings(
             os.fsync(temp_file.fileno())
         os.replace(temp_path, SETTINGS_PATH)
         return True
-    except OSError:
+    except (OSError, TypeError, ValueError):
+        # Invalid in-memory values or serialization failures must be reported
+        # like filesystem failures, with the previous settings file untouched.
         return False
     finally:
         if temp_path is not None and temp_path.exists():

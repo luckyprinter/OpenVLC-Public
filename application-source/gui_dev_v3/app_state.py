@@ -1,4 +1,4 @@
-"""Receiver application state backed exclusively by physical ESP32 hardware."""
+"""Observable receiver state for isolated physical and simulated backends."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from gui_dev_v3.rx.backends.simulation import RXSimulationBackend, RXSimulationS
 StateSubscriber = Callable[["RXAppState"], None]
 
 POLL_INTERVAL_MS = 1000  # Refresh status every second
+MAX_SIMULATION_REFERENCE_BYTES = 80 * 1024 * 1024
 
 
 # Module-level empty defaults (built once)
@@ -103,9 +104,19 @@ class RXAppState:
         """Switch between isolated physical and simulated RX backends."""
         if mode not in {"physical", "simulated"}:
             raise ValueError(f"Unsupported RX mode: {mode}")
+        simulation_reference: bytes | None = self._expected_file_data
+        if mode == "simulated" and self.expected_file_path and simulation_reference is None:
+            reference_path = Path(self.expected_file_path)
+            if reference_path.stat().st_size > MAX_SIMULATION_REFERENCE_BYTES:
+                raise ValueError(
+                    "Simulation reference files are limited to 80 MiB; "
+                    "the original file remains selected for hardware mode."
+                )
+            simulation_reference = reference_path.read_bytes()
         with self._lock:
             if mode == self.mode:
                 return
+            self._expected_file_data = simulation_reference
             old_physical = self._physical if self.mode == "physical" else None
             old_simulation = self._simulation if self.mode == "simulated" else None
             if old_physical is not None:
@@ -153,7 +164,11 @@ class RXAppState:
             path = Path(filepath).expanduser().resolve(strict=True)
             if not path.is_file():
                 return
-            data = path.read_bytes() if self.mode == "simulated" else None
+            data = None
+            if self.mode == "simulated":
+                if path.stat().st_size > MAX_SIMULATION_REFERENCE_BYTES:
+                    raise ValueError("Simulation reference files are limited to 80 MiB.")
+                data = path.read_bytes()
             with self._lock:
                 self.expected_file_path = str(path)
                 self._expected_file_data = data

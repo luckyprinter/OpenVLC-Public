@@ -166,8 +166,9 @@ class SerialSession:
                     self.serial_obj = None
                 if ser is not None:
                     try:
-                        if getattr(ser, "is_open", False):
-                            ser.close()
+                        # Attempt close unconditionally: some USB drivers can
+                        # raise while querying is_open after a hot unplug.
+                        ser.close()
                     except Exception:
                         pass
             reader = self._reader_thread
@@ -193,7 +194,7 @@ class SerialSession:
         with self._write_lock:
             ser = self.serial_obj
             self.serial_obj = None
-            if ser is not None and getattr(ser, "is_open", False):
+            if ser is not None:
                 try:
                     ser.close()
                 except Exception:
@@ -307,7 +308,7 @@ class SerialSession:
         with self._write_lock:
             ser = self.serial_obj
             self.serial_obj = None
-            if ser is not None and getattr(ser, "is_open", False):
+            if ser is not None:
                 try:
                     ser.close()
                 except Exception:

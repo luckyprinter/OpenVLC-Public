@@ -966,3 +966,28 @@ def test_tx_reader_failure_closes_handle_even_when_is_open_property_raises(monke
     assert session.serial_obj is None
     assert session.is_connected is False
     assert session._running is False
+
+
+@pytest.mark.parametrize("failure_path", ["intentional", "unexpected"])
+def test_serial_disconnect_logs_status_write_failure(failure_path, monkeypatch):
+    logs = []
+    session = SerialSession("tx", on_log=logs.append)
+    monkeypatch.setattr(
+        "gui_dev_v3.serial.session.write_status",
+        lambda *_args, **_kwargs: False,
+    )
+
+    class FakeHandle:
+        def close(self):
+            pass
+
+    session.serial_obj = FakeHandle()
+    session.is_connected = True
+    session._running = True
+
+    if failure_path == "intentional":
+        session.disconnect()
+    else:
+        session._mark_reader_failed(OSError("USB unplugged"))
+
+    assert any("Could not persist serial disconnect status" in line for line in logs)

@@ -185,7 +185,7 @@ class TXAppState:
         self.estimated_time = s.estimated_time
         self.data_rate = s.data_rate
         self.port = "—"
-        self.serial_connected = bool(getattr(self._simulation, "_rx_connected", False))
+        self.serial_connected = s.serial_connected
         self.activity_log = s.activity_log[-500:]
         self.record_count = s.record_count
         self.tid = s.tid

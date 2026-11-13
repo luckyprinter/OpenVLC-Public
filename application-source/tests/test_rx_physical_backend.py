@@ -518,3 +518,72 @@ def test_batch_payload_group_must_match_transfer_notice(
     assert backend._active_tid is None
     assert backend._active_batch_group_id is None
     assert not list(tmp_path.iterdir())
+
+
+def test_malformed_transfer_notice_does_not_mutate_active_transfer():
+    from gui_dev_v3.logic.batch_assembler import BatchAssembler
+
+    backend = RXPhysicalBackend()
+    backend._batch_assembler = BatchAssembler()
+    backend._batch_assembler.add_part(
+        group_id="keep-this-group",
+        part_index=1,
+        part_count=2,
+        full_crc=0x1234,
+        filename="capture.bin",
+        part_data=b"first",
+        part_crc_ok=True,
+        part_chunks=1,
+        tid=401,
+    )
+    backend._active_tid = 401
+    backend._active_batch_group_id = "keep-this-group"
+    backend._active_filename = "capture.bin"
+    backend._active_total_size = 10
+    backend._active_total_chunks = 2
+    backend._active_received_chunks = 1
+    started = backend._active_started_monotonic
+
+    # Invalid part index: validation must finish before any active fields change.
+    wrapped = "VLCB1~poison-group~3~2~1234~capture.bin".encode().hex()
+    backend._handle_transfer_notice(
+        f"RX_TRANSFER_NOTICE:402:10:2:1234:{wrapped}"
+    )
+
+    assert backend._active_tid == 401
+    assert backend._active_batch_group_id == "keep-this-group"
+    assert backend._active_filename == "capture.bin"
+    assert backend._active_total_size == 10
+    assert backend._active_total_chunks == 2
+    assert backend._active_received_chunks == 1
+    assert backend._active_started_monotonic == started
+    assert backend._batch_assembler.pending_count == 1
+
+
+def test_new_transfer_notice_discards_abandoned_active_batch_group():
+    from gui_dev3.logic.batch_assembler import BatchAssembler
+
+    backend = RXPhysicalBackend()
+    backend._batch_assembler = BatchAssembler()
+    backend._batch_assembler.add_part(
+        group_id="abandoned",
+        part_index=1,
+        part_count=2,
+        full_crc=0x1234,
+        filename="capture.bin",
+        part_data=b"first",
+        part_crc_ok=True,
+        part_chunks=1,
+        tid=501,
+    )
+    backend._active_tid = 501
+    backend._active_batch_group_id = "abandoned"
+
+    ordinary_name = "next.bin".encode().hex()
+    backend._handle_transfer_notice(
+        f"RX_TRANSFER_NOTICE:502:8:1:1234:{ordinary_name}"
+    )
+
+    assert backend._active_tid == 502
+    assert backend._active_batch_group_id is None
+    assert backend._batch_assembler.pending_count == 0

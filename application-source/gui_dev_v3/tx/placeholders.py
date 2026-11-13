@@ -136,6 +136,9 @@ class TransmitPage(QWidget):
         self._history_card.setVisible(not compact)
         self._config_card.setVisible(not compact)
         self.queue_table.setMinimumHeight(120 if compact else 150)
+        self.queue_table.setHorizontalHeaderLabels(
+            ["File" if compact else "Filename", "Size", "Status"]
+        )
 
     def _on_start_batch(self) -> None:
         if not self.state:

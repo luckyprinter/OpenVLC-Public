@@ -15,6 +15,7 @@ from gui_dev_v3.tx.placeholders import (
 )
 from gui_dev_v3.tx.settings import build_tx_settings
 from gui_dev_v3.tx_app_state import POLL_INTERVAL_MS, TXAppState, build_default_tx_state
+from gui_dev_v3.settings import SettingsManager
 from gui_dev_v3.widgets import scrollable
 from gui_dev_v3.theme import COLORS
 from gui_dev_v3.ui_foundation import (
@@ -32,7 +33,13 @@ class TXShell(QWidget):
 
     def __init__(self, state: TXAppState | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.state = state or build_default_tx_state()
+        self._settings_mgr = SettingsManager("tx")
+        if state is None:
+            saved_mode = str(self._settings_mgr.get("general/mode", "physical") or "physical")
+            mode = saved_mode if saved_mode in {"physical", "simulated"} else "physical"
+            self.state = build_default_tx_state(mode=mode)
+        else:
+            self.state = state
         # Outer vertical layout: header | content | footer
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -229,8 +236,24 @@ class TXShell(QWidget):
         self._footer_time.setText(now.strftime("%H:%M:%S"))
 
     def _update_status_indicators(self) -> None:
-        """Update indicators using physical transmitter connection state only."""
+        """Update indicators for the selected physical or simulated TX backend."""
         connected = self.state.serial_connected
+        if self.state.mode == "simulated":
+            dot_state = "connected" if connected else "disconnected"
+            status_color = COLORS.get("status_dot_on" if connected else "status_dot_off", COLORS["green"] if connected else COLORS["red"])
+            self._conn_device.setText(
+                "Device: Simulated RX Peer" if connected else "Device: Waiting for RX Simulation"
+            )
+            self._conn_firmware.setText("Firmware: Virtual VLC Channel")
+            conn_status_text = "Simulation Connected" if connected else "Waiting for RX"
+            self._pulse_dot.set_state(dot_state)
+            self._conn_status.setText(conn_status_text)
+            self._conn_status.setStyleSheet(
+                f"font-size: 11px; font-weight: 600; color: {status_color}; background: transparent;"
+            )
+            self._footer_mode.setText("Mode: Simulation")
+            return
+
         if connected:
             dot_state = "connected"
             port_str = self.state.port or "Port unknown"

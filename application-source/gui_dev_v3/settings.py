@@ -772,9 +772,11 @@ def bind_theme_picker(picker: ThemePickerGrid, mgr: SettingsManager, key: str = 
     from gui_dev_v3.settings_store import load_settings, save_settings
     app_settings = load_settings()
     saved = str(app_settings.theme or default)
+    saved_theme = saved
     picker.set_current(saved)
     def _on_theme_changed(k: str) -> None:
-        previous = saved
+        nonlocal saved_theme
+        previous = saved_theme
         latest_settings = load_settings()
         latest_settings.theme = k  # type: ignore[assignment]
         if not save_settings(latest_settings):
@@ -790,6 +792,7 @@ def bind_theme_picker(picker: ThemePickerGrid, mgr: SettingsManager, key: str = 
             picker.setToolTip(message)
             picker.setAccessibleDescription(message)
             return
+        saved_theme = k
         if not mgr.set(key, k):
             message = "Theme was saved, but the secondary display preference could not be synchronized."
             picker.setToolTip(message)

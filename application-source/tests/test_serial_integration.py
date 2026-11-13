@@ -167,10 +167,15 @@ def test_tx_and_rx_sessions_can_open_distinct_ports_concurrently(fake_serial):
     assert fake_serial.open_ports == set()
 
 
-def test_tx_reader_marks_connection_lost_after_unplug(fake_serial):
+def test_tx_reader_marks_connection_lost_after_unplug(fake_serial, monkeypatch):
     session = SerialSession("tx")
 
     assert session.connect("MOCK_TX") is True
+    persisted_status = []
+    monkeypatch.setattr(
+        "gui_dev3.serial.session.write_status",
+        lambda role, payload: persisted_status.append((role, dict(payload))),
+    )
     fake_serial.read_errors.add("MOCK_TX")
 
     deadline = time.monotonic() + 1.0
@@ -180,6 +185,17 @@ def test_tx_reader_marks_connection_lost_after_unplug(fake_serial):
     assert session.is_connected is False
     assert session.serial_obj is None
     assert fake_serial.open_ports == set()
+    assert persisted_status == [
+        (
+            "tx",
+            {
+                "role": "tx",
+                "stage": "Connection Lost",
+                "detail": "OSError",
+                "state": "error",
+            },
+        )
+    ]
     session.disconnect()
 
 

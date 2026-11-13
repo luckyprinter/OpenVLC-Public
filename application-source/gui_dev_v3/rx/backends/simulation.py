@@ -22,6 +22,7 @@ from gui_dev_v3.models import (
     ChunkRecord,
     ChunkStatus,
     ExperimentMetadata,
+    SessionCapture,
     SessionState,
     SignalState,
     TransferQuality,
@@ -148,6 +149,7 @@ class RXSimulationBackend:
         self._transfer_status = TransferStatus.PENDING
         self._expected_file_data: bytes | None = None
         self._expected_file_path: str | None = None
+        self._reference_loaded = False
         self._capture_active = False
         self._capture_start_time = 0.0
         self._capture_pvo: list[float] = []
@@ -206,10 +208,13 @@ class RXSimulationBackend:
         """Set or clear the reference expected file data and update chunk statuses."""
         self._expected_file_data = data
         self._expected_file_path = filepath
+        self._reference_loaded = data is not None
 
         # Slice the new expected file
         self._expected_chunks_map.clear()
         if data is not None and self._total_chunks > 0:
+            self._reference_loaded = ref_data is not None
+
             for idx in range(self._total_chunks):
                 start_offset = idx * self._chunk_size
                 end_offset = start_offset + self._chunk_size

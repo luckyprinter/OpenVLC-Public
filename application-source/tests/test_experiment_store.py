@@ -56,7 +56,8 @@ def test_malformed_experiment_store_is_never_overwritten(
 
     with pytest.raises(store.ExperimentStoreError):
         store.list_experiments()
-    assert store.delete_experiment(1) is False
+    with pytest.raises(store.ExperimentStoreError):
+        store.delete_experiment(1)
     assert store_path.read_text(encoding="utf-8") == original
 
 def test_invalid_record_schema_is_not_overwritten(monkeypatch, tmp_path):

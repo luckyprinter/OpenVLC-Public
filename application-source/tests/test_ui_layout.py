@@ -929,16 +929,20 @@ def test_receive_page_reports_interrupted_for_real_transfer_after_disconnect(qap
     from gui_dev_v3.models import TransferStatus
 
     state = RXAppState()
-    state.session = build_empty_session()
-    state.session.progress_percent = 50
-    state.session.latest_transfer = replace(
-        state.session.latest_transfer,
+    empty = build_empty_session()
+    partial_transfer = replace(
+        empty.latest_transfer,
         tid=42,
         filename="partial.bin",
         status=TransferStatus.INCOMPLETE,
         size_bytes=100,
         total_chunks=4,
         received_chunks=2,
+    )
+    state.session = replace(
+        empty,
+        progress_percent=50,
+        latest_transfer=partial_transfer,
     )
     state.transfer = state.session.latest_transfer
     state.serial_connected = False

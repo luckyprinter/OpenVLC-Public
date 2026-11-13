@@ -458,7 +458,18 @@ def main() -> int:
         print("Running smoke test sequence...", flush=True)
         QTimer.singleShot(500, lambda: window.launch_mode("tx"))
         QTimer.singleShot(1500, lambda: window.launch_mode("rx"))
-        QTimer.singleShot(2500, lambda: [print("Smoke test passed. Exiting cleanly.", flush=True), app.quit()])
+
+        def finish_smoke_test() -> None:
+            # Exercise the real main-window close path so packaged smoke tests
+            # also cover active console cleanup, not just QApplication.quit().
+            if not window.close():
+                print("Smoke test failed: main window did not close cleanly.", file=sys.stderr, flush=True)
+                app.exit(1)
+                return
+            print("Smoke test passed. Exiting cleanly.", flush=True)
+            app.exit(0)
+
+        QTimer.singleShot(2500, finish_smoke_test)
     elif "--tx" in sys.argv:
         window.launch_mode("tx")
     elif "--rx" in sys.argv:

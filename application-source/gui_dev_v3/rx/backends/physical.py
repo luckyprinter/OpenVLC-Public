@@ -545,6 +545,16 @@ class RXPhysicalBackend:
                 return
 
             tid = int(parts[1])
+            # RX_FILE_HEX must belong to the transfer currently announced by
+            # RX_TRANSFER_NOTICE. Ignore delayed/stale payloads rather than
+            # allowing them to complete or overwrite a newer transfer.
+            if self._active_tid is not None and tid != self._active_tid:
+                self._log_queue.append({
+                    "time": now,
+                    "event": "RX File",
+                    "details": f"Ignored stale payload TID={tid}; active TID={self._active_tid}",
+                })
+                return
             total_size = int(parts[3])
             part_total_chunks = int(parts[4])
             part_crc_expected = int(parts[5], 16)
@@ -574,6 +584,13 @@ class RXPhysicalBackend:
                     raise ValueError("Malformed VLCB1 batch metadata")
                 _, group_id, index_text, count_text, full_crc_text, original_name = metadata
                 batch_group_id = group_id
+                if (
+                    self._active_batch_group_id is not None
+                    and group_id != self._active_batch_group_id
+                ):
+                    raise ValueError(
+                        "batch group does not match the active transfer notice"
+                    )
                 self._active_batch_group_id = group_id
                 self._prune_expired_batches()
                 assembled = self._batch_assembler.add_part(

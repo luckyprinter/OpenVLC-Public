@@ -415,3 +415,39 @@ def test_truncated_file_line_clears_matching_active_transfer():
     assert backend._active_started_monotonic is None
     assert backend._active_batch_group_id is None
     assert backend._batch_assembler.pending_count == 0
+
+
+
+def test_serial_cleanup_discards_incomplete_batch_and_active_progress():
+    from gui_dev_v3.logic.batch_assembler import BatchAssembler
+
+    backend = RXPhysicalBackend()
+    backend._batch_assembler = BatchAssembler()
+    backend._batch_assembler.add_part(
+        group_id="session-one",
+        part_index=1,
+        part_count=2,
+        full_crc=0x1234,
+        filename="must-not-cross-session.bin",
+        part_data=b"old-session",
+        part_crc_ok=True,
+        part_chunks=1,
+        tid=201,
+    )
+    backend._active_tid = 201
+    backend._active_filename = "part.bin"
+    backend._active_total_size = 11
+    backend._active_total_chunks = 2
+    backend._active_received_chunks = 1
+    backend._active_batch_group_id = "session-one"
+
+    backend.cleanup()
+
+    assert backend._batch_assembler.pending_count == 0
+    assert backend._active_tid is None
+    assert backend._active_filename == ""
+    assert backend._active_total_size == 0
+    assert backend._active_total_chunks == 0
+    assert backend._active_received_chunks == 0
+    assert backend._active_started_monotonic is None
+    assert backend._active_batch_group_id is None

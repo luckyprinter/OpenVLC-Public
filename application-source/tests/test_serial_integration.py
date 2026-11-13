@@ -173,7 +173,7 @@ def test_tx_reader_marks_connection_lost_after_unplug(fake_serial, monkeypatch):
     assert session.connect("MOCK_TX") is True
     persisted_status = []
     monkeypatch.setattr(
-        "gui_dev3.serial.session.write_status",
+        "gui_dev_v3.serial.session.write_status",
         lambda role, payload: persisted_status.append((role, dict(payload))),
     )
     fake_serial.read_errors.add("MOCK_TX")

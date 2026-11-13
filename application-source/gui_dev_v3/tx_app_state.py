@@ -93,9 +93,15 @@ class TXAppState:
             self.current_capture = None
             self._last_status_text = ""
         if old_physical is not None:
-            old_physical.cleanup()
+            try:
+                old_physical.cleanup()
+            except Exception:
+                pass
         if old_simulation is not None:
-            old_simulation.stop()
+            try:
+                old_simulation.stop()
+            except Exception:
+                pass
         self._refresh()
         self.notify()
 
@@ -155,6 +161,7 @@ class TXAppState:
         self.data_rate = s.data_rate
         self.port = s.port
         self.serial_connected = s.serial_connected
+        self.using_mock_data = False
         for log_item in s.activity_log:
             if self.activity_log:
                 last_log = self.activity_log[0]
@@ -214,14 +221,16 @@ class TXAppState:
         self.record_count = 0
         self.using_mock_data = self.mode == "simulated"
 
-    def update_simulation_params(self, **kwargs: Any) -> None:
+    def update_simulation_params(self, **kwargs: Any) -> bool:
         """Update virtual-channel parameters without opening a serial port."""
+        if self.mode != "simulated":
+            return False
         if self._simulation is None:
             self._simulation = TXSimulationBackend()
         self._simulation.set_params(**kwargs)
-        if self.mode == "simulated":
-            self._refresh()
-            self.notify()
+        self._refresh()
+        self.notify()
+        return True
 
     def start_transmission(self, filepath: str) -> None:
         """Start a file transmission through the selected backend."""

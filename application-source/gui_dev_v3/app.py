@@ -379,6 +379,23 @@ class VLCMainWindow(_BaseWindow):
             self._stack.setCurrentWidget(self._rx_shell)
             self.setWindowTitle("VLC Receiver")
 
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Stop both hardware consoles before the application window closes."""
+        import logging
+
+        for role, shell in (("RX", self._rx_shell), ("TX", self._tx_shell)):
+            if shell is None:
+                continue
+            try:
+                shell.cleanup()
+            except Exception:
+                # A cleanup failure must be visible for diagnosis, but must
+                # not prevent Qt from completing the application's shutdown.
+                logging.getLogger(__name__).exception(
+                    "%s console cleanup failed during application shutdown", role
+                )
+        super().closeEvent(event)
+
     def return_to_launcher(self) -> None:
         if self._rx_shell is not None:
             try:

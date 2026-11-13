@@ -154,12 +154,15 @@ class TransmitPage(QWidget):
             self.start_btn.style().polish(self.start_btn)
             return
 
-        # Starting a real batch requires both connected hardware and
-        # at least one queued file. Keep the stop action available while active.
+        # A batch requires either a live ESP32 or a connected simulated RX peer.
+        # Keep the stop action available while active.
         if not self.state.serial_connected:
+            simulated = self.state.mode == "simulated"
             QMessageBox.information(
-                self, "Hardware Disconnected",
-                "Connect the transmitter before starting a batch.",
+                self,
+                "Simulation Peer Unavailable" if simulated else "Hardware Disconnected",
+                "Start the RX console in Simulation mode first."
+                if simulated else "Connect the transmitter before starting a batch.",
             )
             return
 

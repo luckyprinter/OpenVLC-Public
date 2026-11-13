@@ -561,7 +561,7 @@ def test_malformed_transfer_notice_does_not_mutate_active_transfer():
 
 
 def test_new_transfer_notice_discards_abandoned_active_batch_group():
-    from gui_dev3.logic.batch_assembler import BatchAssembler
+    from gui_dev_v3.logic.batch_assembler import BatchAssembler
 
     backend = RXPhysicalBackend()
     backend._batch_assembler = BatchAssembler()

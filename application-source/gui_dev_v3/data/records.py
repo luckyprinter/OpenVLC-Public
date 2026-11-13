@@ -199,7 +199,7 @@ def load_real_transfer_history() -> list[TransferRecord]:
                     if record and identity is not None and identity not in seen_records:
                         records.append(record)
                         seen_records.add(identity)
-                except (OSError, json.JSONDecodeError):
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError):
                     pass
         except OSError:
             pass

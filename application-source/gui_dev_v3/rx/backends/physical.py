@@ -992,6 +992,8 @@ class RXPhysicalBackend:
         worker = self._connect_thread
         if worker is not None and worker.is_alive() and worker is not threading.current_thread():
             worker.join(timeout=3.0)
+        if worker is None or not worker.is_alive():
+            self._connect_thread = None
         self._close_serial()
         self._connected = False
         self._port = None

@@ -921,3 +921,20 @@ def test_main_window_close_continues_when_one_console_cleanup_fails(qapp, monkey
 
     assert cleaned == ["tx"]
     assert base_close == [event]
+
+
+def test_receive_page_does_not_report_receiving_after_disconnect(qapp):
+    from gui_dev_v3.data.session import build_empty_session
+
+    state = RXAppState()
+    state.session = build_empty_session()
+    state.session.progress_percent = 50
+    state.transfer = state.session.latest_transfer
+    state.serial_connected = False
+
+    page = ReceivePage()
+    page.refresh(state)
+
+    assert state.is_receiving is True
+    assert page.status_badge.text() == "● INTERRUPTED"
+    page.close()

@@ -311,14 +311,48 @@ class RXPhysicalBackend:
         self.apply_link_settings()
         return True
 
-    def disconnect(self) -> None:
+    def _active_transfer_status_fields(self) -> dict[str, Any]:
+        """Return the last known transfer metadata for offline recovery."""
+        has_transfer = bool(
+            self._active_tid is not None
+            or self._active_filename
+            or self._active_total_size > 0
+            or self._active_total_chunks > 0
+        )
+        if not has_transfer:
+            return {}
+        percent = (
+            self._active_received_chunks * 100.0 / self._active_total_chunks
+            if self._active_total_chunks > 0 else 0.0
+        )
+        return {
+            "tid": self._active_tid,
+            "file_name": self._active_filename,
+            "size_bytes": self._active_total_size,
+            "total_chunks": self._active_total_chunks,
+            "received_chunks": self._active_received_chunks,
+            "percent": percent,
+        }
+
+    def disconnect(self, reason: str = "User disconnected") -> None:
         was_connected = self._connected
+        port = self._port
+        transfer_context = self._active_transfer_status_fields()
         self._close_serial()
         if was_connected:
             self._record_diag("serial_disconnected", role="rx", reason_code="user_disconnect")
         self._port = None
         self._connected = False
         self._firmware_info = None
+        if not write_status(
+            "rx",
+            "Disconnected",
+            detail=reason,
+            state="idle",
+            port=port,
+            **transfer_context,
+        ):
+            self.log("Status Write Failed", "Could not persist the RX disconnected state")
 
     @property
     def is_connected(self) -> bool:
@@ -452,6 +486,7 @@ class RXPhysicalBackend:
         self._active_started_monotonic = None
         self._active_batch_group_id = None
         lost_port = self._port if self._ser is ser else None
+        transfer_context = self._active_transfer_status_fields()
         with self._write_lock:
             if self._ser is ser:
                 self._ser = None
@@ -470,6 +505,7 @@ class RXPhysicalBackend:
             detail=detail,
             state="error",
             port=lost_port,
+            **transfer_context,
         ):
             self.log("Status Write Failed", "Could not persist the RX connection-lost state")
 
@@ -1024,9 +1060,7 @@ class RXPhysicalBackend:
             worker.join(timeout=3.0)
         if worker is None or not worker.is_alive():
             self._connect_thread = None
-        self._close_serial()
-        self._connected = False
-        self._port = None
+        self.disconnect(reason="Application shutdown")
 
     # ── Live data acquisition ──
 

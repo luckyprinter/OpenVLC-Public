@@ -242,3 +242,15 @@ def test_reset_does_not_clear_preferences_when_default_settings_cannot_be_saved(
     assert manager.cleared is False
     assert cleared_scopes == []
     assert window.settings == original_window_settings
+
+
+def test_save_returns_false_when_config_directory_cannot_be_created(
+    settings_paths: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    blocked_directory = tmp_path / "not-a-directory"
+    blocked_directory.write_text("preserve this file", encoding="utf-8")
+    monkeypatch.setattr(settings_store, "SETTINGS_DIR", blocked_directory)
+    monkeypatch.setattr(settings_store, "SETTINGS_PATH", blocked_directory / "settings.json")
+
+    assert settings_store.save_settings(settings_store.AppSettings(theme="charcoal")) is False
+    assert blocked_directory.read_text(encoding="utf-8") == "preserve this file"

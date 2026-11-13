@@ -274,21 +274,52 @@ def save_session_capture(capture: SessionCapture) -> None:
 
 
 def load_session_capture(tid: int) -> SessionCapture | None:
-    path = CAPTURE_DIR / f"session_{tid}.json"
-    legacy_path = LEGACY_CAPTURE_DIR / f"session_{tid}.json"
+    try:
+        requested_tid = int(tid)
+        if requested_tid < 0 or requested_tid > _MAX_TID:
+            return None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+    path = CAPTURE_DIR / f"session_{requested_tid}.json"
+    legacy_path = LEGACY_CAPTURE_DIR / f"session_{requested_tid}.json"
     source_path = path if path.exists() else legacy_path
     if not source_path.exists():
         return None
     try:
         raw_text = source_path.read_text(encoding="utf-8")
         data = json.loads(raw_text)
+        if not isinstance(data, dict):
+            raise ValueError("capture root must be a JSON object")
+        stored_tid = int(data["tid"])
+        if stored_tid != requested_tid:
+            raise ValueError(
+                f"capture TID mismatch: requested {requested_tid}, stored {stored_tid}"
+            )
+
+        array_fields = (
+            "analog_time", "pvo_samples", "vref_samples",
+            "margin_samples", "ook_bits", "protocol_events",
+        )
+        if any(not isinstance(data.get(key), list) for key in array_fields):
+            raise ValueError("capture sample and event fields must be arrays")
+        if any(not isinstance(item, dict) for item in data["protocol_events"]):
+            raise ValueError("protocol events must contain JSON objects")
+
+        ber_value = float(data["ber"]) if data.get("ber") is not None else None
+        throughput = float(data["throughput_kbps"])
+        if ber_value is not None and (not 0.0 <= ber_value <= 1.0):
+            raise ValueError("capture BER must be between zero and one")
+        if not 0.0 <= throughput < float("inf"):
+            raise ValueError("capture throughput must be finite and non-negative")
+
         capture = SessionCapture(
-            tid=int(data["tid"]),
+            tid=stored_tid,
             timestamp=str(data["timestamp"]),
             filename=str(data["filename"]),
-            ber=(float(data["ber"]) if data.get("ber") is not None else None),
+            ber=ber_value,
             crc_status=str(data["crc_status"]),
-            throughput_kbps=float(data["throughput_kbps"]),
+            throughput_kbps=throughput,
             analog_time=list(data["analog_time"]),
             pvo_samples=list(data["pvo_samples"]),
             vref_samples=list(data["vref_samples"]),
@@ -298,18 +329,34 @@ def load_session_capture(tid: int) -> SessionCapture | None:
             ber_method=str(data.get("ber_method", "unavailable")),
         )
         if source_path == legacy_path:
-            # Keep the old file intact; copy it into the current app-data
-            # location only after parsing it successfully. A copy failure
-            # must not prevent the existing capture from being viewed.
+            # Keep the old file intact. Use a unique same-directory temporary
+            # so simultaneous readers cannot collide during legacy migration.
+            temporary_path: Path | None = None
             try:
                 CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
-                temporary = path.with_suffix(".tmp")
-                temporary.write_text(raw_text, encoding="utf-8")
-                temporary.replace(path)
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding="utf-8",
+                    dir=CAPTURE_DIR,
+                    prefix=f".session_{requested_tid}.",
+                    suffix=".tmp",
+                    delete=False,
+                ) as temporary:
+                    temporary_path = Path(temporary.name)
+                    temporary.write(raw_text)
+                    temporary.flush()
+                    os.fsync(temporary.fileno())
+                os.replace(temporary_path, path)
             except OSError as migration_error:
-                print(f"Could not migrate legacy capture {tid}: {migration_error}")
+                print(f"Could not migrate legacy capture {requested_tid}: {migration_error}")
+            finally:
+                if temporary_path is not None and temporary_path.exists():
+                    try:
+                        temporary_path.unlink()
+                    except OSError:
+                        pass
         return capture
     except Exception as exc:
-        print(f"Failed to load session capture {tid}: {exc}")
+        print(f"Failed to load session capture {requested_tid}: {exc}")
         return None
 

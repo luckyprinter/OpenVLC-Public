@@ -48,6 +48,35 @@ def _diagnostic_size_bucket(size_bytes: int) -> str:
     return "over_80kib"
 
 
+def _atomic_save_received_file(directory: Path, filename: str, data: bytes) -> Path:
+    """Persist a complete RX payload atomically in its destination directory."""
+    directory.mkdir(parents=True, exist_ok=True)
+    destination = directory / filename
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=directory,
+            prefix=".rx-",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(data)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, destination)
+        return destination
+    except OSError as exc:
+        raise OSError(f"Could not atomically save received file '{filename}': {exc}") from exc
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            try:
+                temporary_path.unlink()
+            except OSError:
+                pass
+
+
 def crc16_ccitt(data: bytes, crc: int = 0xFFFF) -> int:
     for b in data:
         crc ^= b << 8
@@ -603,9 +632,6 @@ class RXPhysicalBackend:
             expected_crc = int(crc_expected_hex, 16)
             crc_ok = (calc_crc == expected_crc)
 
-            # Save to disk
-            self._save_dir.mkdir(parents=True, exist_ok=True)
-            
             # --- Validated, bounded batch assembly ---
             if filename.startswith("VLCB1~"):
                 metadata = filename.split("~", 5)
@@ -670,7 +696,7 @@ class RXPhysicalBackend:
             # Sanitise filename
             safe_name = re.sub(r"[^\w.\-]", "_", filename) or f"rx_{tid}.bin"
             out_path = self._save_dir / safe_name
-            # Avoid clobbering existing files
+            # Avoid clobbering existing files before the atomic replacement.
             counter = 1
             while out_path.exists():
                 stem = Path(safe_name).stem
@@ -678,7 +704,9 @@ class RXPhysicalBackend:
                 out_path = self._save_dir / f"{stem}_{counter}{suffix}"
                 counter += 1
 
-            out_path.write_bytes(file_bytes)
+            out_path = _atomic_save_received_file(
+                self._save_dir, out_path.name, file_bytes
+            )
 
             crc_label = "CRC OK" if crc_ok else f"CRC MISMATCH (got {calc_crc:04X} expected {expected_crc_for_message:04X})"
             self._log_queue.append({

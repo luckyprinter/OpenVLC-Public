@@ -90,7 +90,7 @@ def write_status(role: str, stage: str, detail: str = "", percent: float | None 
             ) as temporary:
                 temporary_path = Path(temporary.name)
                 json.dump(payload, temporary, separators=(",", ":"))
-                temporary.write("\\n")
+                temporary.write("\n")
                 temporary.flush()
                 os.fsync(temporary.fileno())
             os.replace(temporary_path, target)

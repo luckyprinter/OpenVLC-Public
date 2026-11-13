@@ -512,6 +512,24 @@ class RXPhysicalBackend:
         try:
             parts = line.split(":")
             if len(parts) < 8:
+                # A truncated payload line for the active TID must not leave
+                # stale receive progress (or an incomplete batch group) visible.
+                malformed_tid = None
+                if len(parts) > 1:
+                    try:
+                        malformed_tid = int(parts[1])
+                    except ValueError:
+                        pass
+                if malformed_tid is not None and malformed_tid == self._active_tid:
+                    if self._active_batch_group_id is not None:
+                        self._batch_assembler.discard(self._active_batch_group_id)
+                    self._active_tid = None
+                    self._active_filename = ""
+                    self._active_total_size = 0
+                    self._active_total_chunks = 0
+                    self._active_received_chunks = 0
+                    self._active_started_monotonic = None
+                    self._active_batch_group_id = None
                 self._log_queue.append({"time": now, "event": "RX File", "details": "Malformed RX_FILE_HEX (too few fields)"})
                 return
 

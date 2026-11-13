@@ -98,20 +98,27 @@ def build_session_from_status(role: str, transfer: TransferRecord | None = None)
         if total_chunks > 0 and received <= 0 and percent > 0:
             received = int(percent / 100 * total_chunks)
         received = min(max(received, 0), total_chunks)
-        status = TransferStatus.INCOMPLETE
+        transfer_tid = min(999_999, max(0, _safe_integer(rx_status.get("tid"))))
+        has_transfer = bool(
+            transfer_tid > 0
+            or size_bytes > 0
+            or total_chunks > 0
+            or (file_name and file_name not in {"No active transfer", "No file", "No data"})
+        )
+        status = TransferStatus.INCOMPLETE if has_transfer else TransferStatus.PENDING
         if "complete" in stage.lower() or "success" in stage.lower():
             status = TransferStatus.COMPLETE
             received = total_chunks
             percent = 100.0
         elif "fail" in stage.lower() or "error" in stage.lower():
             status = TransferStatus.CRC_FAILED
-        elif "stall" in stage.lower():
-            status = TransferStatus.STALLED
+        elif "stall" in stage.lower() or "disconnect" in stage.lower() or "lost" in stage.lower():
+            status = TransferStatus.STALLED if has_transfer else TransferStatus.PENDING
         elif "idle" in stage.lower():
             status = TransferStatus.PENDING
 
         transfer = TransferRecord(
-            tid=min(999_999, max(0, _safe_integer(rx_status.get("tid")))),
+            tid=transfer_tid,
             filename=file_name or "No active transfer",
             status=status,
             time_label="",

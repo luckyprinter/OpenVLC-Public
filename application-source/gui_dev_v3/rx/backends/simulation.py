@@ -82,7 +82,7 @@ class RXSimulationSnapshot:
     transfer: TransferRecord
     activity_log: list[dict[str, str]]
     channel_params: "VirtualChannelParams"
-    capture: Any | None = None
+    capture: SessionCapture | None = None
 
 
 @dataclass
@@ -858,6 +858,7 @@ class RXSimulationBackend:
             transfer=transfer,
             activity_log=log,
             channel_params=p,
+            capture=self._last_capture,
         )
 
     def _generate_sim_sample(self) -> None:

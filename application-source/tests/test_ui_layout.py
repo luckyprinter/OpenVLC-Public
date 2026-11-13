@@ -794,6 +794,13 @@ def test_rx_dashboard_reports_connection_state_not_decoder_lock(qapp):
     assert page._receiver_state.connection_row.val.text() == "DISCONNECTED"
     assert page._receiver_state.protocol_row.val.text() == "—"
 
+    # RXAppState initializes from the runtime status file. Reset the
+    # transfer snapshot here so this dashboard-only assertion is independent
+    # of status records left by earlier tests on the same CI worker.
+    from gui_dev_v3.data.session import build_empty_session
+
+    state.session = build_empty_session()
+    state.transfer = state.session.latest_transfer
     state.serial_connected = True
     page.refresh(state)
     assert page._receiver_state.connection_row.val.text() == "READY"

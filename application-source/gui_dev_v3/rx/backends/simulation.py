@@ -659,23 +659,37 @@ class RXSimulationBackend:
         p.ber_estimate = max(1e-12, min(0.5, p.ber_estimate))
 
     def _build_transfer(self) -> TransferRecord:
-        """Build a TransferRecord from generated chunks."""
-        p = self._params
+        """Build a transfer summary from exact received and missing chunks."""
         self._compute_channel()
-
         chunks: list[ChunkRecord] = []
         for idx in range(self._total_chunks):
-            expected = self._expected_chunks_map.get(idx, b"")
-            received = self._received_chunks_map.get(idx, b"")
-            status = self._chunks_status_map.get(idx, ChunkStatus.PENDING)
             chunks.append(ChunkRecord(
-                index=idx, status=status, expected=expected, received=received
+                index=idx,
+                status=self._chunks_status_map.get(idx, ChunkStatus.PENDING),
+                expected=self._expected_chunks_map.get(idx, b""),
+                received=self._received_chunks_map.get(idx, b""),
             ))
 
         total_chunks = self._total_chunks
-        received_count = sum(1 for status in self._chunks_status_map.values() if status in (ChunkStatus.MATCH, ChunkStatus.DIFFERENT))
-        missing = total_chunks - received_count
-        different = sum(1 for status in self._chunks_status_map.values() if status == ChunkStatus.DIFFERENT)
+        received_count = len(self._received_chunks_map)
+        missing = max(0, total_chunks - received_count)
+        different = sum(
+            1 for status in self._chunks_status_map.values()
+            if status == ChunkStatus.DIFFERENT
+        )
+        received_bytes = sum(len(data) for data in self._received_chunks_map.values())
+        missing_bytes = max(0, self._file_size_bytes - received_bytes)
+        total_bits = self._file_size_bytes * 8
+        bit_errors = min(
+            total_bits,
+            sum(self._bit_errors_by_chunk.values()) + missing_bytes * 8,
+        )
+        strict_ber = bit_errors / total_bits if total_bits else 0.0
+        bit_accuracy = 100.0 * (1.0 - strict_ber)
+        recovery_rate = (
+            100.0 * received_bytes / self._file_size_bytes
+            if self._file_size_bytes else 100.0
+        )
 
         if total_chunks == 0:
             return TransferRecord(
@@ -702,51 +716,55 @@ class RXSimulationBackend:
                 chunks=[],
             )
 
-        # Estimate severity
-        if missing == 0 and different == 0:
-            label = "Excellent"
-            crc_status = "PASS"
-        elif missing > total_chunks * 0.3:
+        if missing > 0 or strict_ber >= 0.1:
             label = "Poor"
-            crc_status = "CRC Failed"
-        elif different > total_chunks * 0.05:
+        elif strict_ber > 0.01 or different > 0:
             label = "Fair"
-            crc_status = "FAIL"
-        else:
+        elif strict_ber > 0:
             label = "Good"
-            crc_status = "PASS"
+        else:
+            label = "Excellent"
 
-        issues = []
-        if different > 0:
-            issues.append(f"{different} chunks with bit errors")
         if missing > 0:
-            issues.append(f"{missing} missing chunks")
-        first_issue = issues[0] if issues else "None"
+            first_issue = f"{missing} missing chunks"
+        elif self._crc_failed_chunks:
+            first_issue = f"{len(self._crc_failed_chunks)} CRC failures"
+        elif different > 0:
+            first_issue = f"{different} chunks differ from reference"
+        elif bit_errors > 0:
+            first_issue = "Bit errors detected"
+        else:
+            first_issue = "None"
 
+        crc_status = (
+            "FAIL"
+            if self._transfer_status in {TransferStatus.INCOMPLETE, TransferStatus.CRC_FAILED}
+            else "PASS"
+        )
         quality = TransferQuality(
             label=label,
-            strict_ber=p.ber_estimate,
-            bit_accuracy=100.0 * (1 - p.ber_estimate) if p.ber_estimate < 1 else 0,
-            bit_errors=int(p.ber_estimate * received_count * self._chunk_size * 8),
-            total_bits=received_count * self._chunk_size * 8,
-            compared_bytes=received_count * self._chunk_size,
+            strict_ber=strict_ber,
+            bit_accuracy=bit_accuracy,
+            bit_errors=bit_errors,
+            total_bits=total_bits,
+            compared_bytes=min(self._file_size_bytes, received_bytes),
             missing_chunks=missing,
-            missing_bytes=missing * self._chunk_size,
+            missing_bytes=missing_bytes,
             first_issue=first_issue,
             crc_status=crc_status,
-            recovery_rate=self._progress,
+            recovery_rate=recovery_rate,
         )
-
         return TransferRecord(
             tid=self._transfer_id,
             filename=self._filename,
             status=self._transfer_status,
             time_label=time.strftime("%H:%M"),
-            size_bytes=total_chunks * self._chunk_size,
+            size_bytes=self._file_size_bytes,
             total_chunks=total_chunks,
             received_chunks=received_count,
             quality=quality,
             chunks=chunks,
+            received_path=self._received_path,
         )
 
     def _build_signal(self) -> SignalState:

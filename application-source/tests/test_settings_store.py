@@ -254,3 +254,28 @@ def test_save_returns_false_when_config_directory_cannot_be_created(
 
     assert settings_store.save_settings(settings_store.AppSettings(theme="charcoal")) is False
     assert blocked_directory.read_text(encoding="utf-8") == "preserve this file"
+
+
+
+def test_reset_reports_qsettings_clear_failure(
+    settings_paths: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from gui_dev_v3.settings import reset_all_settings
+
+    class FakeManager:
+        scope = "rx"
+
+        def clear(self) -> bool:
+            return False
+
+    class FakeWindow:
+        settings = settings_store.AppSettings(theme="synthwave")
+
+    window = FakeWindow()
+    original = window.settings
+
+    assert reset_all_settings(FakeManager(), window) is False
+    assert window.settings == original
+    # The shared JSON defaults were saved before the secondary QSettings
+    # clear failed; the caller must report an incomplete reset, not success.
+    assert settings_store.load_settings() == settings_store.AppSettings()

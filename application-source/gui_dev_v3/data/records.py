@@ -145,10 +145,29 @@ def _parse_transfer_record(data: dict[str, Any]) -> TransferRecord | None:
         return None
 
 
+def _history_identity(data: Any) -> tuple[int, str, str, int] | None:
+    """Return a stable cross-source identity without treating a reusable TID as unique."""
+    if not isinstance(data, dict):
+        return None
+    payload = data.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    try:
+        tid = int(data.get("tid") or 0)
+        size = int(payload.get("size_bytes") or 0)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    created = str(data.get("created_at") or "")
+    filename = payload.get("name") or f"tid-{tid}.bin"
+    if not isinstance(filename, str):
+        return None
+    return tid, created, filename, size
+
+
 def load_real_transfer_history() -> list[TransferRecord]:
     """Load transfer records from all available sources."""
     records: list[TransferRecord] = []
-    seen_tids: set[int] = set()
+    seen_records: set[tuple[int, str, str, int]] = set()
 
     # 1. Load from latest_rx_record.json
     latest_path = _log_dir() / "latest_rx_record.json"
@@ -156,9 +175,10 @@ def load_real_transfer_history() -> list[TransferRecord]:
         try:
             data = json.loads(latest_path.read_text(encoding="utf-8"))
             record = _parse_transfer_record(data)
-            if record and record.tid not in seen_tids:
+            identity = _history_identity(data)
+            if record and identity is not None and identity not in seen_records:
                 records.append(record)
-                seen_tids.add(record.tid)
+                seen_records.add(identity)
         except (OSError, json.JSONDecodeError):
             pass
 
@@ -174,9 +194,10 @@ def load_real_transfer_history() -> list[TransferRecord]:
                 try:
                     data = json.loads(path.read_text(encoding="utf-8"))
                     record = _parse_transfer_record(data)
-                    if record and record.tid not in seen_tids:
+                    identity = _history_identity(data)
+                    if record and identity is not None and identity not in seen_records:
                         records.append(record)
-                        seen_tids.add(record.tid)
+                        seen_records.add(identity)
                 except (OSError, json.JSONDecodeError):
                     pass
         except OSError:

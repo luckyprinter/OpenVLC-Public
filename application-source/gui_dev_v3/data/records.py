@@ -54,17 +54,28 @@ def parse_lq_detail(detail: str) -> dict[str, float]:
 def _parse_transfer_record(data: dict[str, Any]) -> TransferRecord | None:
     """Parse a vlc-rx-transfer-record-v1 JSON dict into a TransferRecord."""
     try:
+        if not isinstance(data, dict):
+            raise ValueError("transfer record must be an object")
         tid = int(data.get("tid") or 0)
         payload = data.get("payload") or {}
         chunks_data = data.get("chunks") or {}
         signal_data = data.get("signal") or {}
-        attempt = data.get("current_attempt") or {}
+        if not all(isinstance(value, dict) for value in (payload, chunks_data, signal_data)):
+            raise ValueError("payload, chunks, and signal must be objects")
 
         name = payload.get("name") or f"tid-{tid}.bin"
+        if not isinstance(name, str):
+            raise ValueError("payload name must be text")
         size_bytes = int(payload.get("size_bytes") or 0)
         total_chunks = int(chunks_data.get("total") or 0)
         received_chunks = int(chunks_data.get("received") or 0)
         missing = chunks_data.get("missing_indexes") or []
+        received_indexes = chunks_data.get("received_indexes") or []
+        if not isinstance(missing, list) or not isinstance(received_indexes, list):
+            raise ValueError("chunk indexes must be arrays")
+        for indexes in (missing, received_indexes):
+            if any(type(index) is not int or index < 0 or index >= total_chunks for index in indexes):
+                raise ValueError("chunk index is outside the declared range")
 
         # Validate bounds to prevent corrupted/overflow values
         if tid < 0 or tid > _MAX_TID:
@@ -108,7 +119,7 @@ def _parse_transfer_record(data: dict[str, Any]) -> TransferRecord | None:
 
         # Build chunk records from received/missing indexes
         chunk_list: list[ChunkRecord] = []
-        received_set = set(chunks_data.get("received_indexes") or [])
+        received_set = set(received_indexes)
         missing_set = set(missing)
         for idx in range(total_chunks):
             if idx in missing_set:
@@ -129,7 +140,7 @@ def _parse_transfer_record(data: dict[str, Any]) -> TransferRecord | None:
             quality=quality,
             chunks=chunk_list,
         )
-    except (ValueError, TypeError, KeyError) as exc:
+    except (ValueError, TypeError, KeyError, OverflowError, AttributeError) as exc:
         print(f"Failed to parse transfer record: {exc}")
         return None
 

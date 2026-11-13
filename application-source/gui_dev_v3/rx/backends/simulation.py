@@ -449,43 +449,62 @@ class RXSimulationBackend:
                 self._progress = (processed / self._total_chunks) * 100.0
 
         elif event == "stop_tx":
+            try:
+                stop_tid = int(msg.get("tid", self._transfer_id))
+            except (TypeError, ValueError, OverflowError):
+                return
+            if not self._active or stop_tid != self._transfer_id:
+                return
+
             self._active = False
-            self._transfer_status = TransferStatus.COMPLETE
-            self._save_received_file()
-            self._log_append({"time": now, "event": "Transfer Complete", "details": f"Saved {self._filename}"})
+            received_bytes = sum(len(part) for part in self._received_chunks_map.values())
+            missing = max(0, self._total_chunks - len(self._received_chunks_map))
+            missing_bytes = max(0, self._file_size_bytes - received_bytes)
+            if missing > 0:
+                self._transfer_status = TransferStatus.INCOMPLETE
+                self._received_path = None
+            elif self._crc_failed_chunks:
+                self._transfer_status = TransferStatus.CRC_FAILED
+                self._received_path = self._save_received_file()
+            else:
+                self._transfer_status = TransferStatus.COMPLETE
+                self._received_path = self._save_received_file()
+
+            status_event = (
+                "INCOMPLETE" if self._transfer_status == TransferStatus.INCOMPLETE
+                else "CRC_FAILED" if self._transfer_status == TransferStatus.CRC_FAILED
+                else "COMPLETE"
+            )
+            self._log_append({
+                "time": now,
+                "event": f"Transfer {status_event}",
+                "details": (
+                    f"{self._filename}: {len(self._received_chunks_map)}/{self._total_chunks} "
+                    f"chunks received"
+                ),
+            })
 
             if self._capture_active:
                 self._capture_active = False
-                elapsed = time.time() - self._capture_start_time
-                self._capture_events.append({"time": round(elapsed, 3), "event": "COMPLETE", "details": "Simulated reception complete"})
+                elapsed = max(time.time() - self._capture_start_time, 0.001)
+                self._capture_events.append({
+                    "time": round(elapsed, 3),
+                    "event": status_event,
+                    "details": "Simulated reception finalized",
+                })
 
-                total_bits = 0
-                bit_errors = 0
-                for c_idx in range(self._total_chunks):
-                    expected = self._expected_chunks_map.get(c_idx, b"")
-                    received = self._received_chunks_map.get(c_idx, b"")
-                    if expected and received:
-                        total_bits += len(expected) * 8
-                        bit_errors += sum(1 for a, b in zip(expected, received) if a != b) * 8
-                    elif expected:
-                        total_bits += len(expected) * 8
-                        bit_errors += len(expected) * 8
+                total_bits = self._file_size_bytes * 8
+                bit_errors = sum(self._bit_errors_by_chunk.values()) + missing_bytes * 8
+                bit_errors = min(total_bits, bit_errors)
+                ber_val = bit_errors / total_bits if total_bits else 0.0
+                throughput = (self._file_size_bytes * 8) / (elapsed * 1000.0)
 
-                ber_val = bit_errors / total_bits if total_bits > 0 else 0.0
-                duration = elapsed if elapsed > 0 else 1.0
-                size = self._total_chunks * self._chunk_size
-                throughput = (size * 8) / (duration * 1000.0)
-
-                import datetime
-                from gui_dev_v3.data import save_session_capture
-                from gui_dev_v3.models import SessionCapture
-
-                cap = SessionCapture(
+                self._last_capture = SessionCapture(
                     tid=self._transfer_id,
-                    timestamp=datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
                     filename=self._filename,
-                    ber=round(ber_val, 6),
-                    crc_status="PASS" if ber_val == 0 else "FAIL",
+                    ber=round(ber_val, 9),
+                    crc_status="PASS" if self._transfer_status == TransferStatus.COMPLETE else "FAIL",
                     throughput_kbps=round(throughput, 3),
                     analog_time=self._capture_time,
                     pvo_samples=self._capture_pvo,
@@ -493,9 +512,8 @@ class RXSimulationBackend:
                     margin_samples=self._capture_margin,
                     ook_bits=self._capture_bits,
                     protocol_events=self._capture_events,
+                    ber_method="simulation",
                 )
-                save_session_capture(cap)
-                print(f"Saved completed simulation capture for TID {self._transfer_id}")
 
     def _save_received_file(self) -> None:
         from gui_dev_v3.settings import SettingsManager

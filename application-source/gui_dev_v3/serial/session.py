@@ -132,6 +132,9 @@ class SerialSession:
             ser.port = device
             ser.baudrate = baud
             ser.timeout = 0.1
+            # Bound a blocked USB write so disconnect/shutdown can acquire the
+            # write lock and release the serial handle after device removal.
+            ser.write_timeout = 0.5
             # Prevent Windows from resetting the ESP32 and dropping the handle
             ser.dtr = False
             ser.rts = False

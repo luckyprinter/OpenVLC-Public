@@ -463,10 +463,12 @@ class TXSerialController(SerialSession):
                 self.status("Preloading", path.name, percent=percent, state="active", chunk=current_c, total_chunks=tot_c)
 
             for round_index in range(round_count):
+                # Snapshot the receive counter BEFORE writing. Firmware can finish
+                # a short optical frame and emit TX_STREAM_DONE immediately; taking
+                # the snapshot after send_line() can miss that valid completion.
+                si = self.line_counter
                 if not self.send_line("STREAM_START"):
                     return False
-                # Capture counter AFTER sending STREAM_START so we only see new lines
-                si = self.line_counter
                 self.status(
                     "Sending",
                     f"{path.name} · optical round {round_index + 1}/{round_count}",

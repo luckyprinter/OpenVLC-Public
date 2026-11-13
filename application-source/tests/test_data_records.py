@@ -111,3 +111,31 @@ def test_history_keeps_distinct_records_when_firmware_reuses_tid(monkeypatch, tm
         (17, "first.bin"),
         (17, "second.bin"),
     }
+
+
+
+def test_history_skips_invalid_utf8_records_and_keeps_valid_entries(monkeypatch, tmp_path: Path):
+    from gui_dev_v3.data import records
+
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    legacy_dir = tmp_path / "legacy"
+    legacy_dir.mkdir()
+    (log_dir / "latest_rx_record.json").write_bytes(b"\xff\xfe")
+    (legacy_dir / "rx_transfer_bad.json").write_bytes(b"\xff\xfe")
+    valid = {
+        "tid": 31,
+        "payload": {"name": "valid.bin", "size_bytes": 2},
+        "chunks": {"total": 1, "received": 1, "missing_indexes": [], "received_indexes": [0]},
+        "signal": {},
+        "status": "complete",
+        "created_at": "2026-11-13 05:00:00",
+    }
+    (legacy_dir / "rx_transfer_valid.json").write_text(json.dumps(valid), encoding="utf-8")
+    monkeypatch.setattr(records, "LOG_DIR", log_dir)
+    monkeypatch.setattr(records, "LEGACY_TRANSFER_RECORDS_DIR", legacy_dir)
+
+    history = records.load_real_transfer_history()
+
+    assert len(history) == 1
+    assert history[0].filename == "valid.bin"

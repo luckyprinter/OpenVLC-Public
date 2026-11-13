@@ -34,6 +34,9 @@ from PySide6.QtCore import QTimer
 from collections import deque
 
 # ── 4B5B Encoding Helper ──
+MAX_SIMULATION_FILE_BYTES = 80 * 1024 * 1024
+MAX_SIMULATION_CHUNKS = 32768
+
 _4B5B_TABLE: dict[int, tuple[int, ...]] = {
     0x0: (1, 1, 1, 1, 0),
     0x1: (0, 1, 0, 0, 1),
@@ -259,17 +262,45 @@ class RXSimulationBackend:
             self._socket.writeDatagram(reply_bytes, QHostAddress(QHostAddress.SpecialAddress.LocalHost), 9902)
 
         elif event == "start_tx":
+            try:
+                transfer_id = int(msg.get("tid", 0))
+                total_chunks = int(msg.get("total_chunks", 0))
+                chunk_size = int(msg.get("chunk_size", 0))
+                file_size_bytes = int(msg.get("file_size_bytes", -1))
+                file_crc16 = int(msg.get("file_crc16", -1))
+                filename = Path(str(msg.get("filename", ""))).name
+            except (TypeError, ValueError, OverflowError):
+                self._log_append({"time": now, "event": "Invalid Start", "details": "Malformed simulation transfer metadata"})
+                return
+
+            expected_chunks = max(1, math.ceil(file_size_bytes / chunk_size)) if chunk_size > 0 else 0
+            if not (
+                1 <= transfer_id <= 999_999
+                and 1 <= total_chunks <= MAX_SIMULATION_CHUNKS
+                and 1 <= chunk_size <= 16 * 1024
+                and 0 <= file_size_bytes <= MAX_SIMULATION_FILE_BYTES
+                and 0 <= file_crc16 <= 0xFFFF
+                and total_chunks == expected_chunks
+                and filename
+            ):
+                self._log_append({"time": now, "event": "Invalid Start", "details": "Simulation transfer metadata is outside supported bounds"})
+                return
+
             self._active = True
-            self._transfer_id = msg.get("tid", self._transfer_id + 1)
-            if self._transfer_id > 999:
-                self._transfer_id = 1
-            self._filename = msg.get("filename", "simulated_file.bin")
-            self._total_chunks = msg.get("total_chunks", 0)
-            self._chunk_size = msg.get("chunk_size", 256)
+            self._transfer_id = transfer_id
+            self._filename = filename
+            self._total_chunks = total_chunks
+            self._chunk_size = chunk_size
+            self._file_size_bytes = file_size_bytes
+            self._expected_file_crc16 = file_crc16
+            self._received_path = None
+            self._last_capture = None
             self._progress = 0.0
             self._received_chunks_map.clear()
             self._expected_chunks_map.clear()
             self._chunks_status_map.clear()
+            self._bit_errors_by_chunk.clear()
+            self._crc_failed_chunks.clear()
             self._transfer_status = TransferStatus.INCOMPLETE
             self._bit_queue.clear()
             self._current_pvo = 0.0
@@ -283,12 +314,14 @@ class RXSimulationBackend:
             self._capture_margin = []
             self._capture_time = []
             self._capture_bits = []
-            self._capture_events = [{"time": 0.0, "event": "START", "details": f"Simulated reception started for TID {self._transfer_id}"}]
+            self._capture_events = [{
+                "time": 0.0,
+                "event": "START",
+                "details": f"Simulated reception started for TID {self._transfer_id}",
+            }]
 
             from gui_dev_v3.logic.ber_bridge import parse_ber_test_name, generate_ber_test_payload
-            import os
             ber_params = parse_ber_test_name(self._filename)
-            
             ref_data = None
             if ber_params:
                 size, seed = ber_params
@@ -296,26 +329,28 @@ class RXSimulationBackend:
                 self._log_append({
                     "time": now,
                     "event": "BERTEST Auto",
-                    "details": f"Generated LCG reference ({size} B, seed {seed:08X})"
+                    "details": f"Generated LCG reference ({size} B, seed {seed:08X})",
                 })
             elif self._expected_file_data is not None:
                 ref_data = self._expected_file_data
                 self._log_append({
                     "time": now,
                     "event": "Reference Loaded",
-                    "details": f"Using reference: {os.path.basename(self._expected_file_path or '')}"
+                    "details": f"Using reference: {Path(self._expected_file_path or '').name}",
                 })
 
             for idx in range(self._total_chunks):
                 start_offset = idx * self._chunk_size
-                end_offset = start_offset + self._chunk_size
-                expected = b""
-                if ref_data is not None:
-                    expected = ref_data[start_offset:end_offset]
+                end_offset = min(start_offset + self._chunk_size, self._file_size_bytes)
+                expected = ref_data[start_offset:end_offset] if ref_data is not None else b""
                 self._expected_chunks_map[idx] = expected
                 self._chunks_status_map[idx] = ChunkStatus.PENDING
 
-            self._log_append({"time": now, "event": "Transfer Started", "details": f"File: {self._filename} ({self._total_chunks} chunks)"})
+            self._log_append({
+                "time": now,
+                "event": "Transfer Started",
+                "details": f"File: {self._filename} ({self._file_size_bytes} bytes, {self._total_chunks} chunks)",
+            })
 
         elif event == "chunk":
             idx = msg.get("index", 0)

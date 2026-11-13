@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from gui_dev_v3.data.status import read_status
 from gui_dev_v3.data.records import parse_lq_detail
 import math

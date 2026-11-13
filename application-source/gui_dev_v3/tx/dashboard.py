@@ -134,6 +134,18 @@ class DeviceStatusWidget(QFrame):
         
     def refresh(self, state: TXAppState) -> None:
         connected = state.serial_connected
+        if state.mode == "simulated":
+            self.box_connection.setValue(
+                "Simulation Connected" if connected else "Waiting for RX",
+                COLORS["green"] if connected else COLORS["red"],
+            )
+            self.box_firmware.setValue("Virtual VLC Channel", COLORS["value"])
+            self.box_protocol.setValue("4B5B / NRZ-OOK", COLORS["value"])
+            self.box_usb.setValue(
+                "UDP localhost:9902" if connected else "UDP peer unavailable",
+                COLORS["green"] if connected else COLORS["muted"],
+            )
+            return
         if connected:
             self.box_connection.setValue("Hardware Connected", COLORS["green"])
             physical = getattr(state, "_physical", None)

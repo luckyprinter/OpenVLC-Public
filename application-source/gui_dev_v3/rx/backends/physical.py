@@ -379,6 +379,17 @@ class RXPhysicalBackend:
         if self._reader_stop.is_set():
             return
         self._reader_stop.set()
+        # Batch fragments belong to one physical serial session. Never allow
+        # an incomplete group (or its progress metadata) to survive a close
+        # and combine with fragments received after reconnect.
+        self._batch_assembler.clear()
+        self._active_tid = None
+        self._active_total_chunks = 0
+        self._active_received_chunks = 0
+        self._active_filename = ""
+        self._active_total_size = 0
+        self._active_started_monotonic = None
+        self._active_batch_group_id = None
         with self._write_lock:
             if self._ser is ser:
                 self._ser = None

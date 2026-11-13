@@ -294,3 +294,36 @@ def test_legacy_capture_migration_uses_unique_temporary_file(tmp_path, monkeypat
     assert (current_dir / "session_73.json").read_text(encoding="utf-8") == raw
     assert legacy_path.read_text(encoding="utf-8") == raw
     assert not list(current_dir.glob(".*.tmp"))
+
+
+def test_save_session_capture_preserves_structurally_malformed_existing_file(
+    tmp_path, monkeypatch
+):
+    capture_dir = tmp_path / "captures"
+    capture_dir.mkdir()
+    monkeypatch.setattr(records, "CAPTURE_DIR", capture_dir)
+    path = capture_dir / "session_42.json"
+    payload = _capture_payload()
+    payload["pvo_samples"] = {"corrupt": "array"}
+    original = json.dumps(payload).encode("utf-8")
+    path.write_bytes(original)
+
+    capture = SessionCapture(
+        tid=42,
+        timestamp="2026-11-13 12:00:00",
+        filename="new-capture.bin",
+        ber=None,
+        crc_status="PASS",
+        throughput_kbps=1.0,
+        analog_time=[],
+        pvo_samples=[],
+        vref_samples=[],
+        margin_samples=[],
+        ook_bits=[],
+        protocol_events=[],
+    )
+
+    records.save_session_capture(capture)
+
+    assert path.read_bytes() == original
+    assert not list(capture_dir.glob(".*.tmp"))

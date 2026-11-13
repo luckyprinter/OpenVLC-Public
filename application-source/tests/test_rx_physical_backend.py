@@ -773,3 +773,90 @@ def test_cached_rx_status_does_not_invent_empty_or_live_transfer(
     else:
         assert snapshot.latest_transfer.tid == 42
         assert snapshot.latest_transfer.filename == "partial.bin"
+
+
+def test_rx_unexpected_disconnect_persists_partial_transfer_context(monkeypatch):
+    backend = RXPhysicalBackend()
+    backend._reader_stop.clear()
+    backend._record_diag = lambda *_args, **_kwargs: None
+    writes = []
+    monkeypatch.setattr(
+        physical,
+        "write_status",
+        lambda role, stage, **kwargs: writes.append((role, stage, kwargs)) or True,
+    )
+
+    class FakeSerial:
+        port = "/dev/ttyUSB-RX"
+
+        def close(self):
+            pass
+
+    handle = FakeSerial()
+    backend._ser = handle
+    backend._connected = True
+    backend._port = handle.port
+    backend._active_tid = 42
+    backend._active_filename = "partial.bin"
+    backend._active_total_size = 2048
+    backend._active_total_chunks = 4
+    backend._active_received_chunks = 2
+
+    backend._mark_serial_lost(handle, OSError("USB unplugged"))
+
+    assert writes == [
+        (
+            "rx",
+            "Connection Lost",
+            {
+                "detail": "OSError",
+                "state": "error",
+                "port": "/dev/ttyUSB-RX",
+                "tid": 42,
+                "file_name": "partial.bin",
+                "size_bytes": 2048,
+                "total_chunks": 4,
+                "received_chunks": 2,
+                "percent": 50.0,
+            },
+        )
+    ]
+
+
+def test_rx_manual_disconnect_persists_partial_transfer_context(monkeypatch):
+    backend = RXPhysicalBackend()
+    backend._record_diag = lambda *_args, **_kwargs: None
+    backend._close_serial = lambda: True
+    writes = []
+    monkeypatch.setattr(
+        physical,
+        "write_status",
+        lambda role, stage, **kwargs: writes.append((role, stage, kwargs)) or True,
+    )
+    backend._connected = True
+    backend._port = "/dev/ttyUSB-RX"
+    backend._active_tid = 7
+    backend._active_filename = "manual.bin"
+    backend._active_total_size = 100
+    backend._active_total_chunks = 2
+    backend._active_received_chunks = 1
+
+    backend.disconnect()
+
+    assert writes == [
+        (
+            "rx",
+            "Disconnected",
+            {
+                "detail": "User disconnected",
+                "state": "idle",
+                "port": "/dev/ttyUSB-RX",
+                "tid": 7,
+                "file_name": "manual.bin",
+                "size_bytes": 100,
+                "total_chunks": 2,
+                "received_chunks": 1,
+                "percent": 50.0,
+            },
+        )
+    ]

@@ -881,7 +881,7 @@ def test_minimum_window_dimensions_allow_responsive_laptop_sizes(
 
 
 
-def test_main_window_close_cleans_up_both_console_backends(monkeypatch):
+def test_main_window_close_cleans_up_both_console_backends(qapp, monkeypatch):
     window = VLCMainWindow()
     cleaned = []
     window._rx_shell = SimpleNamespace(cleanup=lambda: cleaned.append("rx"))
@@ -900,7 +900,7 @@ def test_main_window_close_cleans_up_both_console_backends(monkeypatch):
     assert base_close == [event]
 
 
-def test_main_window_close_continues_when_one_console_cleanup_fails(monkeypatch):
+def test_main_window_close_continues_when_one_console_cleanup_fails(qapp, monkeypatch):
     window = VLCMainWindow()
     cleaned = []
 

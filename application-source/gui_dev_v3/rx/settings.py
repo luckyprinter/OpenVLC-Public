@@ -143,7 +143,7 @@ class GeneralDisplayPage(QWidget):
             QMessageBox.critical(
                 self,
                 "Settings Reset Failed",
-                "OpenVLC could not safely save the default settings. Existing settings were preserved. "
+                "OpenVLC could not complete the settings reset. Some settings may already have been reset; "
                 "Check that the configuration directory is writable and that any corrupt settings "
                 "backup can be created, then try again.",
             )

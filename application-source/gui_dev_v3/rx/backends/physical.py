@@ -122,6 +122,7 @@ class RXPhysicalBackend:
         # Background auto-connect state — prevents GUI thread from blocking
         self._connect_thread: Any = None
         self._connecting: bool = False
+        self._shutting_down: bool = False
         # Background serial reader thread — reads ALL lines from ESP32 continuously
         self._line_queue: queue.Queue[str] = queue.Queue(maxsize=2048)
         self._last_lq_line: str | None = None  # most recent LQ line seen by reader
@@ -221,6 +222,8 @@ class RXPhysicalBackend:
 
     def _auto_connect_locked(self) -> bool:
         """Perform discovery and persistent connection while holding the shared lock."""
+        if self._shutting_down:
+            return False
         ports = self.scan_ports()
         # Try this RX console's last successful port first. If it is stale,
         # prioritize_preferred_port leaves the actual enumerated fallback list intact.
@@ -231,8 +234,12 @@ class RXPhysicalBackend:
         if ports:
             self.log("Scan", f"Found {len(ports)} ports: {', '.join(ports)}")
         for port in ports:
+            if self._shutting_down:
+                return False
             self.log("Detect", f"Probing {port}...")
             info = self.detect_firmware(port)
+            if self._shutting_down:
+                return False
             if info and info.get("device") == "VLC_RX":
                 self._port = port
                 if not self._open_serial():
@@ -241,6 +248,10 @@ class RXPhysicalBackend:
                     self.log("Error [C02]", f"PySerial failed to open {port}; continuing scan")
                     self._port = None
                     continue
+                if self._shutting_down:
+                    self._close_serial()
+                    self._port = None
+                    return False
                 self._connected = True
                 # Remember only a successfully identified and opened RX device.
                 settings.set("connection/port", port)
@@ -264,9 +275,13 @@ class RXPhysicalBackend:
 
     def _connect_locked(self, port: str, force: bool = False) -> bool:
         """Connect to a specific port after firmware detection."""
+        if self._shutting_down:
+            return False
         if not force:
             self.log("Connect", f"Detecting firmware on {port}...")
             info = self.detect_firmware(port)
+            if self._shutting_down:
+                return False
             if not info:
                 self.log("Error [C01]", f"Firmware detection failed on {port}")
                 return False
@@ -282,6 +297,11 @@ class RXPhysicalBackend:
             self._port = None
             self._connected = False
             self.log("Error [C02]", f"PySerial failed to open {port}")
+            return False
+
+        if self._shutting_down:
+            self._close_serial()
+            self._port = None
             return False
 
         self._connected = True
@@ -369,6 +389,9 @@ class RXPhysicalBackend:
             ready_timeout = max(1.0, min(ready_timeout, 120.0))
             if not self._ready_event.wait(timeout=ready_timeout):
                 self.log("Readiness Timeout", f"RX firmware did not answer ready ping on {self._port} within {ready_timeout:g}s")
+                self._close_serial()
+                return False
+            if self._shutting_down:
                 self._close_serial()
                 return False
             return True
@@ -957,8 +980,16 @@ class RXPhysicalBackend:
             self._pwm_autocal_converged = False
 
     def cleanup(self) -> None:
-        """Close serial connection and release port."""
+        """Stop discovery and serial workers before releasing the RX port."""
+        self._shutting_down = True
+        # Wake a readiness wait so the connect worker can observe shutdown.
+        self._ready_event.set()
+        worker = self._connect_thread
+        if worker is not None and worker.is_alive() and worker is not threading.current_thread():
+            worker.join(timeout=3.0)
         self._close_serial()
+        self._connected = False
+        self._port = None
 
     # ── Live data acquisition ──
 
@@ -1004,7 +1035,7 @@ class RXPhysicalBackend:
         even when no further fragments arrive.
         """
         self._prune_expired_batches()
-        if not self._connected:
+        if not self._connected and not self._shutting_down:
             from gui_dev_v3.settings import SettingsManager
             mgr = SettingsManager("rx")
             mode = mgr.get("connection/mode", "Auto Detect (Recommended)")

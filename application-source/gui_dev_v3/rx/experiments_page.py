@@ -220,7 +220,20 @@ class ExperimentsPage(QWidget):
             self._overlay.setGeometry(self.rect())
 
     def _reload_table(self, filter_text: str = "") -> None:
-        all_experiments = list_experiments()
+        try:
+            all_experiments = list_experiments()
+        except ExperimentStoreError as exc:
+            self._empty_state.setText(
+                "Saved experiments could not be loaded. The existing data has been preserved. "
+                f"{exc}"
+            )
+            self._empty_state.setVisible(True)
+            self._table.setRowCount(0)
+            self._table.setVisible(False)
+            self._selected_id = None
+            for btn in (self._view_btn, self._edit_btn, self._delete_btn):
+                btn.setEnabled(False)
+            return
         experiments = all_experiments
         if filter_text:
             ft = filter_text.lower()

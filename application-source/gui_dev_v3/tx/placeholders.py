@@ -88,11 +88,11 @@ class TransmitPage(QWidget):
         ctrl_card.body.addWidget(self.clear_btn)
         right_col.addWidget(ctrl_card)
 
-        config_card = Card("Batch Configuration")
+        config_card = Card("Current Execution Policy")
         self._config_card = config_card
         config_card.body.addWidget(_detail_row("Batch Mode", "Sequential"))
-        config_card.body.addWidget(_detail_row("Retry Policy", "Max 3 retries"))
-        config_card.body.addWidget(_detail_row("Delay Between Files", "2.0 seconds"))
+        config_card.body.addWidget(_detail_row("Automatic Retries", "Disabled"))
+        config_card.body.addWidget(_detail_row("Next File", "After prior result"))
         right_col.addWidget(config_card)
         right_col.addStretch(1)
         top_row.addLayout(right_col, 4)

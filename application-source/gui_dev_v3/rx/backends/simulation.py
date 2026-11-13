@@ -8,10 +8,15 @@ No serial ports. No firmware. No filesystem dependencies.
 from __future__ import annotations
 
 import math
+import os
 import random
+import tempfile
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
+
+from gui_dev_v3.tx.protocol import crc16_ccitt
 
 from gui_dev_v3.models import (
     ChunkRecord,
@@ -73,6 +78,7 @@ class RXSimulationSnapshot:
     transfer: TransferRecord
     activity_log: list[dict[str, str]]
     channel_params: "VirtualChannelParams"
+    capture: Any | None = None
 
 
 @dataclass
@@ -130,6 +136,12 @@ class RXSimulationBackend:
         self._chunks_status_map: dict[int, ChunkStatus] = {}
         self._total_chunks = 0
         self._chunk_size = 256
+        self._file_size_bytes = 0
+        self._expected_file_crc16: int | None = None
+        self._received_path: str | None = None
+        self._last_capture = None
+        self._bit_errors_by_chunk: dict[int, int] = {}
+        self._crc_failed_chunks: set[int] = set()
         self._transfer_status = TransferStatus.PENDING
         self._expected_file_data: bytes | None = None
         self._expected_file_path: str | None = None

@@ -474,6 +474,10 @@ class RXPhysicalBackend:
         if self._reader_stop.is_set():
             return
         self._reader_stop.set()
+        lost_port = self._port if self._ser is ser else None
+        # Snapshot the interrupted transfer before clearing session-owned
+        # decoder state. The status file remains useful after application restart.
+        transfer_context = self._active_transfer_status_fields()
         # Batch fragments belong to one physical serial session. Never allow
         # an incomplete group (or its progress metadata) to survive a close
         # and combine with fragments received after reconnect.
@@ -485,8 +489,6 @@ class RXPhysicalBackend:
         self._active_total_size = 0
         self._active_started_monotonic = None
         self._active_batch_group_id = None
-        lost_port = self._port if self._ser is ser else None
-        transfer_context = self._active_transfer_status_fields()
         with self._write_lock:
             if self._ser is ser:
                 self._ser = None

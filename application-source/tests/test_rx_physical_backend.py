@@ -1,3 +1,5 @@
+import pytest
+
 from gui_dev_v3 import logger
 from gui_dev_v3.models import TransferStatus
 from gui_dev_v3.rx.backends import physical

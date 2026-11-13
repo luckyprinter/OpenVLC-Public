@@ -110,3 +110,26 @@ def test_corrupt_legacy_experiment_store_blocks_new_store_creation(
         store.create_experiment("New test", "Distance Test", "")
     assert not current_path.exists()
     assert legacy_path.read_text(encoding="utf-8") == original
+
+
+def test_concurrent_experiment_creates_preserve_every_record(monkeypatch, tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    monkeypatch.setattr(store, "STORE_DIR", tmp_path)
+    monkeypatch.setattr(store, "STORE_PATH", tmp_path / "experiments.json")
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        created = list(pool.map(
+            lambda index: store.create_experiment(
+                f"Experiment {index}", "Concurrency Test", ""
+            ),
+            range(24),
+        ))
+
+    records = store.list_experiments()
+    assert len(records) == 24
+    assert len({record.id for record in records}) == 24
+    assert {record.name for record in records} == {
+        f"Experiment {index}" for index in range(24)
+    }
+    assert not list(tmp_path.glob(".experiments.*.tmp"))

@@ -199,6 +199,12 @@ class HardwareConnectionPage(QWidget):
         from gui_dev_v3.tx.backends.physical import _list_usb_serial_ports
         
         def _refresh_ports():
+            if self._state is not None and self._state.mode == "simulated":
+                self.port_combo.blockSignals(True)
+                self.port_combo.clear()
+                self.port_combo.addItem("Simulation mode active")
+                self.port_combo.blockSignals(False)
+                return
             self.port_combo.blockSignals(True)
             self.port_combo.clear()
             ports = _list_usb_serial_ports()
@@ -298,6 +304,15 @@ class HardwareConnectionPage(QWidget):
         self.status_card.body.addWidget(self._port_label)
         self.status_card.body.addWidget(self._conn_label)
         lo.addWidget(self.status_card)
+
+        self.simulation_card = Card("Simulation Link")
+        self._simulation_status = muted_label("Waiting for the RX console to enter Simulation mode.")
+        self.simulation_card.body.addWidget(self._simulation_status)
+        self.simulation_card.body.addWidget(muted_label(
+            "No serial port is opened in this mode. TX and RX exchange virtual VLC frames over localhost UDP."
+        ))
+        self.simulation_card.hide()
+        lo.addWidget(self.simulation_card)
         lo.addStretch(1)
 
 
@@ -317,6 +332,16 @@ class HardwareConnectionPage(QWidget):
 
     def refresh(self, state: TXAppState) -> None:
         if state is None:
+            return
+        simulated = state.mode == "simulated"
+        self.opts_card.setVisible(not simulated)
+        self.status_card.setVisible(not simulated)
+        self.simulation_card.setVisible(simulated)
+        if simulated:
+            self._simulation_status.setText(
+                "Connected to RX Simulation." if state.serial_connected
+                else "Waiting for the RX console to enter Simulation mode."
+            )
             return
         if state.serial_connected:
             self._port_label.setText(f"Port: {state.port or '—'}")

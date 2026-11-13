@@ -106,9 +106,12 @@ def reset_all_settings(mgr: SettingsManager, window: QWidget | None = None) -> b
         return False
 
     # Reuse the current manager and clear the other console's scope too.
-    mgr.clear()
+    # QSettings.sync() can fail independently of the JSON settings store.
+    if mgr.clear() is False:
+        return False
     other_scope = "tx" if getattr(mgr, "scope", "rx") == "rx" else "rx"
-    SettingsManager(other_scope).clear()
+    if SettingsManager(other_scope).clear() is False:
+        return False
 
     # closeEvent persists the window's in-memory display values. Replace them
     # too, otherwise closing after reset would silently restore the old values.

@@ -41,7 +41,7 @@ def read_status(role: str) -> dict[str, Any] | None:
         raw = path.read_text(encoding="utf-8")
         data: dict[str, Any] | None = json.loads(raw)
         return data if isinstance(data, dict) else None
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return None
 
 
@@ -58,7 +58,7 @@ def read_migration_status(role: str) -> dict[str, Any] | None:
     return read_status(role)
 
 
-def write_status(role: str, stage: str, detail: str = "", percent: float | None = None, state: str = "idle", **extra: Any) -> None:
+def write_status(role: str, stage: str, detail: str = "", percent: float | None = None, state: str = "idle", **extra: Any) -> bool:
     """Write a status file to the application-owned state directory."""
     import time
 
@@ -94,8 +94,9 @@ def write_status(role: str, stage: str, detail: str = "", percent: float | None 
                 temporary.flush()
                 os.fsync(temporary.fileno())
             os.replace(temporary_path, target)
-        except OSError:
-            pass
+            return True
+        except (OSError, TypeError, ValueError, OverflowError):
+            return False
         finally:
             if temporary_path is not None and temporary_path.exists():
                 try:

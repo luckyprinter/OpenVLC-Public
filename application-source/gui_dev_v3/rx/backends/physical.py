@@ -782,6 +782,17 @@ class RXPhysicalBackend:
         pySerial drivers. Join only after releasing the handle so a slow or
         unplugged adapter cannot leave an untracked reader behind.
         """
+        # A closed serial session is a hard transfer boundary. Never allow
+        # partial batch fragments or progress from the old connection to be
+        # combined with a later session (even if firmware reuses a group ID).
+        self._batch_assembler.clear()
+        self._active_tid = None
+        self._active_total_chunks = 0
+        self._active_received_chunks = 0
+        self._active_filename = ""
+        self._active_total_size = 0
+        self._active_started_monotonic = None
+        self._active_batch_group_id = None
         self._reader_stop.set()
         with self._write_lock:
             ser = self._ser

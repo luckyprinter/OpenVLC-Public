@@ -233,3 +233,29 @@ def test_operating_mode_selector_persists_and_switches_backend(monkeypatch, qapp
 
     selector.close()
     state.cleanup()
+
+
+def test_local_udp_simulation_backends_establish_peer_link(qapp):
+    from PySide6.QtCore import QEventLoop, QTimer
+    from gui_dev_v3.rx.backends.simulation import RXSimulationBackend
+    from gui_dev_v3.tx.backends.simulation import TXSimulationBackend
+
+    rx = RXSimulationBackend()
+    tx = TXSimulationBackend()
+    try:
+        assert rx._socket is not None
+        assert tx._socket is not None
+        assert rx._socket.localPort() == 9901
+        assert tx._socket.localPort() == 9902
+
+        loop = QEventLoop()
+        QTimer.singleShot(1800, loop.quit)
+        loop.exec()
+
+        assert tx.refresh().serial_connected is True
+        assert rx._tx_connected is True
+        assert rx.get_new_samples(0)
+    finally:
+        tx.stop()
+        rx.cleanup()
+        qapp.processEvents()

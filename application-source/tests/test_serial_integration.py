@@ -266,6 +266,31 @@ def test_failed_open_never_reports_connected(monkeypatch: pytest.MonkeyPatch):
 
 
 
+
+def test_connect_reader_start_failure_releases_open_serial_handle(fake_serial, monkeypatch):
+    class FailingThread:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("simulated reader startup failure")
+
+        def is_alive(self):
+            return False
+
+    monkeypatch.setattr(
+        "gui_dev_v3.serial.session.threading.Thread", FailingThread
+    )
+    session = SerialSession("tx")
+
+    assert session.connect("MOCK_TX") is False
+    assert session.is_connected is False
+    assert session.serial_obj is None
+    assert session._reader_thread is None
+    assert fake_serial.open_ports == set()
+
+
+
 def test_rx_persistent_open_disables_dtr_and_rts(fake_serial, monkeypatch):
     from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
 

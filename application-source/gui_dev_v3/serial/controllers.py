@@ -32,6 +32,18 @@ from .session import (
 )
 
 
+def _crc16_file(path: Path, block_size: int = 64 * 1024) -> int:
+    """Calculate a file CRC with bounded memory for large batched transfers."""
+    crc = 0xFFFF
+    with path.open("rb") as source:
+        while True:
+            block = source.read(block_size)
+            if not block:
+                break
+            crc = crc16_ccitt(block, initial_crc=crc)
+    return crc
+
+
 # ── Firmware capability flags ────────────────────────────────────────────────
 # tx_dma.ino supports: PREAMBLE=, CARRIER=, DMA_MODE=, DMA_BEGIN, DMA_DATA
 # tx_non_dma.ino does NOT support these commands → would cause TX_ERROR
@@ -167,7 +179,9 @@ class TXSerialController(SerialSession):
             self.status("File missing", str(path), state="error")
             return False
 
-        data = path.read_bytes()
+        file_stat = path.stat()
+        file_size = file_stat.st_size
+        file_signature = (file_stat.st_size, file_stat.st_mtime_ns)
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("tx")
         user_wants_dma = bool(mgr.get("link/dma_mode", False))
@@ -178,11 +192,14 @@ class TXSerialController(SerialSession):
         chunk_size = max(16, min(int(chunk_bytes), 1024))
         round_count = max(1, int(rounds))
 
-        if not use_dma and len(data) > MAX_STREAM_FILE_BYTES:
+        if not use_dma and file_size > MAX_STREAM_FILE_BYTES:
             group_id = random.randint(1, 65535)
-            full_crc = crc16_ccitt(data)
+            full_crc = _crc16_file(path)
+            if (path.stat().st_size, path.stat().st_mtime_ns) != file_signature:
+                self.status("File changed", "The selected file changed while its checksum was being calculated", state="error")
+                return False
             part_size, part_count = plan_stream_parts(
-                len(data), chunk_size, max_file_bytes=MAX_STREAM_FILE_BYTES
+                file_size, chunk_size, max_file_bytes=MAX_STREAM_FILE_BYTES
             )
             if part_count > MAX_BATCH_PARTS:
                 self.status(
@@ -215,45 +232,58 @@ class TXSerialController(SerialSession):
                 return False
 
             batch_total_chunks = sum(
-                (min(part_size, len(data) - offset) + chunk_size - 1) // chunk_size
-                for offset in range(0, len(data), part_size)
+                (min(part_size, file_size - offset) + chunk_size - 1) // chunk_size
+                for offset in range(0, file_size, part_size)
             )
             self.status(
                 "Batching large file",
-                f"{len(data):,} B split into {part_count} parts",
+                f"{file_size:,} B split into {part_count} parts",
                 state="active",
             )
             batch_started = time.monotonic()
 
-            for part_index, offset in enumerate(range(0, len(data), part_size), start=1):
-                part = data[offset:offset + part_size]
-                part_tid = random.randint(1, 65535)
-                part_crc = crc16_ccitt(part)
-                # Format: VLCB1~group_id~part_index~part_count~full_crc~original_name
-                prefix = f"VLCB1~{group_id:04X}~{part_index:03d}~{part_count:03d}~{full_crc:04X}~"
-                part_name_bytes = (prefix + path.name).encode("utf-8")
+            with path.open("rb") as source:
+                for part_index, offset in enumerate(range(0, file_size, part_size), start=1):
+                    if (path.stat().st_size, path.stat().st_mtime_ns) != file_signature:
+                        self.status("File changed", "The selected file changed during transmission; remaining parts were stopped", state="error")
+                        return False
+                    source.seek(offset)
+                    expected_part_size = min(part_size, file_size - offset)
+                    part = source.read(expected_part_size)
+                    if len(part) != expected_part_size:
+                        self.status("File read failed", f"Expected {expected_part_size} bytes at offset {offset}, read {len(part)}", state="error")
+                        return False
+                    part_tid = random.randint(1, 65535)
+                    part_crc = crc16_ccitt(part)
+                    # Format: VLCB1~group_id~part_index~part_count~full_crc~original_name
+                    prefix = f"VLCB1~{group_id:04X}~{part_index:03d}~{part_count:03d}~{full_crc:04X}~"
+                    part_name_bytes = (prefix + path.name).encode("utf-8")
 
-                self.status(
-                    "Sending batch part",
-                    f"Part {part_index}/{part_count}...",
-                    state="active",
-                )
-                success = self._send_stream(
-                    path, part, part_name_bytes, chunk_size, part_tid, part_crc,
-                    round_count, batch_part=True,
-                )
-                if not success:
-                    return False
-
-                # Delay for RX to process the completed part before the next.
-                if part_index < part_count:
-                    delay_s = max(6.0, min(14.0, 3.0 + (len(part) / 20_000.0)))
                     self.status(
-                        "Batch delay",
-                        f"Waiting {delay_s:.1f}s for RX buffer...",
+                        "Sending batch part",
+                        f"Part {part_index}/{part_count}...",
                         state="active",
                     )
-                    time.sleep(delay_s)
+                    success = self._send_stream(
+                        path, part, part_name_bytes, chunk_size, part_tid, part_crc,
+                        round_count, batch_part=True,
+                    )
+                    if not success:
+                        return False
+
+                    # Delay for RX to process the completed part before the next.
+                    if (path.stat().st_size, path.stat().st_mtime_ns) != file_signature:
+                        self.status("File changed", "The selected file changed during transmission; remaining parts were stopped", state="error")
+                        return False
+
+                    if part_index < part_count:
+                        delay_s = max(6.0, min(14.0, 3.0 + (len(part) / 20_000.0)))
+                        self.status(
+                            "Batch delay",
+                            f"Waiting {delay_s:.1f}s for RX buffer...",
+                            state="active",
+                        )
+                        time.sleep(delay_s)
 
             elapsed_total = max(0.001, time.monotonic() - batch_started)
             data_rate = f"{(len(data) * 8 / elapsed_total):.0f} bps"
@@ -268,7 +298,7 @@ class TXSerialController(SerialSession):
                 percent=100,
                 state="ready",
                 file_name=path.name,
-                size=len(data),
+                size=file_size,
                 tid=part_tid,
                 chunk=batch_total_chunks,
                 total_chunks=batch_total_chunks,
@@ -292,6 +322,10 @@ class TXSerialController(SerialSession):
                 f"Filename must fit {MAX_NAME_BYTES} UTF-8 bytes",
                 state="error",
             )
+            return False
+        data = path.read_bytes()
+        if len(data) != file_size or (path.stat().st_size, path.stat().st_mtime_ns) != file_signature:
+            self.status("File changed", "The selected file changed before transmission could start", state="error")
             return False
         tid         = random.randint(1, 65535)
         file_crc    = crc16_ccitt(data)

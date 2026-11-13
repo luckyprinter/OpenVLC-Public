@@ -180,3 +180,29 @@ def test_runtime_status_writes_use_unique_atomic_temporaries(tmp_path, monkeypat
     assert result["stage"] == f"Stage {result['writer']}"
     assert result["percent"] == result["writer"]
     assert not list(tmp_path.glob(".*.tmp"))
+
+
+
+def test_status_reader_treats_invalid_utf8_as_corrupt(monkeypatch, tmp_path):
+    from gui_dev_v3.data import status
+
+    monkeypatch.setattr(status, "_STATE_DIR", tmp_path)
+    (tmp_path / "rx_status.json").write_bytes(b"\xff\xfe")
+    assert status.read_status("rx") is None
+
+
+def test_status_writer_returns_false_for_unserializable_payload(monkeypatch, tmp_path):
+    from gui_dev_v3.data import status
+
+    monkeypatch.setattr(status, "_STATE_DIR", tmp_path)
+    assert status.write_status("rx", "Receiving", unsupported=object()) is False
+    assert not (tmp_path / "rx_status.json").exists()
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+def test_status_writer_returns_false_for_invalid_percent(monkeypatch, tmp_path):
+    from gui_dev_v3.data import status
+
+    monkeypatch.setattr(status, "_STATE_DIR", tmp_path)
+    assert status.write_status("rx", "Receiving", percent="invalid") is False
+    assert not (tmp_path / "rx_status.json").exists()

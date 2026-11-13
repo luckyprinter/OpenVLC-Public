@@ -20,6 +20,12 @@ on:
         required: false
         type: string
 
+# Keep only the newest run for this PR/ref. Rapid successive commits should
+# not consume runners validating obsolete heads.
+concurrency:
+  group: build-application-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 

@@ -423,6 +423,7 @@ class RXPhysicalBackend:
         self._active_total_size = 0
         self._active_started_monotonic = None
         self._active_batch_group_id = None
+        lost_port = self._port if self._ser is ser else None
         with self._write_lock:
             if self._ser is ser:
                 self._ser = None
@@ -440,7 +441,7 @@ class RXPhysicalBackend:
             "Connection Lost",
             detail=detail,
             state="error",
-            port=getattr(ser, "port", None),
+            port=lost_port,
         ):
             self.log("Status Write Failed", "Could not persist the RX connection-lost state")
 

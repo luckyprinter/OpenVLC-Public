@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import binascii
 import json
+import os
 import queue
 import re
+import tempfile
 import threading
 import time
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any

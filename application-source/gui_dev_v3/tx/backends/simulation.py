@@ -21,6 +21,7 @@ from PySide6.QtNetwork import QUdpSocket, QHostAddress
 
 
 MAX_SIMULATION_FILE_BYTES = 80 * 1024 * 1024
+MAX_SIMULATION_CHUNKS = 32768
 
 
 def _crc16_ccitt_file(path: Path) -> int:
@@ -197,6 +198,16 @@ class TXSimulationBackend:
         self._filename = path.name
         self._chunk_size = max(1, min(16 * 1024, int(self._params.chunk_size)))
         self._total_chunks = max(1, math.ceil(file_size / self._chunk_size))
+        if self._total_chunks > MAX_SIMULATION_CHUNKS:
+            self._file_handle.close()
+            self._file_handle = None
+            self._status_text = "Failed"
+            self._log_append({
+                "time": time.strftime("%H:%M:%S"),
+                "event": "Error",
+                "details": f"Simulation is limited to {MAX_SIMULATION_CHUNKS} chunks at the selected chunk size",
+            })
+            return
         self._current_chunk = 0
         self._progress = 0.0
         self._session_start = time.time()
@@ -255,6 +266,7 @@ class TXSimulationBackend:
         chunk_msg = {
             "event": "chunk",
             "index": self._current_chunk,
+            "tid": self._transfer_id,
             "data": chunk_bytes.hex(),
             "crc16": crc16_ccitt(chunk_bytes),
         }

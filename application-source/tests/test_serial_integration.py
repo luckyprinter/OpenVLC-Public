@@ -937,3 +937,32 @@ def test_tx_cleanup_disconnects_then_joins_active_transmission_worker(monkeypatc
     assert backend._shutting_down is True
     assert order == [("disconnect", None), ("join", 2.0)]
     assert backend._transmission_thread is None
+
+
+def test_tx_reader_failure_closes_handle_even_when_is_open_property_raises(monkeypatch):
+    session = SerialSession("tx")
+    closed = []
+    monkeypatch.setattr(
+        "gui_dev_v3.serial.session.write_status",
+        lambda *_args, **_kwargs: True,
+    )
+
+    class BrokenHandle:
+        @property
+        def is_open(self):
+            raise OSError("USB state unavailable")
+
+        def close(self):
+            closed.append(True)
+
+    handle = BrokenHandle()
+    session.serial_obj = handle
+    session.is_connected = True
+    session._running = True
+
+    session._mark_reader_failed(OSError("USB unplugged"))
+
+    assert closed == [True]
+    assert session.serial_obj is None
+    assert session.is_connected is False
+    assert session._running is False

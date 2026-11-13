@@ -26,6 +26,7 @@ from gui_dev_v3.models import SessionState, SignalState, TransferRecord, Transfe
 from gui_dev_v3.logic.batch_assembler import BatchAssembler
 from gui_dev_v3.runtime_paths import configure_runtime_data_dir
 from gui_dev_v3.serial.detection import prioritize_preferred_port
+from gui_dev_v3.serial.transfer_plan import MAX_BATCH_PARTS, MAX_STREAM_CHUNKS
 
 STATUS_FRESHNESS_SEC = 30.0
 
@@ -454,45 +455,70 @@ class RXPhysicalBackend:
                 pass
 
     def _handle_transfer_notice(self, line: str) -> None:
-        """Parse RX_TRANSFER_NOTICE and update active transfer state."""
+        """Parse and validate RX_TRANSFER_NOTICE before changing live state."""
         # Format: RX_TRANSFER_NOTICE:<tid>:<total_size>:<total_chunks>:<crc_hex>:<name_hex>
         now = time.strftime("%H:%M:%S")
         try:
             parts = line.split(":")
-            if len(parts) >= 5:
-                tid = int(parts[1])
-                total_size = int(parts[2])
-                total_chunks = int(parts[3])
-                name_hex = parts[5] if len(parts) > 5 else ""
-                filename = bytes.fromhex(name_hex).decode("utf-8", errors="replace") if name_hex else "unknown"
-                
-                is_batch = False
-                batch_info = ""
-                self._active_batch_group_id = None
-                if filename.startswith("VLCB1~"):
-                    b_parts = filename.split("~", 5)
-                    if len(b_parts) == 6:
-                        self._active_batch_group_id = b_parts[1]
-                        part_index = int(b_parts[2])
-                        part_count = int(b_parts[3])
-                        orig_name = b_parts[5]
-                        filename = f"{orig_name} (Part {part_index}/{part_count})"
-                        is_batch = True
-                        batch_info = f" [Batch Part {part_index}/{part_count}]"
+            if len(parts) != 6:
+                raise ValueError("transfer notice must contain exactly six fields")
 
-                self._active_tid = tid
-                self._active_started_monotonic = time.monotonic()
-                self._active_total_chunks = total_chunks
-                self._active_received_chunks = 0
-                self._active_filename = filename
-                self._active_total_size = total_size
-                self._log_queue.append({
-                    "time": now,
-                    "event": "Transfer Start",
-                    "details": f"TID={tid} file='{filename}' size={total_size}B chunks={total_chunks}{batch_info}"
-                })
+            tid = int(parts[1])
+            total_size = int(parts[2])
+            total_chunks = int(parts[3])
+            int(parts[4], 16)  # Validate the firmware CRC field even though RX_FILE_HEX carries it again.
+            if tid < 0 or total_size < 0:
+                raise ValueError("transfer notice contains a negative identifier or size")
+            if not 0 <= total_chunks <= MAX_STREAM_CHUNKS:
+                raise ValueError("transfer notice chunk count exceeds the firmware limit")
+
+            name_hex = parts[5]
+            filename = bytes.fromhex(name_hex).decode("utf-8") if name_hex else "unknown"
+            batch_group_id = None
+            batch_info = ""
+            if filename.startswith("VLCB1~"):
+                b_parts = filename.split("~", 5)
+                if len(b_parts) != 6:
+                    raise ValueError("malformed VLCB1 transfer-notice metadata")
+                _, group_id, index_text, count_text, full_crc_text, original_name = b_parts
+                part_index = int(index_text)
+                part_count = int(count_text)
+                int(full_crc_text, 16)
+                if (
+                    not group_id
+                    or not original_name
+                    or not 1 <= part_index <= part_count <= MAX_BATCH_PARTS
+                ):
+                    raise ValueError("invalid VLCB1 transfer-notice part metadata")
+                batch_group_id = group_id
+                filename = f"{original_name} (Part {part_index}/{part_count})"
+                batch_info = f" [Batch Part {part_index}/{part_count}]"
+
+            # Only now mutate state: malformed notices must not poison an
+            # existing active transfer or detach its batch group.
+            previous_group = self._active_batch_group_id
+            previous_tid = self._active_tid
+            if previous_group is not None and previous_tid != tid:
+                self._batch_assembler.discard(previous_group)
+
+            self._active_batch_group_id = batch_group_id
+            self._active_tid = tid
+            self._active_started_monotonic = time.monotonic()
+            self._active_total_chunks = total_chunks
+            self._active_received_chunks = 0
+            self._active_filename = filename
+            self._active_total_size = total_size
+            self._log_queue.append({
+                "time": now,
+                "event": "Transfer Start",
+                "details": f"TID={tid} file='{filename}' size={total_size}B chunks={total_chunks}{batch_info}",
+            })
         except Exception as e:
-            self._log_queue.append({"time": now, "event": "Transfer Notice", "details": line[:80]})
+            self._log_queue.append({
+                "time": now,
+                "event": "Transfer Notice Error",
+                "details": str(e)[:120],
+            })
 
     def _handle_ram_store(self, line: str) -> None:
         """Parse RX_RAM_STORE and update progress."""

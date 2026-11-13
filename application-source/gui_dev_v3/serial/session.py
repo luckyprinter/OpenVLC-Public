@@ -212,7 +212,8 @@ class SerialSession:
         self.is_connected = False
         self.log("Disconnected")
         self.status("Disconnected", "", state="idle")
-        write_status(self.role, {"role": self.role, "stage": "Idle", "state": "idle"})
+        if not write_status(self.role, {"role": self.role, "stage": "Idle", "state": "idle"}):
+            self.log("Could not persist serial disconnect status: write returned False")
 
     # ── I/O ─────────────────────────────────────────────────────────────────
 
@@ -318,7 +319,7 @@ class SerialSession:
         self.log(f"Serial disconnected unexpectedly: {detail}")
         self.status("Connection Lost", detail, state="error")
         try:
-            write_status(
+            persisted = write_status(
                 self.role,
                 {
                     "role": self.role,
@@ -327,6 +328,8 @@ class SerialSession:
                     "state": "error",
                 },
             )
+            if not persisted:
+                self.log("Could not persist serial disconnect status: write returned False")
         except Exception as status_exc:
             # A status-file failure must not resurrect the serial session or
             # prevent the reader thread from terminating.

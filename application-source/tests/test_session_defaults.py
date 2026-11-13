@@ -77,7 +77,7 @@ def test_session_builder_clamps_progress_and_chunk_counts(monkeypatch):
             "total_chunks": 4,
             "received_chunks": 99,
             "size": -10,
-            "tid": 700000,
+            "tid": 1_700_000,
         },
         "signal": {},
     }

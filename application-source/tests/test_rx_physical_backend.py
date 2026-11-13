@@ -724,3 +724,52 @@ def test_rx_file_hex_rejects_tid_outside_firmware_range(
     assert backend._active_tid is None
     assert not list(tmp_path.iterdir())
     assert backend._log_queue[-1]["event"] == "RX File Error"
+
+
+@pytest.mark.parametrize(
+    ("rx_status", "expected_status"),
+    [
+        (
+            {
+                "stage": "Connection Lost",
+                "tid": 0,
+                "size": 0,
+                "total_chunks": 0,
+                "received_chunks": 0,
+            },
+            "Pending",
+        ),
+        (
+            {
+                "stage": "Connection Lost",
+                "tid": 42,
+                "file_name": "partial.bin",
+                "size": 1024,
+                "total_chunks": 4,
+                "received_chunks": 2,
+                "percent": 50,
+            },
+            "Stalled",
+        ),
+    ],
+)
+def test_cached_rx_status_does_not_invent_empty_or_live_transfer(
+    rx_status, expected_status, monkeypatch
+):
+    from gui_dev_v3.data import session as session_module
+
+    monkeypatch.setattr(
+        session_module,
+        "read_status",
+        lambda role: rx_status if role == "rx" else None,
+    )
+
+    snapshot = session_module.build_session_from_status("rx")
+
+    assert snapshot.latest_transfer.status.value == expected_status
+    if expected_status == "Pending":
+        assert snapshot.latest_transfer.tid == 0
+        assert snapshot.latest_transfer.filename == "No active transfer"
+    else:
+        assert snapshot.latest_transfer.tid == 42
+        assert snapshot.latest_transfer.filename == "partial.bin"

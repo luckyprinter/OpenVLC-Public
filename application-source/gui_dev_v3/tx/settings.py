@@ -99,9 +99,22 @@ class GeneralDisplayPage(QWidget):
         return self._window
 
     def _on_reset_clicked(self) -> None:
-        reset_all_settings(self._mgr, self._get_window())
         from PySide6.QtWidgets import QMessageBox
-        QMessageBox.information(self, "Settings Reset", "All settings have been reset to defaults. Please restart the application for all changes to take effect.")
+
+        if not reset_all_settings(self._mgr, self._get_window()):
+            QMessageBox.critical(
+                self,
+                "Settings Reset Incomplete",
+                "OpenVLC could not complete the settings reset. Some settings may already have been reset. "
+                "Check the configuration directory permissions and available disk space before retrying.",
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Settings Reset",
+            "All settings have been reset to defaults. Please restart the application for all changes to take effect.",
+        )
 
     def _on_switch_mode_clicked(self) -> None:
         window = self._get_window()

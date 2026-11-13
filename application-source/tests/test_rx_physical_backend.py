@@ -617,3 +617,66 @@ def test_atomic_received_file_write_failure_leaves_no_partial_destination(
 
     assert not (tmp_path / "capture.bin").exists()
     assert not list(tmp_path.glob(".rx-*.tmp"))
+
+
+
+def test_rx_reader_handles_serial_is_open_property_failure(monkeypatch):
+    backend = RXPhysicalBackend()
+    backend._reader_stop.clear()
+    failures = []
+
+    class BrokenSerial:
+        @property
+        def is_open(self):
+            raise OSError("USB device disappeared")
+
+    backend._ser = BrokenSerial()
+    backend._mark_serial_lost = lambda ser, exc: failures.append((ser, exc))
+
+    backend._serial_reader_loop()
+
+    assert len(failures) == 1
+    assert isinstance(failures[0][1], OSError)
+    assert "USB device disappeared" in str(failures[0][1])
+
+
+def test_rx_unexpected_disconnect_persists_connection_lost_status(monkeypatch):
+    backend = RXPhysicalBackend()
+    backend._reader_stop.clear()
+    backend._record_diag = lambda *_args, **_kwargs: None
+    writes = []
+    monkeypatch.setattr(
+        physical,
+        "write_status",
+        lambda role, stage, **kwargs: writes.append((role, stage, kwargs)) or True,
+    )
+
+    class FakeSerial:
+        port = "/dev/ttyUSB-RX"
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    serial_handle = FakeSerial()
+    backend._ser = serial_handle
+    backend._connected = True
+    backend._port = serial_handle.port
+
+    backend._mark_serial_lost(serial_handle, OSError("USB unplugged"))
+
+    assert serial_handle.closed
+    assert backend._ser is None
+    assert backend._connected is False
+    assert backend._port is None
+    assert writes == [
+        (
+            "rx",
+            "Connection Lost",
+            {
+                "detail": "OSError",
+                "state": "error",
+                "port": "/dev/ttyUSB-RX",
+            },
+        )
+    ]

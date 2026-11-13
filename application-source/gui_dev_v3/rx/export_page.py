@@ -5,10 +5,11 @@ from __future__ import annotations
 import csv
 import json
 import os
+import shutil
 import time
 from pathlib import Path
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QFont
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -621,6 +622,7 @@ class ExportPage(QWidget):
                 "size_bytes": transfer.size_bytes,
                 "total_chunks": transfer.total_chunks,
                 "received_chunks": transfer.received_chunks,
+                "received_path": getattr(transfer, "received_path", None),
                 "ber": ber if ber is not None else "N/A",
                 "ber_method": "method2_reference_file" if comparison is not None else None,
             }
@@ -705,36 +707,66 @@ class ExportPage(QWidget):
             return self._history_data[idx]
         return None
 
+    def _received_file_path(self, entry: dict) -> Path | None:
+        raw_path = entry.get("received_path")
+        if not raw_path:
+            return None
+        try:
+            path = Path(str(raw_path)).expanduser()
+            return path if path.is_file() else None
+        except OSError:
+            return None
+
     def _on_open_file(self) -> None:
         entry = self._get_selected_entry()
         if not entry:
             return
-        
-        # Simulate opening a received file
-        filename = entry.get("filename", "")
-        QMessageBox.information(
-            self, "Open File",
-            f"Simulating opening received payload file:\n\n"
-            f"Name: {filename}\n"
-            f"TID: {entry.get('tid', 0):04d}\n"
-            f"Size: {entry.get('size_bytes', 0)} Bytes\n\n"
-            f"Payload would open in default text/binary editor."
-        )
+
+        source = self._received_file_path(entry)
+        if source is None:
+            QMessageBox.warning(
+                self,
+                "Received File Unavailable",
+                "The original received payload is not available for this history entry.",
+            )
+            return
+
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(source.resolve()))):
+            QMessageBox.warning(
+                self, "Open File Failed",
+                f"Could not open the received file:\\n{source}",
+            )
 
     def _on_save_as(self) -> None:
         entry = self._get_selected_entry()
         if not entry:
             return
-        
-        filename = entry.get("filename", "saved_file.bin")
-        path, _ = QFileDialog.getSaveFileName(self, "Save File As", filename, "All Files (*)")
-        if path:
-            # Simulate writing the payload file
-            try:
-                Path(path).write_text(f"Decoded Visible Light Communication payload for TID {entry.get('tid')}.\nFilename: {filename}", encoding="utf-8")
-                QMessageBox.information(self, "Save File", "File saved successfully!")
-            except OSError as e:
-                QMessageBox.warning(self, "Save File Failed", f"Could not write file:\n{e}")
+
+        source = self._received_file_path(entry)
+        if source is None:
+            QMessageBox.warning(
+                self,
+                "Received File Unavailable",
+                "The original received payload is not available for this history entry.",
+            )
+            return
+
+        filename = entry.get("filename") or source.name
+        destination, _ = QFileDialog.getSaveFileName(
+            self, "Save File As", filename, "All Files (*)"
+        )
+        if not destination:
+            return
+
+        try:
+            shutil.copy2(source, Path(destination))
+            QMessageBox.information(
+                self, "Save File", "The received payload was copied successfully."
+            )
+        except OSError as exc:
+            QMessageBox.warning(
+                self, "Save File Failed", f"Could not copy the received payload:\\n{exc}"
+            )
 
     def _on_backup_db(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Backup Database to File", "vlc_database_backup.json", "JSON Files (*.json)")

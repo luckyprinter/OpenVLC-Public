@@ -100,6 +100,11 @@ class BERAnalyzerPage(QWidget):
             return
         self._compact_layout = compact
         columns = 2 if compact else 3
+        self.mismatch_table.setHorizontalHeaderLabels(
+            ["Offset", "Expected", "Received", "Errors"]
+            if compact
+            else ["Offset", "Expected (Hex)", "Received (Hex)", "Bit Errors"]
+        )
         for index, (title_label, value_widget) in enumerate(self._stat_cells):
             self._stats_grid.removeWidget(title_label)
             self._stats_grid.removeWidget(value_widget)

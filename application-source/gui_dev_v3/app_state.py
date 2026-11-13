@@ -128,8 +128,10 @@ class RXAppState:
         self._refresh()
         self.notify()
 
-    def update_simulation_params(self, **kwargs: Any) -> None:
+    def update_simulation_params(self, **kwargs: Any) -> bool:
         """Update virtual-channel parameters without opening a serial port."""
+        if self.mode != "simulated":
+            return False
         if self._simulation is None:
             self._simulation = RXSimulationBackend()
             if self._expected_file_data is not None:
@@ -137,9 +139,9 @@ class RXAppState:
                     self._expected_file_data, self.expected_file_path
                 )
         self._simulation.set_params(**kwargs)
-        if self.mode == "simulated":
-            self._refresh()
-            self.notify()
+        self._refresh()
+        self.notify()
+        return True
 
     def load_expected_file(self, filepath: str) -> None:
         """Select the original reference file without loading it into memory."""

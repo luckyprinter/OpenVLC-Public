@@ -354,38 +354,51 @@ class TXPhysicalBackend:
         )
         self._transmission_thread.start()
 
-    def apply_link_settings(self) -> None:
-        """Apply saved settings to physical TX firmware.
+    def apply_link_settings(self) -> bool:
+        """Apply saved settings and report partial/complete application accurately.
 
-        Uses the controller's gated apply_4b5b_settings() so that DMA-only
-        commands (DMA_MODE=, PREAMBLE=, CARRIER=) are only sent when the
-        connected firmware is confirmed DMA-capable. Sending these to
-        tx_non_dma.ino causes 'TX_ERROR: unknown command' responses.
+        A connected serial port does not imply that every requested setting
+        reached firmware. Keep the connection available on a settings failure,
+        but log the exact failed stage and return False to callers.
         """
         if not self._connected or not self._controller.is_connected:
-            return
+            return False
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("tx")
 
-        symbol_hz  = int(mgr.get("link/symbol_hz", 15000))
-        gap        = int(mgr.get("link/post_frame_idle_ms", 0))
-        fgap       = int(mgr.get("link/frame_gap_ms", 1))
-        active_low = bool(mgr.get("link/active_low", True))
-        idle_on    = bool(mgr.get("link/idle_on", True))
-        quiet      = bool(mgr.get("link/quiet_mode", True))
-        intensity  = int(mgr.get("link/cal_intensity_pct", 100))
+        try:
+            symbol_hz = int(mgr.get("link/symbol_hz", 15000))
+            gap = int(mgr.get("link/post_frame_idle_ms", 0))
+            fgap = int(mgr.get("link/frame_gap_ms", 1))
+            active_low = bool(mgr.get("link/active_low", True))
+            idle_on = bool(mgr.get("link/idle_on", True))
+            quiet = bool(mgr.get("link/quiet_mode", True))
+            intensity = int(mgr.get("link/cal_intensity_pct", 100))
+        except (TypeError, ValueError, OverflowError) as exc:
+            self.log("Settings apply failed", f"Invalid saved TX link setting: {exc}")
+            return False
 
-        # apply_4b5b_settings() gates DMA_MODE/PREAMBLE/CARRIER to DMA firmware only
-        self._controller.apply_4b5b_settings(
+        if not self._controller.apply_4b5b_settings(
             freq=symbol_hz,
             gap=gap,
             fgap=fgap,
             active_low=active_low,
             idle_on=idle_on,
             quiet=quiet,
+        ):
+            self.log("Settings apply failed", "Firmware rejected or could not receive 4B5B link settings")
+            return False
+
+        # INTENSITY is common to both firmware variants.
+        if not self.send_command(f"INTENSITY={intensity}"):
+            self.log("Settings apply failed", "Serial write failed at INTENSITY")
+            return False
+
+        self.log(
+            "Settings applied",
+            f"4B5B · {symbol_hz} Hz · FGAP {fgap} ms · intensity {intensity}%",
         )
-        # INTENSITY is common to both firmware variants
-        self.send_command(f"INTENSITY={intensity}")
+        return True
 
     def cleanup(self) -> None:
         """Close serial connection and release port."""

@@ -900,3 +900,40 @@ def test_tx_firmware_readiness_wait_is_cancellable_during_shutdown(monkeypatch):
 
     assert backend._wait_for_firmware_ready(timeout=5.0) is False
     assert len(calls) == 1
+
+
+def test_serial_sessions_set_bounded_write_timeout(fake_serial):
+    session = SerialSession("tx")
+
+    assert session.connect("MOCK_TX") is True
+    assert session.serial_obj.write_timeout == 0.5
+
+    session.disconnect()
+    assert fake_serial.open_ports == set()
+
+
+def test_tx_cleanup_disconnects_then_joins_active_transmission_worker(monkeypatch):
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    backend = TXPhysicalBackend()
+    order = []
+
+    class ActiveWorker:
+        alive = True
+
+        def is_alive(self):
+            return self.alive
+
+        def join(self, timeout=None):
+            order.append(("join", timeout))
+            self.alive = False
+
+    worker = ActiveWorker()
+    backend._transmission_thread = worker
+    backend.disconnect = lambda: order.append(("disconnect", None))
+
+    backend.cleanup()
+
+    assert backend._shutting_down is True
+    assert order == [("disconnect", None), ("join", 2.0)]
+    assert backend._transmission_thread is None

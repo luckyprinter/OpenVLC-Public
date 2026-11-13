@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
+    QMessageBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -72,6 +73,86 @@ class SettingsManager:
             return self._settings.status() == QSettings.Status.NoError
         except (OSError, RuntimeError):
             return False
+
+
+class OperatingModeSelector(QWidget):
+    """Persistent Hardware/Simulation selector shared by TX and RX settings."""
+
+    def __init__(
+        self,
+        mgr: SettingsManager,
+        state: Any | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._mgr = mgr
+        self._state = state
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        self.combo = QComboBox(self)
+        self.combo.addItem("Hardware (ESP32)", "physical")
+        self.combo.addItem("Simulation (UDP)", "simulated")
+        current = (
+            state.mode if state is not None
+            else str(mgr.get("general/mode", "physical") or "physical")
+        )
+        self._set_combo_mode(current)
+        self.combo.setToolTip(
+            "Hardware opens the selected ESP32 serial port. Simulation uses a "
+            "localhost UDP link and never opens a serial port."
+        )
+        self.combo.currentIndexChanged.connect(self._on_mode_changed)
+        layout.addWidget(self.combo)
+        if state is not None and hasattr(state, "subscribe"):
+            state.subscribe(self._sync_from_state)
+            self.destroyed.connect(
+                lambda *_args: state.unsubscribe(self._sync_from_state)
+                if hasattr(state, "unsubscribe") else None
+            )
+
+    def _set_combo_mode(self, mode: str) -> None:
+        index = self.combo.findData(mode)
+        if index >= 0:
+            self.combo.blockSignals(True)
+            self.combo.setCurrentIndex(index)
+            self.combo.blockSignals(False)
+
+    def _sync_from_state(self) -> None:
+        if self._state is None:
+            return
+        mode = self._state.mode
+        self._set_combo_mode(mode)
+        if self._mgr.get("general/mode", "physical") != mode:
+            self._mgr.set("general/mode", mode)
+
+    def _on_mode_changed(self, _index: int = -1) -> None:
+        mode = str(self.combo.currentData() or "physical")
+        old_mode = (
+            self._state.mode if self._state is not None
+            else str(self._mgr.get("general/mode", "physical") or "physical")
+        )
+        if mode == old_mode:
+            return
+        if not self._mgr.set("general/mode", mode):
+            self._set_combo_mode(old_mode)
+            QMessageBox.warning(
+                self,
+                "Mode Not Saved",
+                "The operating mode could not be saved. The previous mode remains active.",
+            )
+            return
+        if self._state is not None:
+            try:
+                self._state.set_mode(mode)
+            except Exception as exc:
+                self._mgr.set("general/mode", old_mode)
+                self._set_combo_mode(old_mode)
+                QMessageBox.warning(
+                    self,
+                    "Mode Switch Failed",
+                    f"The application could not switch modes: {exc}",
+                )
 
 
 def _persist_bound_value(

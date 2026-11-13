@@ -437,12 +437,25 @@ class TXPhysicalBackend:
         return True
 
     def cleanup(self) -> None:
-        """Stop discovery and transmission before releasing the TX port."""
+        """Stop discovery, close the port, and join the TX transfer worker."""
         self._shutting_down = True
         worker = self._connect_thread
         if worker is not None and worker.is_alive() and worker is not threading.current_thread():
             worker.join(timeout=3.0)
+
+        # Closing the port makes an in-flight send fail promptly; then join the
+        # worker so it cannot continue touching the controller after teardown.
         self.disconnect()
+        transfer = self._transmission_thread
+        if transfer is not None and transfer.is_alive() and transfer is not threading.current_thread():
+            transfer.join(timeout=2.0)
+        if transfer is None or not transfer.is_alive():
+            self._transmission_thread = None
+        else:
+            self.log(
+                "Shutdown",
+                "TX transmission worker did not stop within 2 seconds after disconnect.",
+            )
 
     @property
     def is_connected(self) -> bool:

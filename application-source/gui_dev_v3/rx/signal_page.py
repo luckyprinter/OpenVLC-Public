@@ -15,7 +15,7 @@ Layout (professional engineering dashboard):
 │ (TrendChart with tabs)      │ STATISTICS (LIVE) │ METRICS         │
 │                              │ (6 rows + bar)    │ (6 bars)        │
 ├─────────────────────────────┴──────────────────┴────────────────┤
-│ Mode: Physical  ● Connected  ● ACTIVE                           │
+│ Mode: Hardware / Simulation  ● Connected  ● ACTIVE              │
 └──────────────────────────────────────────────────────────────────┘
 
 The trend chart uses the receiver's actual low-rate PVo/Vref telemetry.
@@ -533,7 +533,7 @@ class SignalMonitorPage(QWidget):
         self._sample_interval_ms = max(1000, int(interval_ms))
 
     def _append_telemetry_sample(self, state: RXAppState) -> None:
-        """Append one actual PVo/Vref telemetry update, never repeated timer copies."""
+        """Append one backend PVo/Vref telemetry update, never repeated timer copies."""
         import time
 
         if not state.serial_connected or _is_empty(state.signal):
@@ -572,7 +572,7 @@ class SignalMonitorPage(QWidget):
     # ------------------------------------------------------------------
 
     def refresh(self, state: RXAppState) -> None:
-        """Update all widgets from the latest physical telemetry snapshot."""
+        """Update all widgets from the latest physical or simulated snapshot."""
         self._state = state
         self._append_telemetry_sample(state)
         sig = state.signal
@@ -588,9 +588,11 @@ class SignalMonitorPage(QWidget):
             self._metric_pvo.set_value("—")
             self._metric_vref.set_value("—")
             self._metric_margin.set_value("—")
-            self._metric_state.set_value("OFFLINE")
+            self._metric_state.set_value("WAITING" if state.mode == "simulated" else "OFFLINE")
             self._metric_state.set_value_color("#708090")
-            self._metric_state.set_center_footer("No hardware")
+            self._metric_state.set_center_footer(
+                "No TX simulation peer" if state.mode == "simulated" else "No hardware"
+            )
             self._quality_top.set_percent(0)
             self._noise_top.set_percent(0)
             self._quality_top.set_available(False)
@@ -619,11 +621,15 @@ class SignalMonitorPage(QWidget):
             if state.serial_connected:
                 self._metric_state.set_value("READY")
                 self._metric_state.set_value_color("#22c55e")
-                self._metric_state.set_center_footer("Receiving possible")
+                self._metric_state.set_center_footer(
+                    "Virtual channel active" if state.mode == "simulated" else "Receiving possible"
+                )
             else:
                 self._metric_state.set_value("OFFLINE")
                 self._metric_state.set_value_color("#708090")
-                self._metric_state.set_center_footer("No hardware")
+                self._metric_state.set_center_footer(
+                    "No TX simulation peer" if state.mode == "simulated" else "No hardware"
+                )
 
             # These gauges describe measured margin values, not estimated
             # signal quality or noise.

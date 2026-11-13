@@ -492,6 +492,17 @@ def test_batch_payload_group_must_match_transfer_notice(
     backend._active_tid = 303
     backend._active_batch_group_id = "announced-group"
     backend._active_filename = "announced.bin"
+    backend._batch_assembler.add_part(
+        group_id="announced-group",
+        part_index=1,
+        part_count=2,
+        full_crc=0x1234,
+        filename="capture.bin",
+        part_data=b"already accepted",
+        part_crc_ok=True,
+        part_chunks=1,
+        tid=302,
+    )
 
     from gui_dev_v3.rx.backends.physical import crc16_ccitt
     payload = b"part"

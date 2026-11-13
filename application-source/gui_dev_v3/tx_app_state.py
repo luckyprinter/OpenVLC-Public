@@ -1,4 +1,4 @@
-"""Transmitter application state backed exclusively by physical ESP32 hardware."""
+"""Observable transmitter state for isolated physical and simulated backends."""
 from __future__ import annotations
 
 from collections.abc import Callable

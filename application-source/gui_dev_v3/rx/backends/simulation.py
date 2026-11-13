@@ -255,6 +255,8 @@ class RXSimulationBackend:
 
     def _handle_udp_msg(self, msg: dict[str, Any], host: QHostAddress, port: int) -> None:
         import json
+        if not host.isLoopback() or port != 9902:
+            return
         event = msg.get("event")
         now = time.strftime("%H:%M:%S")
 
@@ -360,13 +362,14 @@ class RXSimulationBackend:
         elif event == "chunk":
             try:
                 idx = int(msg.get("index", -1))
+                chunk_tid = int(msg.get("tid", -1))
                 hex_data = str(msg.get("data", ""))
                 chunk_crc = int(msg.get("crc16", -1))
             except (TypeError, ValueError, OverflowError):
                 self._log_append({"time": now, "event": "Invalid Chunk", "details": "Malformed chunk metadata"})
                 return
-            if not self._active or not 0 <= idx < self._total_chunks:
-                self._log_append({"time": now, "event": "Invalid Chunk", "details": f"Chunk index {idx} is outside the active transfer"})
+            if not self._active or chunk_tid != self._transfer_id or not 0 <= idx < self._total_chunks:
+                self._log_append({"time": now, "event": "Invalid Chunk", "details": f"Chunk {idx} does not belong to the active transfer"})
                 return
             if self._chunks_status_map.get(idx) != ChunkStatus.PENDING:
                 return

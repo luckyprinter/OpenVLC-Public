@@ -119,7 +119,7 @@ class OperatingModeSelector(QWidget):
             self.combo.setCurrentIndex(index)
             self.combo.blockSignals(False)
 
-    def _sync_from_state(self) -> None:
+    def _sync_from_state(self, _state: Any | None = None) -> None:
         if self._state is None:
             return
         mode = self._state.mode

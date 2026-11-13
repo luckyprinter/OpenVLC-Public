@@ -451,3 +451,59 @@ def test_serial_cleanup_discards_incomplete_batch_and_active_progress():
     assert backend._active_received_chunks == 0
     assert backend._active_started_monotonic is None
     assert backend._active_batch_group_id is None
+
+
+def test_stale_file_payload_cannot_complete_a_different_active_transfer(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(logger, "file_log", lambda *_args, **_kwargs: None)
+    backend = RXPhysicalBackend()
+    backend._record_diag = lambda *_args, **_kwargs: None
+    backend._save_dir = tmp_path
+    backend._active_tid = 202
+    backend._active_filename = "current.bin"
+    backend._active_total_size = 7
+    backend._active_total_chunks = 1
+    backend._active_received_chunks = 1
+
+    from gui_dev_v3.rx.backends.physical import crc16_ccitt
+    payload = b"stale"
+    name_hex = "old.bin".encode().hex()
+    line = (
+        f"RX_FILE_HEX:201:DATA:{len(payload)}:1:"
+        f"{crc16_ccitt(payload):04X}:{name_hex}:{payload.hex()}"
+    )
+
+    backend._handle_file_hex(line)
+
+    assert backend._last_completed_transfer is None
+    assert backend._active_tid == 202
+    assert backend._active_filename == "current.bin"
+    assert not list(tmp_path.iterdir())
+
+
+def test_batch_payload_group_must_match_transfer_notice(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(logger, "file_log", lambda *_args, **_kwargs: None)
+    backend = RXPhysicalBackend()
+    backend._record_diag = lambda *_args, **_kwargs: None
+    backend._save_dir = tmp_path
+    backend._active_tid = 303
+    backend._active_batch_group_id = "announced-group"
+    backend._active_filename = "announced.bin"
+
+    from gui_dev_v3.rx.backends.physical import crc16_ccitt
+    payload = b"part"
+    wrapped = "VLCB1~different-group~1~2~1234~capture.bin"
+    line = (
+        f"RX_FILE_HEX:303:DATA:{len(payload)}:1:"
+        f"{crc16_ccitt(payload):04X}:{wrapped.encode().hex()}:{payload.hex()}"
+    )
+
+    backend._handle_file_hex(line)
+
+    assert backend._batch_assembler.pending_count == 0
+    assert backend._active_tid is None
+    assert backend._active_batch_group_id is None
+    assert not list(tmp_path.iterdir())

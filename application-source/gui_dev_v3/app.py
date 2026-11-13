@@ -23,6 +23,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+# Resolve writable per-user storage before importing modules whose
+# module-level paths are derived from VLC_DATA_DIR.
+from gui_dev_v3.runtime_paths import configure_runtime_data_dir
+
+configure_runtime_data_dir()
+
 from gui_dev_v3.app_state import build_default_state
 from gui_dev_v3.rx.shell import RXShell
 from gui_dev_v3.settings_store import AppSettings, RESOLUTION_PRESETS, load_settings, save_settings
@@ -65,6 +71,19 @@ def apply_design_tokens(tokens: dict) -> None:
     _apply(tokens)
 
 
+def _minimum_window_dimensions(available_width: int, available_height: int) -> tuple[int, int]:
+    """Choose a compact minimum logical size while leaving room for OS chrome.
+
+    The minimum must not grow with a large monitor: doing so prevents users
+    from resizing the workspace down to the compact layouts that the UI
+    explicitly supports. On small displays, cap the minimum to the available
+    work area minus a modest margin.
+    """
+    min_width = max(360, min(640, int(available_width) - 32))
+    min_height = max(320, min(480, int(available_height) - 48))
+    return min_width, min_height
+
+
 class _BaseWindow(QMainWindow):
     """Shared base window for both RX and TX apps."""
 
@@ -82,10 +101,11 @@ class _BaseWindow(QMainWindow):
         screen = QApplication.primaryScreen()
         available = screen.availableGeometry() if screen else None
         if available is not None:
-            min_width = max(640, min(1024, available.width() - 32))
-            min_height = max(480, min(700, available.height() - 48))
+            min_width, min_height = _minimum_window_dimensions(
+                available.width(), available.height()
+            )
         else:
-            min_width, min_height = 1024, 700
+            min_width, min_height = 640, 480
         self.setMinimumSize(QSize(min_width, min_height))
         self.settings = load_settings()
         self._apply_display_mode()
@@ -151,12 +171,21 @@ class _BaseWindow(QMainWindow):
             super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
+        from PySide6.QtWidgets import QMessageBox
         from gui_dev_v3.settings_store import load_settings, save_settings
+
         latest = load_settings()
         latest.resolution = self.settings.resolution
         latest.fullscreen = self.settings.fullscreen
         latest.borderless = self.settings.borderless
-        save_settings(latest)
+        if not save_settings(latest):
+            QMessageBox.warning(
+                self,
+                "Settings Not Saved",
+                "The existing settings file could not be read, so OpenVLC left it "
+                "untouched instead of overwriting it with defaults. Use the explicit "
+                "Reset Settings action to create a backup and recover with defaults.",
+            )
         super().closeEvent(event)
 
 # ── Launcher Page ──────────────────────────────────────────────────────
@@ -350,6 +379,23 @@ class VLCMainWindow(_BaseWindow):
             self._stack.setCurrentWidget(self._rx_shell)
             self.setWindowTitle("VLC Receiver")
 
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Stop both hardware consoles before the application window closes."""
+        import logging
+
+        for role, shell in (("RX", self._rx_shell), ("TX", self._tx_shell)):
+            if shell is None:
+                continue
+            try:
+                shell.cleanup()
+            except Exception:
+                # A cleanup failure must be visible for diagnosis, but must
+                # not prevent Qt from completing the application's shutdown.
+                logging.getLogger(__name__).exception(
+                    "%s console cleanup failed during application shutdown", role
+                )
+        super().closeEvent(event)
+
     def return_to_launcher(self) -> None:
         if self._rx_shell is not None:
             try:
@@ -412,7 +458,18 @@ def main() -> int:
         print("Running smoke test sequence...", flush=True)
         QTimer.singleShot(500, lambda: window.launch_mode("tx"))
         QTimer.singleShot(1500, lambda: window.launch_mode("rx"))
-        QTimer.singleShot(2500, lambda: [print("Smoke test passed. Exiting cleanly.", flush=True), app.quit()])
+
+        def finish_smoke_test() -> None:
+            # Exercise the real main-window close path so packaged smoke tests
+            # also cover active console cleanup, not just QApplication.quit().
+            if not window.close():
+                print("Smoke test failed: main window did not close cleanly.", file=sys.stderr, flush=True)
+                app.exit(1)
+                return
+            print("Smoke test passed. Exiting cleanly.", flush=True)
+            app.exit(0)
+
+        QTimer.singleShot(2500, finish_smoke_test)
     elif "--tx" in sys.argv:
         window.launch_mode("tx")
     elif "--rx" in sys.argv:

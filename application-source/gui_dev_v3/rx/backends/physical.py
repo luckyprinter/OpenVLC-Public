@@ -1,22 +1,20 @@
-"""RX Physical Backend — live serial communication with ESP32 VLC_RX.
+"""RX physical backend for the VLC_RX ESP32.
 
-Communicates with actual VLC_RX firmware at 460800 baud (RX) or 115200 baud (TX).
-- Sends IDENTIFY to detect and read firmware version
-- Opens persistent serial connection after detection
-- Background thread reads ALL serial lines continuously (like vlc_beta's poll_serial)
-- Dispatches RX_FILE_HEX, RX_TRANSFER_NOTICE, RX_RAM_STORE, LQ, VREF_* to handlers
-- _poll_lq() drains the line queue instead of calling reset_input_buffer() which
-  would destroy async firmware messages before they are processed
-- Falls back to vlc_beta bridge files when serial unavailable but process is fresh
-- Reports only measurements and transfer data received from physical hardware
+Communicates with actual firmware at 460800 baud (RX) or 115200 baud (TX).
+A dedicated reader thread dispatches asynchronous transfer, signal, and Vref
+messages while the polling path requests link-quality telemetry. Cached status
+files may preserve recent measurements briefly after a disconnect, but they do
+not establish that the serial device is currently connected.
 """
 
 from __future__ import annotations
 
 import binascii
 import json
+import os
 import queue
 import re
+import tempfile
 import threading
 import time
 from dataclasses import dataclass
@@ -25,19 +23,13 @@ from typing import Any
 
 from gui_dev_v3.data.records import load_real_transfer_history
 from gui_dev_v3.data.session import build_empty_session, build_session_from_status
-from gui_dev_v3.data.status import read_status
+from gui_dev_v3.data.status import read_status, write_status
 from gui_dev_v3.models import SessionState, SignalState, TransferRecord, TransferStatus
 from gui_dev_v3.logic.batch_assembler import BatchAssembler
+from gui_dev_v3.runtime_paths import configure_runtime_data_dir
+from gui_dev_v3.serial.detection import prioritize_preferred_port
+from gui_dev_v3.serial.transfer_plan import MAX_BATCH_PARTS, MAX_STREAM_CHUNKS
 
-# Resolve beta state dir with VLC_DATA_DIR env var fallback
-def _resolve_beta_state_dir() -> Path:
-    import os
-    env = os.getenv("VLC_DATA_DIR")
-    if env:
-        return Path(env).expanduser() / "state"
-    return Path(__file__).resolve().parents[4] / "vlc_beta" / "state"
-
-BETA_STATE_DIR = _resolve_beta_state_dir()
 STATUS_FRESHNESS_SEC = 30.0
 
 # RX firmware runs at 460800, TX at 115200 — try both for IDENTIFY
@@ -56,6 +48,35 @@ def _diagnostic_size_bucket(size_bytes: int) -> str:
     if size_bytes <= 80 * 1024:
         return "16_to_80kib"
     return "over_80kib"
+
+
+def _atomic_save_received_file(directory: Path, filename: str, data: bytes) -> Path:
+    """Persist a complete RX payload atomically in its destination directory."""
+    directory.mkdir(parents=True, exist_ok=True)
+    destination = directory / filename
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=directory,
+            prefix=".rx-",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(data)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, destination)
+        return destination
+    except OSError as exc:
+        raise OSError(f"Could not atomically save received file '{filename}': {exc}") from exc
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            try:
+                temporary_path.unlink()
+            except OSError:
+                pass
 
 
 def crc16_ccitt(data: bytes, crc: int = 0xFFFF) -> int:
@@ -101,6 +122,7 @@ class RXPhysicalBackend:
         # Background auto-connect state — prevents GUI thread from blocking
         self._connect_thread: Any = None
         self._connecting: bool = False
+        self._shutting_down: bool = False
         # Background serial reader thread — reads ALL lines from ESP32 continuously
         self._line_queue: queue.Queue[str] = queue.Queue(maxsize=2048)
         self._last_lq_line: str | None = None  # most recent LQ line seen by reader
@@ -117,7 +139,7 @@ class RXPhysicalBackend:
         self._active_received_chunks: int = 0
         self._active_filename: str = ""
         self._active_total_size: int = 0
-        self._save_dir: Path = Path.home() / "vlc_rx_captures"
+        self._save_dir: Path = configure_runtime_data_dir() / "received"
         # Last completed transfer — persisted so UI tabs can read it after reception
         self._last_completed_transfer: TransferRecord | None = None
         # Vref PWM auto-calibrator state
@@ -129,6 +151,7 @@ class RXPhysicalBackend:
         self._pwm_autocal_last_pwm: int = -1        # last known PWM duty from firmware
         self._pwm_autocal_iterations: int = 0
         self._active_started_monotonic: float | None = None
+        self._active_batch_group_id: str | None = None
         # Batch reconstruction state for large files
         self._batch_assembler = BatchAssembler()
 
@@ -199,12 +222,24 @@ class RXPhysicalBackend:
 
     def _auto_connect_locked(self) -> bool:
         """Perform discovery and persistent connection while holding the shared lock."""
+        if self._shutting_down:
+            return False
         ports = self.scan_ports()
+        # Try this RX console's last successful port first. If it is stale,
+        # prioritize_preferred_port leaves the actual enumerated fallback list intact.
+        from gui_dev_v3.settings import SettingsManager
+        settings = SettingsManager("rx")
+        preferred = settings.get("connection/port", "")
+        ports = prioritize_preferred_port(ports, str(preferred or ""))
         if ports:
             self.log("Scan", f"Found {len(ports)} ports: {', '.join(ports)}")
         for port in ports:
+            if self._shutting_down:
+                return False
             self.log("Detect", f"Probing {port}...")
             info = self.detect_firmware(port)
+            if self._shutting_down:
+                return False
             if info and info.get("device") == "VLC_RX":
                 self._port = port
                 if not self._open_serial():
@@ -213,7 +248,13 @@ class RXPhysicalBackend:
                     self.log("Error [C02]", f"PySerial failed to open {port}; continuing scan")
                     self._port = None
                     continue
+                if self._shutting_down:
+                    self._close_serial()
+                    self._port = None
+                    return False
                 self._connected = True
+                # Remember only a successfully identified and opened RX device.
+                settings.set("connection/port", port)
                 self._record_diag("serial_connected", role="rx", baud_rate=RX_BAUD,
                                   firmware_family="rx")
                 self.log("Connected", f"Auto-connected to {port} (VLC_RX)")
@@ -234,9 +275,13 @@ class RXPhysicalBackend:
 
     def _connect_locked(self, port: str, force: bool = False) -> bool:
         """Connect to a specific port after firmware detection."""
+        if self._shutting_down:
+            return False
         if not force:
             self.log("Connect", f"Detecting firmware on {port}...")
             info = self.detect_firmware(port)
+            if self._shutting_down:
+                return False
             if not info:
                 self.log("Error [C01]", f"Firmware detection failed on {port}")
                 return False
@@ -254,6 +299,11 @@ class RXPhysicalBackend:
             self.log("Error [C02]", f"PySerial failed to open {port}")
             return False
 
+        if self._shutting_down:
+            self._close_serial()
+            self._port = None
+            return False
+
         self._connected = True
         self._record_diag("serial_connected", role="rx", baud_rate=RX_BAUD,
                           firmware_family="rx")
@@ -261,14 +311,48 @@ class RXPhysicalBackend:
         self.apply_link_settings()
         return True
 
-    def disconnect(self) -> None:
+    def _active_transfer_status_fields(self) -> dict[str, Any]:
+        """Return the last known transfer metadata for offline recovery."""
+        has_transfer = bool(
+            self._active_tid is not None
+            or self._active_filename
+            or self._active_total_size > 0
+            or self._active_total_chunks > 0
+        )
+        if not has_transfer:
+            return {}
+        percent = (
+            self._active_received_chunks * 100.0 / self._active_total_chunks
+            if self._active_total_chunks > 0 else 0.0
+        )
+        return {
+            "tid": self._active_tid,
+            "file_name": self._active_filename,
+            "size_bytes": self._active_total_size,
+            "total_chunks": self._active_total_chunks,
+            "received_chunks": self._active_received_chunks,
+            "percent": percent,
+        }
+
+    def disconnect(self, reason: str = "User disconnected") -> None:
         was_connected = self._connected
+        port = self._port
+        transfer_context = self._active_transfer_status_fields()
         self._close_serial()
         if was_connected:
             self._record_diag("serial_disconnected", role="rx", reason_code="user_disconnect")
         self._port = None
         self._connected = False
         self._firmware_info = None
+        if not write_status(
+            "rx",
+            "Disconnected",
+            detail=reason,
+            state="idle",
+            port=port,
+            **transfer_context,
+        ):
+            self.log("Status Write Failed", "Could not persist the RX disconnected state")
 
     @property
     def is_connected(self) -> bool:
@@ -288,7 +372,14 @@ class RXPhysicalBackend:
 
     def _open_serial(self) -> bool:
         """Open persistent serial connection at RX baud rate and start reader thread."""
-        self._close_serial()
+        if self._shutting_down:
+            return False
+        if not self._close_serial():
+            self.log(
+                "Reader Stop Timeout",
+                "The previous RX serial reader is still active; refusing to open another port.",
+            )
+            return False
         if not self._port:
             return False
         try:
@@ -319,6 +410,9 @@ class RXPhysicalBackend:
                 target=self._serial_reader_loop, daemon=True, name="rx-serial-reader"
             )
             self._reader_thread.start()
+            if self._shutting_down:
+                self._close_serial()
+                return False
 
             # The firmware answers a blank line only after setup() has completed
             # and loop() is processing serial commands. This replaces reliance
@@ -334,6 +428,9 @@ class RXPhysicalBackend:
             ready_timeout = max(1.0, min(ready_timeout, 120.0))
             if not self._ready_event.wait(timeout=ready_timeout):
                 self.log("Readiness Timeout", f"RX firmware did not answer ready ping on {self._port} within {ready_timeout:g}s")
+                self._close_serial()
+                return False
+            if self._shutting_down:
                 self._close_serial()
                 return False
             return True
@@ -355,10 +452,11 @@ class RXPhysicalBackend:
             ser = self._ser
             if ser is None:
                 break
-            if not ser.is_open:
-                self._mark_serial_lost(ser, ConnectionError("Serial port closed"))
-                break
             try:
+                # Driver properties can raise during USB removal just like
+                # readline(); keep the entire handle check inside this guard.
+                if not ser.is_open:
+                    raise ConnectionError("Serial port closed")
                 line_bytes = ser.readline()
                 if line_bytes:
                     line = line_bytes.decode("utf-8", errors="replace").strip()
@@ -376,6 +474,21 @@ class RXPhysicalBackend:
         if self._reader_stop.is_set():
             return
         self._reader_stop.set()
+        lost_port = self._port if self._ser is ser else None
+        # Snapshot the interrupted transfer before clearing session-owned
+        # decoder state. The status file remains useful after application restart.
+        transfer_context = self._active_transfer_status_fields()
+        # Batch fragments belong to one physical serial session. Never allow
+        # an incomplete group (or its progress metadata) to survive a close
+        # and combine with fragments received after reconnect.
+        self._batch_assembler.clear()
+        self._active_tid = None
+        self._active_total_chunks = 0
+        self._active_received_chunks = 0
+        self._active_filename = ""
+        self._active_total_size = 0
+        self._active_started_monotonic = None
+        self._active_batch_group_id = None
         with self._write_lock:
             if self._ser is ser:
                 self._ser = None
@@ -385,8 +498,18 @@ class RXPhysicalBackend:
                 ser.close()
             except Exception:
                 pass
+        detail = type(exc).__name__
         self._record_diag("serial_disconnected", role="rx", reason_code="serial_error")
-        self.log("Serial Disconnected", f"RX serial reader stopped ({type(exc).__name__})")
+        self.log("Serial Disconnected", f"RX serial reader stopped ({detail})")
+        if not write_status(
+            "rx",
+            "Connection Lost",
+            detail=detail,
+            state="error",
+            port=lost_port,
+            **transfer_context,
+        ):
+            self.log("Status Write Failed", "Could not persist the RX connection-lost state")
 
     def _dispatch_line(self, line: str) -> None:
         """Dispatch a firmware line to the appropriate handler.
@@ -440,62 +563,120 @@ class RXPhysicalBackend:
                 pass
 
     def _handle_transfer_notice(self, line: str) -> None:
-        """Parse RX_TRANSFER_NOTICE and update active transfer state."""
+        """Parse and validate RX_TRANSFER_NOTICE before changing live state."""
         # Format: RX_TRANSFER_NOTICE:<tid>:<total_size>:<total_chunks>:<crc_hex>:<name_hex>
         now = time.strftime("%H:%M:%S")
         try:
             parts = line.split(":")
-            if len(parts) >= 5:
-                tid = int(parts[1])
-                total_size = int(parts[2])
-                total_chunks = int(parts[3])
-                name_hex = parts[5] if len(parts) > 5 else ""
-                filename = bytes.fromhex(name_hex).decode("utf-8", errors="replace") if name_hex else "unknown"
-                
-                is_batch = False
-                batch_info = ""
-                if filename.startswith("VLCB1~"):
-                    b_parts = filename.split("~", 5)
-                    if len(b_parts) == 6:
-                        part_index = int(b_parts[2])
-                        part_count = int(b_parts[3])
-                        orig_name = b_parts[5]
-                        filename = f"{orig_name} (Part {part_index}/{part_count})"
-                        is_batch = True
-                        batch_info = f" [Batch Part {part_index}/{part_count}]"
+            if len(parts) != 6:
+                raise ValueError("transfer notice must contain exactly six fields")
 
-                self._active_tid = tid
-                self._active_started_monotonic = time.monotonic()
-                self._active_total_chunks = total_chunks
-                self._active_received_chunks = 0
-                self._active_filename = filename
-                self._active_total_size = total_size
-                self._log_queue.append({
-                    "time": now,
-                    "event": "Transfer Start",
-                    "details": f"TID={tid} file='{filename}' size={total_size}B chunks={total_chunks}{batch_info}"
-                })
+            tid = int(parts[1])
+            total_size = int(parts[2])
+            total_chunks = int(parts[3])
+            notice_crc = int(parts[4], 16)  # RX_FILE_HEX carries the CRC again.
+            if not 1 <= tid <= 0xFFFF or total_size < 0:
+                raise ValueError("transfer notice contains an invalid identifier or size")
+            if not 0 <= notice_crc <= 0xFFFF:
+                raise ValueError("transfer notice CRC must be 16-bit")
+            if not 0 <= total_chunks <= MAX_STREAM_CHUNKS:
+                raise ValueError("transfer notice chunk count exceeds the firmware limit")
+
+            name_hex = parts[5]
+            filename = bytes.fromhex(name_hex).decode("utf-8") if name_hex else "unknown"
+            batch_group_id = None
+            batch_info = ""
+            if filename.startswith("VLCB1~"):
+                b_parts = filename.split("~", 5)
+                if len(b_parts) != 6:
+                    raise ValueError("malformed VLCB1 transfer-notice metadata")
+                _, group_id, index_text, count_text, full_crc_text, original_name = b_parts
+                part_index = int(index_text)
+                part_count = int(count_text)
+                full_crc = int(full_crc_text, 16)
+                if (
+                    not group_id
+                    or not original_name
+                    or not 0 <= full_crc <= 0xFFFF
+                    or not 1 <= part_index <= part_count <= MAX_BATCH_PARTS
+                ):
+                    raise ValueError("invalid VLCB1 transfer-notice part metadata")
+                batch_group_id = group_id
+                filename = f"{original_name} (Part {part_index}/{part_count})"
+                batch_info = f" [Batch Part {part_index}/{part_count}]"
+
+            # Only now mutate state: malformed notices must not poison an
+            # existing active transfer or detach its batch group.
+            previous_group = self._active_batch_group_id
+            previous_tid = self._active_tid
+            if previous_group is not None and previous_tid != tid:
+                self._batch_assembler.discard(previous_group)
+
+            self._active_batch_group_id = batch_group_id
+            self._active_tid = tid
+            self._active_started_monotonic = time.monotonic()
+            self._active_total_chunks = total_chunks
+            self._active_received_chunks = 0
+            self._active_filename = filename
+            self._active_total_size = total_size
+            self._log_queue.append({
+                "time": now,
+                "event": "Transfer Start",
+                "details": f"TID={tid} file='{filename}' size={total_size}B chunks={total_chunks}{batch_info}",
+            })
         except Exception as e:
-            self._log_queue.append({"time": now, "event": "Transfer Notice", "details": line[:80]})
+            self._log_queue.append({
+                "time": now,
+                "event": "Transfer Notice Error",
+                "details": str(e)[:120],
+            })
 
     def _handle_ram_store(self, line: str) -> None:
-        """Parse RX_RAM_STORE and update progress."""
+        """Validate RX_RAM_STORE against the active transfer before updating progress."""
         # Format: RX_RAM_STORE:<tid>:<chunk_index>:<received_count>:<total_chunks>
         now = time.strftime("%H:%M:%S")
         try:
             parts = line.split(":")
-            if len(parts) >= 5:
-                received = int(parts[3])
-                total = int(parts[4])
-                self._active_received_chunks = received
-                pct = int(received * 100 / total) if total > 0 else 0
+            if len(parts) != 5:
+                raise ValueError("RAM store record must contain exactly five fields")
+            tid, chunk_index, received, total = (int(value) for value in parts[1:])
+            if not 1 <= tid <= 0xFFFF:
+                raise ValueError("RAM store TID is outside the firmware range")
+            if self._active_tid is None or tid != self._active_tid:
                 self._log_queue.append({
                     "time": now,
-                    "event": "Chunk Received",
-                    "details": f"chunk {parts[2]}/{total} ({pct}%)"
+                    "event": "Ignored Stale Chunk Progress",
+                    "details": f"TID={tid} does not match active TID={self._active_tid}",
                 })
-        except Exception:
-            self._log_queue.append({"time": now, "event": "RAM Store", "details": line[:80]})
+                return
+            if not 1 <= total <= MAX_STREAM_CHUNKS:
+                raise ValueError("RAM store total chunk count is outside the firmware limit")
+            if total != self._active_total_chunks:
+                raise ValueError("RAM store chunk total does not match the active transfer")
+            if not 0 <= chunk_index < total:
+                raise ValueError("RAM store chunk index is outside its declared range")
+            if not 1 <= received <= total:
+                raise ValueError("RAM store received count is outside its declared range")
+            if received < self._active_received_chunks:
+                self._log_queue.append({
+                    "time": now,
+                    "event": "Ignored Stale Chunk Progress",
+                    "details": f"Received count regressed from {self._active_received_chunks} to {received}",
+                })
+                return
+            self._active_received_chunks = received
+            pct = int(received * 100 / total)
+            self._log_queue.append({
+                "time": now,
+                "event": "Chunk Received",
+                "details": f"chunk {chunk_index}/{total} ({pct}%)"
+            })
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._log_queue.append({
+                "time": now,
+                "event": "RAM Store Error",
+                "details": str(exc)[:120],
+            })
 
     def _handle_file_hex(self, line: str) -> None:
         """Decode and save a completed file from RX_FILE_HEX line.
@@ -507,10 +688,40 @@ class RXPhysicalBackend:
         try:
             parts = line.split(":")
             if len(parts) < 8:
+                # A truncated payload line for the active TID must not leave
+                # stale receive progress (or an incomplete batch group) visible.
+                malformed_tid = None
+                if len(parts) > 1:
+                    try:
+                        malformed_tid = int(parts[1])
+                    except ValueError:
+                        pass
+                if malformed_tid is not None and malformed_tid == self._active_tid:
+                    if self._active_batch_group_id is not None:
+                        self._batch_assembler.discard(self._active_batch_group_id)
+                    self._active_tid = None
+                    self._active_filename = ""
+                    self._active_total_size = 0
+                    self._active_total_chunks = 0
+                    self._active_received_chunks = 0
+                    self._active_started_monotonic = None
+                    self._active_batch_group_id = None
                 self._log_queue.append({"time": now, "event": "RX File", "details": "Malformed RX_FILE_HEX (too few fields)"})
                 return
 
             tid = int(parts[1])
+            # RX_FILE_HEX must belong to the transfer currently announced by
+            # RX_TRANSFER_NOTICE. Ignore delayed/stale payloads rather than
+            # allowing them to complete or overwrite a newer transfer.
+            if self._active_tid is not None and tid != self._active_tid:
+                self._log_queue.append({
+                    "time": now,
+                    "event": "RX File",
+                    "details": f"Ignored stale payload TID={tid}; active TID={self._active_tid}",
+                })
+                return
+            if not 1 <= tid <= 0xFFFF:
+                raise ValueError("RX file TID is outside the firmware range")
             total_size = int(parts[3])
             part_total_chunks = int(parts[4])
             part_crc_expected = int(parts[5], 16)
@@ -520,15 +731,16 @@ class RXPhysicalBackend:
 
             filename = bytes.fromhex(name_hex).decode("utf-8", errors="replace") if name_hex else f"rx_{tid}.bin"
             file_bytes = bytes.fromhex(data_hex)
+            if len(file_bytes) != total_size:
+                raise ValueError(
+                    f"RX payload length mismatch: header={total_size}, decoded={len(file_bytes)}"
+                )
 
             # Verify CRC16-CCITT
             calc_crc = crc16_ccitt(file_bytes)
             expected_crc = int(crc_expected_hex, 16)
             crc_ok = (calc_crc == expected_crc)
 
-            # Save to disk
-            self._save_dir.mkdir(parents=True, exist_ok=True)
-            
             # --- Validated, bounded batch assembly ---
             if filename.startswith("VLCB1~"):
                 metadata = filename.split("~", 5)
@@ -536,6 +748,14 @@ class RXPhysicalBackend:
                     raise ValueError("Malformed VLCB1 batch metadata")
                 _, group_id, index_text, count_text, full_crc_text, original_name = metadata
                 batch_group_id = group_id
+                if (
+                    self._active_batch_group_id is not None
+                    and group_id != self._active_batch_group_id
+                ):
+                    raise ValueError(
+                        "batch group does not match the active transfer notice"
+                    )
+                self._active_batch_group_id = group_id
                 self._prune_expired_batches()
                 assembled = self._batch_assembler.add_part(
                     group_id=group_id,
@@ -555,9 +775,16 @@ class RXPhysicalBackend:
                     "details": f"Part {index_text}/{count_text} of '{original_name}' validated",
                 })
                 if assembled is None:
+                    # This firmware part has ended; the assembler retains
+                    # bounded batch state independently of the live transfer
+                    # snapshot, so do not leave stale per-part progress visible.
                     self._active_tid = None
                     self._active_filename = ""
+                    self._active_total_size = 0
+                    self._active_total_chunks = 0
+                    self._active_received_chunks = 0
                     self._active_started_monotonic = None
+                    self._active_batch_group_id = None
                     return
                 file_bytes = assembled["data"]
                 filename = assembled["filename"]
@@ -578,7 +805,7 @@ class RXPhysicalBackend:
             # Sanitise filename
             safe_name = re.sub(r"[^\w.\-]", "_", filename) or f"rx_{tid}.bin"
             out_path = self._save_dir / safe_name
-            # Avoid clobbering existing files
+            # Avoid clobbering existing files before the atomic replacement.
             counter = 1
             while out_path.exists():
                 stem = Path(safe_name).stem
@@ -586,7 +813,9 @@ class RXPhysicalBackend:
                 out_path = self._save_dir / f"{stem}_{counter}{suffix}"
                 counter += 1
 
-            out_path.write_bytes(file_bytes)
+            out_path = _atomic_save_received_file(
+                self._save_dir, out_path.name, file_bytes
+            )
 
             crc_label = "CRC OK" if crc_ok else f"CRC MISMATCH (got {calc_crc:04X} expected {expected_crc_for_message:04X})"
             self._log_queue.append({
@@ -617,8 +846,9 @@ class RXPhysicalBackend:
                 strict_ber=None,
                 bit_accuracy=None,
                 bit_errors=None,
-                total_bits=len(file_bytes) * 8,
-                compared_bytes=len(file_bytes),
+                # CRC completion is not a Method 2 BER comparison.
+                total_bits=0,
+                compared_bytes=0,
                 missing_chunks=0,
                 missing_bytes=0,
                 first_issue="None" if crc_ok else "CRC mismatch",
@@ -653,9 +883,16 @@ class RXPhysicalBackend:
             # Clear active transfer
             self._active_tid = None
             self._active_started_monotonic = None
+            self._active_batch_group_id = None
         except Exception as e:
-            if batch_group_id is not None:
-                self._batch_assembler.discard(batch_group_id)
+            # Rejecting a payload with conflicting metadata invalidates
+            # both its claimed group and the group announced for this TID.
+            for group_to_discard in {
+                batch_group_id,
+                self._active_batch_group_id,
+            }:
+                if group_to_discard is not None:
+                    self._batch_assembler.discard(group_to_discard)
             # A rejected or malformed completed-file record must not leave a
             # phantom active transfer in the dashboard.
             self._active_tid = None
@@ -664,6 +901,7 @@ class RXPhysicalBackend:
             self._active_total_chunks = 0
             self._active_received_chunks = 0
             self._active_started_monotonic = None
+            self._active_batch_group_id = None
             self._log_queue.append({"time": now, "event": "RX File Error", "details": str(e)[:120]})
 
     def _handle_file_crc_fail(self, line: str) -> None:
@@ -713,24 +951,56 @@ class RXPhysicalBackend:
                         quality=quality,
                         chunks=[],
                     )
+                    if self._active_batch_group_id:
+                        self._batch_assembler.discard(self._active_batch_group_id)
                     self._active_tid = None
+                    self._active_filename = ""
+                    self._active_total_size = 0
+                    self._active_total_chunks = 0
+                    self._active_received_chunks = 0
                     self._active_started_monotonic = None
+                    self._active_batch_group_id = None
         except Exception as e:
             self._log_queue.append({"time": now, "event": "RX CRC Fail Error", "details": str(e)[:120]})
 
-    def _close_serial(self) -> None:
-        # Signal and join the reader thread first
+    def _close_serial(self) -> bool:
+        """Stop the RX reader and release its handle before allowing a reconnect.
+
+        Closing the serial handle interrupts a blocking read on supported
+        pySerial drivers. Join only after releasing the handle so a slow or
+        unplugged adapter cannot leave an untracked reader behind.
+        """
+        # A closed serial session is a hard transfer boundary. Never allow
+        # partial batch fragments or progress from the old connection to be
+        # combined with a later session (even if firmware reuses a group ID).
+        self._batch_assembler.clear()
+        self._active_tid = None
+        self._active_total_chunks = 0
+        self._active_received_chunks = 0
+        self._active_filename = ""
+        self._active_total_size = 0
+        self._active_started_monotonic = None
+        self._active_batch_group_id = None
         self._reader_stop.set()
-        if self._reader_thread is not None and self._reader_thread.is_alive():
-            self._reader_thread.join(timeout=1.0)
-        self._reader_thread = None
         with self._write_lock:
-            if self._ser is not None:
+            ser = self._ser
+            self._ser = None
+            if ser is not None:
                 try:
-                    self._ser.close()
+                    ser.close()
                 except Exception:
                     pass
-                self._ser = None
+
+        reader = self._reader_thread
+        if reader is not None and reader.is_alive() and reader is not threading.current_thread():
+            reader.join(timeout=1.5)
+        if reader is not None and reader.is_alive():
+            # Keep the reference so a later disconnect/reconnect can observe
+            # that shutdown is incomplete. Never start a second reader yet.
+            return False
+
+        self._reader_thread = None
+        return True
 
     def send_command(self, cmd: str) -> bool:
         """Write a complete command without interleaving concurrent writers."""
@@ -783,8 +1053,16 @@ class RXPhysicalBackend:
             self._pwm_autocal_converged = False
 
     def cleanup(self) -> None:
-        """Close serial connection and release port."""
-        self._close_serial()
+        """Stop discovery and serial workers before releasing the RX port."""
+        self._shutting_down = True
+        # Wake a readiness wait so the connect worker can observe shutdown.
+        self._ready_event.set()
+        worker = self._connect_thread
+        if worker is not None and worker.is_alive() and worker is not threading.current_thread():
+            worker.join(timeout=3.0)
+        if worker is None or not worker.is_alive():
+            self._connect_thread = None
+        self.disconnect(reason="Application shutdown")
 
     # ── Live data acquisition ──
 
@@ -823,14 +1101,14 @@ class RXPhysicalBackend:
         return None
 
     def refresh(self) -> RXPhysicalSnapshot:
-        """Read current state from live serial or vlc_beta bridge.
+        """Read live serial telemetry, then recent cached status, then offline state.
 
-        Priority:
-          1. Live serial: send LQ?, parse signal data
-          2. vlc_beta bridge: fresh status files (serial not available)
-          3. Empty offline state
+        Cached status is useful for continuity but is never treated as a live
+        serial connection. Incomplete batch groups expire during normal polling
+        even when no further fragments arrive.
         """
-        if not self._connected:
+        self._prune_expired_batches()
+        if not self._connected and not self._shutting_down:
             from gui_dev_v3.settings import SettingsManager
             mgr = SettingsManager("rx")
             mode = mgr.get("connection/mode", "Auto Detect (Recommended)")
@@ -847,23 +1125,40 @@ class RXPhysicalBackend:
                     self._last_scan_time = now
                     # Run detection in a background thread so the GUI never freezes
                     import threading
-                    target_port = mgr.get("connection/port", "") if mode == "Manual" else None
-                    self._connecting = True
+                    target_port = (
+                        str(mgr.get("connection/port", "") or "").strip()
+                        if mode == "Manual" else None
+                    )
+                    if mode == "Manual" and not target_port:
+                        # Manual mode is an explicit user choice. Never fall
+                        # back to automatic role discovery when no port is set.
+                        if not getattr(self, "_manual_port_warning_logged", False):
+                            self._log_queue.append({
+                                "time": time.strftime("%H:%M:%S"),
+                                "event": "Manual Port Required",
+                                "details": "Select an RX serial port in Settings before connecting.",
+                            })
+                            self._manual_port_warning_logged = True
+                    else:
+                        self._manual_port_warning_logged = False
+                        self._connecting = True
 
-                    def _bg_connect():
-                        try:
-                            if target_port:
-                                self.connect(target_port)
-                            else:
-                                self.auto_connect()
-                        finally:
-                            self._connecting = False
+                        def _bg_connect():
+                            try:
+                                if mode == "Manual":
+                                    self.connect(target_port)
+                                else:
+                                    self.auto_connect()
+                            finally:
+                                self._connecting = False
 
-                    self._connect_thread = threading.Thread(target=_bg_connect, daemon=True)
-                    self._connect_thread.start()
+                        self._connect_thread = threading.Thread(
+                            target=_bg_connect, daemon=True
+                        )
+                        self._connect_thread.start()
 
         if not self._connected:
-            # Fallback: vlc_beta bridge files
+            # Retain recent cached telemetry while reporting the device as disconnected
             rx_status = read_status("rx")
             sig_status = read_status("signal")
             if _is_fresh(rx_status) or _is_fresh(sig_status):
@@ -879,12 +1174,12 @@ class RXPhysicalBackend:
                     session=session,
                     transfer=latest,
                     activity_log=log,
-                    serial_connected=bool(rx_status) or bool(sig_status),
+                    serial_connected=False,
                     device_port=self._port or "",
                     firmware_version=self._firmware_info.get("firmware", "") if self._firmware_info else "",
                     board_type=self._firmware_info.get("board", "") if self._firmware_info else "",
                     ports_scanned=len(self.scan_ports()),
-                    firmware_found=True,
+                    firmware_found=bool(self._firmware_info),
                 )
             
             log = list(self._log_queue)
@@ -973,7 +1268,7 @@ class RXPhysicalBackend:
                 self._last_lq_data = lq_data
                 return self._build_from_lq(lq_data)
 
-        # Fallback: vlc_beta bridge files
+        # Use recent application-owned cached telemetry, if available
         rx_status = read_status("rx")
         sig_status = read_status("signal")
 
@@ -995,7 +1290,7 @@ class RXPhysicalBackend:
                 firmware_version=self._firmware_info.get("firmware", "") if self._firmware_info else "",
                 board_type=self._firmware_info.get("board", "") if self._firmware_info else "",
                 ports_scanned=len(self.scan_ports()),
-                firmware_found=self._connected,
+                firmware_found=bool(self._firmware_info),
             )
 
         # Check if serial connection looks alive
@@ -1115,9 +1410,8 @@ class RXPhysicalBackend:
         pvo = lq.get("SIGNAL", 0.0)
         vref = lq.get("VREF", 0.0)
         margin = lq.get("MARGIN", 0.0)
-        swing = lq.get("SWING", 0.0)
-        pass_rate = lq.get("PASS_RATE", 100.0)
-        status_str = lq.get("STATUS", "SUCCESS_RANGE")
+        # Only fields consumed by the receiver model are read here. Missing
+        # optional PASS_RATE/STATUS fields are not replaced with success defaults.
 
         # Quality label from margin
         if margin > 0.3:
@@ -1137,12 +1431,14 @@ class RXPhysicalBackend:
             vref=round(vref, 3),
             margin=round(margin, 3),
             target_margin=0.365,
-            adc_vref=3.300,
-            lux=int(pvo * 150) if pvo > 0 else 0,  # rough lux estimate from PVo
-            data_rate=0.0,  # updated by transfer activity
-            ber=0.0,
-            strict_ber=0.0,
-            crc_status="PASS" if pass_rate > 80 else "FAIL",
+            adc_vref=None,
+            # PVo is not a lux measurement; this receiver has no lux sensor.
+            lux=None,
+            data_rate=None,
+            ber=None,
+            strict_ber=None,
+            # PASS_RATE is a signal-quality statistic, not a file CRC result.
+            crc_status="Unknown",
             time_elapsed="--",
         )
 
@@ -1153,7 +1449,7 @@ class RXPhysicalBackend:
         if self._active_tid is not None:
             from gui_dev_v3.models import TransferQuality, TransferStatus
             in_progress_quality = TransferQuality(
-                label="Receiving…", strict_ber=0.0, bit_accuracy=0.0, bit_errors=0,
+                label="Receiving…", strict_ber=None, bit_accuracy=None, bit_errors=None,
                 total_bits=0, compared_bytes=0, missing_chunks=0, missing_bytes=0,
                 first_issue="None", crc_status="", recovery_rate=0.0,
             )
@@ -1223,7 +1519,7 @@ class RXPhysicalBackend:
 
     def _build_from_status(self, rx_status: dict | None,
                            sig_status: dict | None) -> tuple[SessionState, list[TransferRecord]]:
-        """Build state from vlc_beta bridge files."""
+        """Build a snapshot from recent application-owned status records."""
         transfers = load_real_transfer_history()
         latest = transfers[0] if transfers else None
         session = build_session_from_status("rx", latest)
@@ -1239,13 +1535,19 @@ class RXPhysicalBackend:
                 vref=round(vref, 3),
                 margin=round(margin, 3),
                 target_margin=float(sig_status.get("margin_best_v") or 0.365),
-                adc_vref=3.300,
-                lux=int(pvo * 150) if pvo > 0 else 0,
-                data_rate=float(sig_status.get("rate_bps", 0)) / 1000.0,
-                ber=0.0,
-                strict_ber=0.0,
-                crc_status="PASS" if sig_status.get("state") in ("success", "active") else "Unknown",
-                time_elapsed="--",
+                adc_vref=(
+                    float(sig_status["adc_vref"])
+                    if sig_status.get("adc_vref") is not None else None
+                ),
+                lux=None,
+                data_rate=(
+                    float(sig_status.get("rate_bps") or 0) / 1000.0
+                    if float(sig_status.get("rate_bps") or 0) > 0 else None
+                ),
+                ber=None,
+                strict_ber=None,
+                crc_status=str(sig_status.get("crc_status") or "Unknown"),
+                time_elapsed=str(sig_status.get("time_elapsed") or ""),
             )
             session = SessionState(
                 role=session.role,
@@ -1498,8 +1800,8 @@ def _empty_transfer() -> TransferRecord:
         time_label="", size_bytes=0,
         total_chunks=0, received_chunks=0,
         quality=TransferQuality(
-            label="No Data", strict_ber=0.0, bit_accuracy=100.0,
-            bit_errors=0, total_bits=0, compared_bytes=0,
+            label="No Data", strict_ber=None, bit_accuracy=None,
+            bit_errors=None, total_bits=0, compared_bytes=0,
             missing_chunks=0, missing_bytes=0,
             first_issue="None", crc_status="", recovery_rate=0.0,
         ),

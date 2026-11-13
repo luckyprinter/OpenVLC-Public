@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QBoxLayout, QWidget, QPushButton, QSizePolicy, QDoubleSpinBox, QSpinBox
 
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.settings import (
@@ -11,6 +11,7 @@ from gui_dev_v3.settings import (
     ComboSetting,
     DirectorySetting,
     SettingsManager,
+    OperatingModeSelector,
     SettingRow,
     SettingsContainer,
     SpinSetting,
@@ -34,19 +35,34 @@ from gui_dev_v3.settings import (
 )
 from gui_dev_v3.settings_store import RESOLUTION_PRESETS
 from gui_dev_v3.theme import COLORS
-from gui_dev_v3.widgets import Card, muted_label, primary_button
+from gui_dev_v3.widgets import Card, muted_label, ModeSelectCard, primary_button
 
 
 # ── General & Display ──────────────────────────────────────────────────
 
 
 class GeneralDisplayPage(QWidget):
-    def __init__(self, mgr: SettingsManager, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        mgr: SettingsManager,
+        parent: QWidget | None = None,
+        state: RXAppState | None = None,
+    ) -> None:
         super().__init__(parent)
         self._mgr = mgr
         lo = QVBoxLayout(self)
         lo.setContentsMargins(0, 0, 0, 0)
         lo.setSpacing(12)
+
+        # Operating mode is shared with the RX application state.
+        mode_card = Card("Operating Mode")
+        self._mode_selector = OperatingModeSelector(mgr, state=state)
+        mode_card.body.addWidget(SettingRow("Active Backend", self._mode_selector))
+        mode_card.body.addWidget(muted_label(
+            "Hardware uses the ESP32 over USB. Simulation uses a localhost UDP "
+            "channel; set the TX console to Simulation too for an end-to-end virtual link."
+        ))
+        lo.addWidget(mode_card)
 
         # 1. Theme Card
         theme_card = Card("Theme")
@@ -137,9 +153,23 @@ class GeneralDisplayPage(QWidget):
         return self._window
 
     def _on_reset_clicked(self) -> None:
-        reset_all_settings(self._mgr, self._get_window())
         from PySide6.QtWidgets import QMessageBox
-        QMessageBox.information(self, "Settings Reset", "All settings have been reset to defaults. Please restart the application for all changes to take effect.")
+
+        if not reset_all_settings(self._mgr, self._get_window()):
+            QMessageBox.critical(
+                self,
+                "Settings Reset Failed",
+                "OpenVLC could not complete the settings reset. Some settings may already have been reset; "
+                "Check that the configuration directory is writable and that any corrupt settings "
+                "backup can be created, then try again.",
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Settings Reset",
+            "All settings have been reset to defaults. Please restart the application for all changes to take effect.",
+        )
 
     def _on_switch_mode_clicked(self) -> None:
         window = self._get_window()
@@ -197,14 +227,20 @@ class ConnectionChannelPage(QWidget):
         lo.setSpacing(12)
 
 
-        # 2. Connection Settings card (only for physical)
+        # 2. Connection Settings card (physical hardware only)
         self.conn_card = Card("Connection Settings")
         mode_select = RadioGroup(["Auto Detect (Recommended)", "Manual"], selected="Auto Detect (Recommended)")
         bind_radio_group(mode_select, mgr, "connection/mode", "Auto Detect (Recommended)")
         self.conn_card.body.addWidget(mode_select)
 
-        port_layout = QHBoxLayout()
+        self._port_row_compact = True
+        port_layout = QBoxLayout(QBoxLayout.Direction.TopToBottom)
+        self._port_layout = port_layout
+        port_layout.setSpacing(8)
         self.port_combo = ComboSetting([], "")
+        self.port_combo.setMinimumWidth(0)
+        self.port_combo.setMinimumHeight(38)
+        self.port_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         from gui_dev_v3.rx.backends.physical import _list_usb_serial_ports
         
         def _refresh_ports():
@@ -228,10 +264,12 @@ class ConnectionChannelPage(QWidget):
         bind_combo(self.port_combo, mgr, "connection/port", "")
         
         refresh_btn = QPushButton("Refresh")
+        refresh_btn.setMinimumHeight(36)
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.clicked.connect(_refresh_ports)
         
         force_btn = QPushButton("Force Connect")
+        force_btn.setMinimumHeight(36)
         force_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         force_btn.setToolTip("Bypass verification and force open this COM port.")
         force_btn.setStyleSheet("""
@@ -384,8 +422,90 @@ class ConnectionChannelPage(QWidget):
 
         lo.addWidget(self.link_card)
 
+        # Simulation-only channel controls. These never write to the ESP32.
+        self.sim_card = Card("Simulation Channel")
+        self._sim_distance = QDoubleSpinBox()
+        self._sim_distance.setRange(0.1, 10.0)
+        self._sim_distance.setDecimals(1)
+        self._sim_distance.setSingleStep(0.1)
+        self._sim_distance.setSuffix(" m")
+        self._sim_distance.setValue(float(mgr.get("simulation/distance_m", 1.0)))
+        self._sim_noise = QDoubleSpinBox()
+        self._sim_noise.setRange(0.0, 200.0)
+        self._sim_noise.setDecimals(1)
+        self._sim_noise.setSuffix(" mV")
+        self._sim_noise.setValue(float(mgr.get("simulation/noise_floor_mv", 15.0)))
+        self._sim_lux = QSpinBox()
+        self._sim_lux.setRange(0, 100000)
+        self._sim_lux.setSuffix(" lux")
+        self._sim_lux.setValue(int(mgr.get("simulation/lux", 420)))
+        self._sim_led = QDoubleSpinBox()
+        self._sim_led.setRange(0.1, 100.0)
+        self._sim_led.setDecimals(1)
+        self._sim_led.setSuffix(" W")
+        self._sim_led.setValue(float(mgr.get("simulation/led_wattage_w", 10.0)))
+        self._sim_loss = QDoubleSpinBox()
+        self._sim_loss.setRange(0.0, 50.0)
+        self._sim_loss.setDecimals(1)
+        self._sim_loss.setSuffix(" %")
+        self._sim_loss.setValue(float(mgr.get("simulation/packet_loss_pct", 5.0)))
+        for label, widget, tip in [
+            ("Distance", self._sim_distance, "Simulated optical path length."),
+            ("Noise Floor", self._sim_noise, "Receiver noise floor used by the virtual channel."),
+            ("Ambient Light", self._sim_lux, "Simulated ambient illumination."),
+            ("LED Wattage", self._sim_led, "Simulated transmitter LED power."),
+            ("Packet Loss", self._sim_loss, "Probability of dropping a simulated data chunk."),
+        ]:
+            self.sim_card.body.addWidget(SettingRow(label, widget, tip))
+            widget.valueChanged.connect(self._on_simulation_params_changed)
+        self._sim_status = muted_label(
+            "Simulation uses localhost UDP. Start the TX console in Simulation mode to establish a link."
+        )
+        self.sim_card.body.addWidget(self._sim_status)
+        lo.addWidget(self.sim_card)
+
+        self._last_applied_mode = state.mode if state is not None else "physical"
+        if state is not None:
+            state.subscribe(self._on_simulation_state_changed)
+            self.destroyed.connect(
+                lambda *_args: state.unsubscribe(self._on_simulation_state_changed)
+            )
+            if state.mode == "simulated":
+                self._apply_simulation_params()
+        self.refresh(state)
+
         lo.addStretch(1)
 
+
+    def _on_simulation_params_changed(self, _value: float | int = 0) -> None:
+        self._apply_simulation_params()
+
+    def _apply_simulation_params(self) -> None:
+        params = {
+            "distance_m": self._sim_distance.value(),
+            "noise_floor_mv": self._sim_noise.value(),
+            "lux": self._sim_lux.value(),
+            "led_wattage_w": self._sim_led.value(),
+            "packet_loss_pct": self._sim_loss.value(),
+        }
+        for key, value in params.items():
+            self._mgr.set(f"simulation/{key}", value)
+        if self._state is not None and self._state.mode == "simulated":
+            self._state.update_simulation_params(**params)
+
+    def _on_simulation_state_changed(self, state: RXAppState) -> None:
+        if state.mode != self._last_applied_mode:
+            self._last_applied_mode = state.mode
+            if state.mode == "simulated":
+                self._apply_simulation_params()
+        self.conn_card.setVisible(state.mode != "simulated")
+        self.link_card.setVisible(state.mode != "simulated")
+        self.sim_card.setVisible(state.mode == "simulated")
+        if state.mode == "simulated":
+            self._sim_status.setText(
+                "Connected to TX Simulation." if state.serial_connected
+                else "Waiting for the TX console to enter Simulation mode."
+            )
 
     def _on_apply_settings(self) -> None:
         if not self._state:
@@ -437,8 +557,24 @@ class ConnectionChannelPage(QWidget):
 
         self._show_toast("Hardware settings sent to receiver")
 
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Keep the port selector and connection actions reachable at narrow widths."""
+        super().resizeEvent(event)
+        compact = self.width() < 700
+        if compact == self._port_row_compact:
+            return
+        self._port_row_compact = compact
+        self._port_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self._port_layout.setSpacing(8 if compact else 6)
+
     def refresh(self, state: RXAppState) -> None:
         if state is None:
+            return
+        self._on_simulation_state_changed(state)
+        if state.mode == "simulated":
             return
         if state.serial_connected:
             phy = getattr(state, "_physical", None)
@@ -528,7 +664,7 @@ def build_rx_settings(state: RXAppState | None = None) -> SettingsContainer:
     from gui_dev_v3.rx.placeholders import AboutPage
     mgr = SettingsManager("rx")
     sections: list[tuple[str, QWidget]] = [
-        ("General & Display", GeneralDisplayPage(mgr)),
+        ("General & Display", GeneralDisplayPage(mgr, state=state)),
         ("Connection & Channel", ConnectionChannelPage(mgr, state)),
         ("Diagnostics & Logs", DiagnosticsLogsPage(mgr, state)),
         ("About", AboutPage()),

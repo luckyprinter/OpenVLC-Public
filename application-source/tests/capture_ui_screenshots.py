@@ -8,7 +8,7 @@ import sys
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from PySide6.QtCore import QPoint
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication
 
 from gui_dev_v3.app import VLCMainWindow, load_bundled_fonts
@@ -16,7 +16,7 @@ from gui_dev_v3.app import VLCMainWindow, load_bundled_fonts
 
 SCALE_LABEL = os.environ.get("OPENVLC_SCREENSHOT_SCALE", "1.0").replace(".", "p")
 OUTPUT_DIR = Path("ui-screenshots") / f"scale-{SCALE_LABEL}"
-WINDOW_SIZES = ((1366, 768), (1280, 720), (1024, 700))
+WINDOW_SIZES = ((1366, 768), (1280, 720), (1024, 700), (680, 500))
 PAGES = {
     "tx": {"dashboard": 0, "transmit": 1, "file_manager": 2, "logs": 3, "settings": 4},
     "rx": {"dashboard": 0, "receive": 1, "inspect": 2, "signal": 3, "ber_analyzer": 4, "study_data": 5, "settings": 6},
@@ -25,6 +25,47 @@ PAGES = {
 
 def validate_page_geometry(mode: str, page_name: str, shell, width: int, height: int) -> None:
     """Catch clipped TX controls and table headers before screenshot capture."""
+    if page_name == "settings":
+        settings_page = shell._page_widgets.get("settings")
+        nav_panel = getattr(settings_page, "_nav_panel", None)
+        stack = getattr(settings_page, "_stack", None)
+        if nav_panel is not None and stack is not None:
+            compact = width < 900
+            expected_nav_width = 180 if compact else 200
+            if nav_panel.width() != expected_nav_width:
+                raise RuntimeError(
+                    f"{mode.upper()} settings navigation width is {nav_panel.width()} "
+                    f"instead of {expected_nav_width} at {width}x{height}"
+                )
+            if stack.width() <= 0:
+                raise RuntimeError(f"{mode.upper()} settings form has no usable width at {width}x{height}")
+            # RX General & Display includes a directory editor with both a
+            # path field and Browse button. Check that the full control remains
+            # inside the scroll viewport rather than silently clipping at the
+            # right edge on compact windows.
+            if mode == "rx":
+                sections = getattr(settings_page, "_sections", [])
+                general_page = sections[0][1] if sections else None
+                directory = getattr(general_page, "export_dir_setting", None)
+                scroll = stack.currentWidget()
+                viewport = scroll.viewport() if scroll is not None else None
+                if directory is not None and viewport is not None:
+                    right = directory.mapTo(
+                        viewport, QPoint(directory.width(), 0)
+                    ).x()
+                    if right > viewport.width() + 1:
+                        raise RuntimeError(
+                            f"RX settings directory editor is clipped at {width}x{height}: "
+                            f"right={right}, viewport={viewport.width()}"
+                        )
+                    browse_right = directory.btn.mapTo(
+                        viewport, QPoint(directory.btn.width(), 0)
+                    ).x()
+                    if directory.btn.width() < 64 or browse_right > viewport.width() + 1:
+                        raise RuntimeError(
+                            f"RX settings Browse button is clipped at {width}x{height}"
+                        )
+
     if mode == "tx" and page_name == "dashboard":
         page = shell._page_widgets.get("dashboard")
         file_panel = getattr(page, "_file_details", None)
@@ -73,35 +114,53 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
 
     if mode == "tx" and page_name == "dashboard":
         page = shell._page_widgets.get("dashboard")
-        profile = getattr(page, "_link_profile", None)
-        status = getattr(profile, "_status", None) if profile is not None else None
-        if status is None or status.height() < 12:
-            raise RuntimeError(f"TX link-profile status is clipped at {width}x{height}")
-        if status.fontMetrics().horizontalAdvance(status.text()) > status.width() + 2:
-            raise RuntimeError(f"TX link-profile status text overflows at {width}x{height}")
-        for row_name in ("row_protocol", "row_rate", "row_gpio", "row_drive", "row_driver", "row_gap"):
-            row = getattr(profile, row_name, None)
-            if row is None:
-                raise RuntimeError(f"TX link-profile row {row_name} is missing at {width}x{height}")
-            for label in (row.lbl, row.val):
+        device_status = getattr(page, "_device_status", None)
+        if device_status is None or device_status.height() < 48:
+            raise RuntimeError(f"TX device-status panel is clipped at {width}x{height}")
+        for column_name in ("box_connection", "box_firmware", "box_protocol", "box_usb"):
+            column = getattr(device_status, column_name, None)
+            if column is None:
+                raise RuntimeError(f"TX device-status column {column_name} is missing at {width}x{height}")
+            for label in (column.title_lbl, column.val_lbl):
+                if label.height() < 12:
+                    raise RuntimeError(f"TX device-status label is clipped at {width}x{height}")
                 if label.fontMetrics().horizontalAdvance(label.text()) > label.width() + 2:
-                    raise RuntimeError(f"TX link-profile text overflows at {width}x{height}: {label.text()}")
+                    raise RuntimeError(
+                        f"TX device-status text overflows at {width}x{height}: {label.text()}"
+                    )
 
+        # Secondary dashboard panels are intentionally hidden when the
+        # dashboard enters its compact layout. Validate their geometry only
+        # when the UI says they should be visible.
         pipeline = getattr(page, "_pipeline", None)
-        if pipeline is None or pipeline.height() < 112:
-            raise RuntimeError(f"TX pipeline panel is too short at {width}x{height}")
-        for stage_name in ("stage_file", "stage_chunk", "stage_enc", "stage_mod", "stage_esp", "stage_optical"):
-            stage = getattr(pipeline, stage_name, None)
-            desc = getattr(stage, "desc_lbl", None) if stage is not None else None
-            if stage is None or stage.height() < 38 or desc is None or desc.height() < 12:
-                raise RuntimeError(f"TX pipeline stage {stage_name} is clipped at {width}x{height}")
+        if pipeline is None:
+            raise RuntimeError(f"TX pipeline panel is missing at {width}x{height}")
+        if pipeline.isVisible():
+            if pipeline.height() < 112:
+                raise RuntimeError(f"TX pipeline panel is too short at {width}x{height}")
+            for stage_name in ("stage_file", "stage_chunk", "stage_enc", "stage_mod", "stage_esp", "stage_optical"):
+                stage = getattr(pipeline, stage_name, None)
+                desc = getattr(stage, "desc_lbl", None) if stage is not None else None
+                if stage is None or stage.height() < 38 or desc is None or desc.height() < 12:
+                    raise RuntimeError(f"TX pipeline stage {stage_name} is clipped at {width}x{height}")
 
     if mode == "rx" and page_name == "dashboard":
         page = shell._page_widgets.get("dashboard")
         file_panel = getattr(page, "_file_info", None)
-        if file_panel is None or file_panel.height() < 180:
-            raise RuntimeError(f"RX received-file panel is too short at {width}x{height}")
-        for row_name in ("filename_row", "filesize_row", "received_size_row", "pct_row", "progress_bar"):
+        compact = getattr(page, "_compact_layout", False)
+        minimum_panel_height = 120 if compact else 180
+        if file_panel is None or file_panel.height() < minimum_panel_height:
+            raise RuntimeError(
+                f"RX received-file panel is too short at {width}x{height}: "
+                f"height={file_panel.height() if file_panel is not None else 'missing'}, "
+                f"minimum={minimum_panel_height}"
+            )
+        required_rows = (
+            ("filename_row", "pct_row", "progress_bar")
+            if compact else
+            ("filename_row", "filesize_row", "received_size_row", "pct_row", "progress_bar")
+        )
+        for row_name in required_rows:
             row = getattr(file_panel, row_name, None)
             if row is None or not row.isVisible():
                 raise RuntimeError(f"RX received-file row {row_name} is missing at {width}x{height}")
@@ -132,10 +191,20 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
             for column in range(table.columnCount()):
                 right = header.sectionViewportPosition(column) + header.sectionSize(column)
                 if right > table.viewport().width() + 2:
-                    raise RuntimeError(
-                        f"TX {page_name} {table_name} column {column} exceeds its viewport "
-                        f"at {width}x{height}; table headers must fit or expose horizontal scrolling"
+                    # Narrow layouts may legitimately need horizontal scrolling.
+                    # Fail only when the table disables that recovery path or
+                    # its scrollbar cannot actually reach the overflowing column.
+                    scrollbar = table.horizontalScrollBar()
+                    policy = table.horizontalScrollBarPolicy()
+                    can_scroll = (
+                        policy != Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+                        and scrollbar.maximum() > 0
                     )
+                    if not can_scroll:
+                        raise RuntimeError(
+                            f"TX {page_name} {table_name} column {column} exceeds its viewport "
+                            f"at {width}x{height} without usable horizontal scrolling"
+                        )
 
 
 def main() -> int:
@@ -157,6 +226,11 @@ def main() -> int:
         for width, height in WINDOW_SIZES:
             window.resize(width, height)
             app.processEvents()
+            if (width, height) == (680, 500) and (window.width(), window.height()) != (width, height):
+                raise RuntimeError(
+                    "Compact screenshot target was silently clamped: "
+                    f"requested={width}x{height}, actual={window.width()}x{window.height()}"
+                )
 
             expected_sidebar = 72 if width < 1120 else 224
             if shell.sidebar.width() != expected_sidebar:
@@ -183,6 +257,48 @@ def main() -> int:
                 if not window.grab().save(str(target), "PNG"):
                     raise RuntimeError(f"Could not save screenshot: {target}")
                 print(f"Captured {target}", flush=True)
+
+                # Study & Data is a nested tab page. Capture each inner tab
+                # explicitly so Export and Table Builder receive the same
+                # visual review as the default Experiments tab.
+                if mode == "rx" and page_name == "study_data":
+                    study_page = shell._page_widgets.get("study_data")
+                    inner_tabs = getattr(study_page, "tabs", None)
+                    if inner_tabs is None or inner_tabs.count() < 3:
+                        raise RuntimeError("RX Study & Data is missing its three inner tabs")
+                    for inner_index, inner_name in (
+                        (0, "experiments"),
+                        (1, "table_builder"),
+                        (2, "export"),
+                    ):
+                        inner_tabs.setCurrentIndex(inner_index)
+                        app.processEvents()
+                        if inner_name == "export":
+                            export_page = study_page.export_page
+                            folder_field = export_page._folder_edit
+                            if folder_field.cursorPosition() != 0 or not folder_field.toolTip():
+                                raise RuntimeError(
+                                    f"RX Export folder path is not readable at {width}x{height}"
+                                )
+                            history_table = export_page.table
+                            header_width = history_table.horizontalHeader().length()
+                            viewport_width = history_table.viewport().width()
+                            if (
+                                header_width > viewport_width + 2
+                                and history_table.horizontalScrollBar().maximum() <= 0
+                            ):
+                                raise RuntimeError(
+                                    f"RX Export history columns overflow without usable "
+                                    f"horizontal scrolling at {width}x{height}"
+                                )
+                        inner_target = OUTPUT_DIR / (
+                            f"rx_study_data_{inner_name}_{width}x{height}.png"
+                        )
+                        if not window.grab().save(str(inner_target), "PNG"):
+                            raise RuntimeError(f"Could not save screenshot: {inner_target}")
+                        print(f"Captured {inner_target}", flush=True)
+                    inner_tabs.setCurrentIndex(0)
+                    app.processEvents()
 
         window.return_to_launcher()
         window.close()

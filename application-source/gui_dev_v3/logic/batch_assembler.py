@@ -1,6 +1,7 @@
 """Bounded, validated assembly of multi-part optical file transfers."""
 from __future__ import annotations
 import time
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 from gui_dev_v3.serial.transfer_plan import MAX_BATCH_PARTS
@@ -29,41 +30,83 @@ class BatchAssembler:
         self.max_batch_bytes = max(1, int(max_batch_bytes))
         self.max_part_chunks = max(1, int(max_part_chunks))
         self._pending: dict[str, _PendingBatch] = {}
+        self._lock = threading.RLock()
 
     @property
     def pending_count(self) -> int:
-        return len(self._pending)
+        with self._lock:
+            return len(self._pending)
 
     def clear(self) -> None:
-        self._pending.clear()
+        with self._lock:
+            self._pending.clear()
 
     def discard(self, group_id: str) -> None:
         """Discard one incomplete group after a protocol-level failure."""
-        self._pending.pop(str(group_id), None)
+        with self._lock:
+            self._pending.pop(str(group_id), None)
 
     def prune_expired(self, now: float | None = None) -> list[str]:
-        current = time.monotonic() if now is None else float(now)
-        expired = [key for key, batch in self._pending.items()
-                   if current - batch.last_seen > self.ttl_seconds]
-        for key in expired:
-            self._pending.pop(key, None)
-        return expired
+        with self._lock:
+            current = time.monotonic() if now is None else float(now)
+            expired = [key for key, batch in self._pending.items()
+                       if current - batch.last_seen > self.ttl_seconds]
+            for key in expired:
+                self._pending.pop(key, None)
+            return expired
 
-    def add_part(self, *, group_id: str, part_index: int, part_count: int, full_crc: int,
-                 filename: str, part_data: bytes, part_crc_ok: bool, part_chunks: int,
-                 tid: int, started_monotonic: float | None = None,
-                 now: float | None = None) -> dict[str, Any] | None:
+    def add_part(
+        self, *, group_id: str, part_index: int, part_count: int, full_crc: int,
+        filename: str, part_data: bytes, part_crc_ok: bool, part_chunks: int,
+        tid: int, started_monotonic: float | None = None,
+        now: float | None = None,
+    ) -> dict[str, Any] | None:
+        """Thread-safe wrapper around the assembler's state mutation."""
+        with self._lock:
+            return self._add_part_unlocked(
+                group_id=group_id,
+                part_index=part_index,
+                part_count=part_count,
+                full_crc=full_crc,
+                filename=filename,
+                part_data=part_data,
+                part_crc_ok=part_crc_ok,
+                part_chunks=part_chunks,
+                tid=tid,
+                started_monotonic=started_monotonic,
+                now=now,
+            )
+
+    def _add_part_unlocked(
+        self,
+        *,
+        group_id: str,
+        part_index: int,
+        part_count: int,
+        full_crc: int,
+        filename: str,
+        part_data: bytes,
+        part_crc_ok: bool,
+        part_chunks: int,
+        tid: int,
+        started_monotonic: float | None = None,
+        now: float | None = None,
+    ) -> dict[str, Any] | None:
         current = time.monotonic() if now is None else float(now)
         self.prune_expired(current)
         group_id, filename = str(group_id).strip(), str(filename).strip()
-        part_index, part_count, full_crc = int(part_index), int(part_count), int(full_crc)
-        part_chunks, tid, part_data = int(part_chunks), int(tid), bytes(part_data)
 
         def reject(message: str) -> None:
             # A malformed fragment makes the group ambiguous; do not retain
             # previously accepted parts and accidentally complete it later.
             self._pending.pop(group_id, None)
             raise ValueError(message)
+
+        try:
+            part_index, part_count, full_crc = int(part_index), int(part_count), int(full_crc)
+            part_chunks, tid, part_data = int(part_chunks), int(tid), bytes(part_data)
+        except (TypeError, ValueError, OverflowError) as exc:
+            reject(f"invalid batch part metadata: {exc}")
 
         if not group_id or not filename:
             reject("batch group and filename are required")

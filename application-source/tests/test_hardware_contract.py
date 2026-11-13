@@ -24,10 +24,24 @@ def _define(source: str, name: str) -> int:
     return int(match.group(1))
 
 
-def test_gui_runtime_has_no_virtual_simulation_backends() -> None:
+def test_gui_runtime_keeps_simulation_backends_separate_from_serial_hardware() -> None:
     gui_root = Path(__file__).resolve().parents[1] / "gui_dev_v3"
-    assert not (gui_root / "rx" / "backends" / "simulation.py").exists()
-    assert not (gui_root / "tx" / "backends" / "simulation.py").exists()
+    rx_simulation = gui_root / "rx" / "backends" / "simulation.py"
+    tx_simulation = gui_root / "tx" / "backends" / "simulation.py"
+    rx_state = gui_root / "app_state.py"
+    tx_state = gui_root / "tx_app_state.py"
+
+    assert rx_simulation.is_file()
+    assert tx_simulation.is_file()
+    assert "class RXSimulationBackend" in rx_simulation.read_text(encoding="utf-8")
+    assert "class TXSimulationBackend" in tx_simulation.read_text(encoding="utf-8")
+    assert "def set_mode" in rx_state.read_text(encoding="utf-8")
+    assert "def set_mode" in tx_state.read_text(encoding="utf-8")
+    # Simulation is a local UDP virtual channel, never a serial-device fallback.
+    assert "9901" in rx_simulation.read_text(encoding="utf-8")
+    assert "9902" in tx_simulation.read_text(encoding="utf-8")
+    assert "serial.Serial" not in rx_simulation.read_text(encoding="utf-8")
+    assert "serial.Serial" not in tx_simulation.read_text(encoding="utf-8")
     assert not (gui_root / "mock_data.py").exists()
     assert not (gui_root / "tx_mock_data.py").exists()
 
@@ -139,7 +153,7 @@ def test_non_dma_large_file_batching_uses_configured_chunk_and_rounds(
     controller.serial_obj = object()
     controller._dma_capable = False
 
-    sent_parts: list[tuple[int, int]] = []
+    sent_parts: list[tuple[int, int, bool]] = []
 
     def fake_send_stream(
         _path: Path,
@@ -149,8 +163,11 @@ def test_non_dma_large_file_batching_uses_configured_chunk_and_rounds(
         _tid: int,
         _crc: int,
         rounds: int,
+        *,
+        batch_part: bool = False,
     ) -> bool:
-        sent_parts.append((len(part), chunk_size))
+        sent_parts.append((len(part), chunk_size, batch_part))
+        assert batch_part is True
         assert rounds == 3
         return True
 
@@ -158,8 +175,9 @@ def test_non_dma_large_file_batching_uses_configured_chunk_and_rounds(
     monkeypatch.setattr(controller, "status", lambda *_args, **_kwargs: None)
 
     assert controller.send_file(file_path, chunk_bytes=300, rounds=3) is True
-    assert [part_size for part_size, _chunk in sent_parts] == [
+    assert [part_size for part_size, _chunk, _batch_part in sent_parts] == [
         MAX_STREAM_FILE_BYTES,
         1,
     ]
-    assert all(chunk == 300 for _part_size, chunk in sent_parts)
+    assert all(chunk == 300 for _part_size, chunk, _batch_part in sent_parts)
+    assert all(batch_part for _part_size, _chunk, batch_part in sent_parts)

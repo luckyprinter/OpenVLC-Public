@@ -9,13 +9,17 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
+    QLayout,
     QDateTimeEdit,
     QHBoxLayout,
+    QBoxLayout,
+    QSizePolicy,
     QHeaderView,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QMessageBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -23,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui_dev_v3.rx.experiment_store import (
+    ExperimentStoreError,
     create_experiment,
     delete_experiment,
     list_experiments,
@@ -47,9 +52,16 @@ class ExperimentsPage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setMinimumWidth(0)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 28, 32, 28)
-        layout.setSpacing(24)
+        self._main_layout = layout
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        # Build in the narrow-safe arrangement first. A horizontal two-panel
+        # minimum width can otherwise prevent the widget from ever receiving
+        # the resize event needed to enter compact mode.
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(12)
+        self._compact_layout = True
 
         # Page title
         title = QLabel("EXPERIMENTS")
@@ -58,12 +70,16 @@ class ExperimentsPage(QWidget):
         layout.addWidget(title)
 
         # Two-panel body
-        body = QHBoxLayout()
-        body.setSpacing(24)
+        body = QBoxLayout(QBoxLayout.Direction.TopToBottom)
+        self._body_layout = body
+        body.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        body.setSpacing(12)
         layout.addLayout(body, 1)
 
         # ── Left Panel: New Experiment Form ──
         form_card = Card("New Experiment")
+        form_card.setMinimumWidth(0)
+        form_card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         form_card.body.setSpacing(14)
         body.addWidget(form_card, 2)  # ~40%
 
@@ -111,6 +127,8 @@ class ExperimentsPage(QWidget):
         body.addLayout(right_col, 3)  # ~60%
 
         table_card = Card("Saved Experiments")
+        table_card.setMinimumWidth(0)
+        table_card.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         table_card.body.setSpacing(8)
         right_col.addWidget(table_card, 1)
 
@@ -131,7 +149,17 @@ class ExperimentsPage(QWidget):
         self._table.verticalHeader().setDefaultSectionSize(32)
         self._table.setSortingEnabled(True)
         self._table.setMinimumHeight(220)
+        self._table.setMinimumWidth(0)
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
+
+        self._empty_state = QLabel(
+            "No experiments yet. Create your first experiment to organize test records."
+        )
+        self._empty_state.setWordWrap(True)
+        self._empty_state.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_state.setMinimumHeight(100)
+        self._empty_state.setObjectName("Muted")
+        table_card.body.addWidget(self._empty_state)
         table_card.body.addWidget(self._table)
 
         # Action buttons row
@@ -166,12 +194,59 @@ class ExperimentsPage(QWidget):
         # Load data
         self._reload_table()
 
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Stack experiment creation and saved records on compact workspaces."""
+        super().resizeEvent(event)
+        # Reserve the two-column form/table layout for genuinely roomy workspaces.
+        # The available page width is smaller than the window after the shell rail,
+        # and high-DPI scaling can further reduce the logical work area.
+        compact = self.width() < 1100 or self.height() < 740
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        self._body_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self._body_layout.setSpacing(12 if compact else 24)
+        self._main_layout.setContentsMargins(
+            12 if compact else 32,
+            12 if compact else 28,
+            12 if compact else 32,
+            12 if compact else 28,
+        )
+        self._main_layout.setSpacing(12 if compact else 24)
+        if self._overlay:
+            self._overlay.setGeometry(self.rect())
+
     def _reload_table(self, filter_text: str = "") -> None:
-        experiments = list_experiments()
+        try:
+            all_experiments = list_experiments()
+        except ExperimentStoreError as exc:
+            self._empty_state.setText(
+                "Saved experiments could not be loaded. The existing data has been preserved. "
+                f"{exc}"
+            )
+            self._empty_state.setVisible(True)
+            self._table.setRowCount(0)
+            self._table.setVisible(False)
+            self._selected_id = None
+            for btn in (self._view_btn, self._edit_btn, self._delete_btn):
+                btn.setEnabled(False)
+            return
+        experiments = all_experiments
         if filter_text:
             ft = filter_text.lower()
-            experiments = [e for e in experiments if ft in e.name.lower() or ft in e.type.lower()]
+            experiments = [e for e in all_experiments if ft in e.name.lower() or ft in e.type.lower()]
 
+        if not experiments:
+            self._empty_state.setText(
+                "No experiments match your search."
+                if all_experiments
+                else "No experiments yet. Create your first experiment to organize test records."
+            )
+        self._empty_state.setVisible(not experiments)
+        self._table.setVisible(bool(experiments))
         self._table.setRowCount(len(experiments))
         for row, exp in enumerate(experiments):
             self._table.setItem(row, 0, QTableWidgetItem(str(exp.id)))
@@ -185,6 +260,7 @@ class ExperimentsPage(QWidget):
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
         self._table.resizeRowsToContents()
+        self._on_selection_changed()
 
     def _on_create(self) -> None:
         name = self._exp_name.text().strip()
@@ -193,7 +269,15 @@ class ExperimentsPage(QWidget):
             return
         exp_type = self._exp_type.currentText()
         notes = self._exp_notes.toPlainText().strip()
-        create_experiment(name, exp_type, notes)
+        try:
+            create_experiment(name, exp_type, notes)
+        except ExperimentStoreError as exc:
+            QMessageBox.warning(
+                self,
+                "Experiment data unavailable",
+                f"Existing experiment data was not changed. {exc}",
+            )
+            return
 
         self._exp_name.clear()
         from datetime import datetime
@@ -282,10 +366,6 @@ class ExperimentsPage(QWidget):
     def _on_search(self, text: str) -> None:
         self._reload_table(text)
 
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        if self._overlay:
-            self._overlay.setGeometry(self.rect())
 
 
 def _add_form_row(layout, label: str, widget) -> None:

@@ -1,11 +1,9 @@
 name: Verify PyInstaller Spec
 
+# The Build Application workflow already builds and smoke-tests PyInstaller
+# packages on Ubuntu and Windows for every application PR update. Keep this
+# independent Linux-only verifier as an on-demand diagnostic/release check.
 on:
-  pull_request:
-    branches: [main, 'refactor/**', 'redesign/**']
-    paths:
-      - 'application-source/**'
-      - '.github/workflows/verify_pyinstaller_spec.yml'
   workflow_dispatch:
 
 permissions:

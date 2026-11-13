@@ -83,13 +83,13 @@ class SignalState:
     vref: float
     margin: float
     target_margin: float
-    adc_vref: float = 3.300
-    lux: int = 420
-    data_rate: float = 3.42
-    ber: float = 0.0
-    strict_ber: float = 0.0
-    crc_status: str = "PASS"
-    time_elapsed: str = "00:00:38"
+    adc_vref: float | None = None
+    lux: int | None = None
+    data_rate: float | None = None
+    ber: float | None = None
+    strict_ber: float | None = None
+    crc_status: str = "Unknown"
+    time_elapsed: str = ""
 
 
 @dataclass(frozen=True)

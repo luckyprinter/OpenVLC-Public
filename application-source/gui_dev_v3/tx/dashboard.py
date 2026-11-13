@@ -7,7 +7,7 @@ Layout:
 ┌─────────────────────────────┬─────────────────────────────┐
 │ TRANSMISSION PIPELINE       │ CURRENT SESSION             │
 ├─────────────────────────────┼─────────────────────────────┤
-│ FILE DETAILS                │ ENCODED BIT STREAM          │
+│ FILE DETAILS                │ CURRENT SESSION             │
 └─────────────────────────────┴─────────────────────────────┘
 ┌─────────────────────────────────────────────────────────────┐
 │ TRANSMISSION LOGS (Full Width)                              │
@@ -17,22 +17,21 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Any
-
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QVBoxLayout,
     QWidget,
     QFrame,
+    QSizePolicy,
 )
 
 from gui_dev_v3.theme import COLORS
 from gui_dev_v3.tx_app_state import TXAppState
 from gui_dev_v3.widgets import Card, muted_label, primary_button
+from gui_dev_v3.ui_foundation import PageIntro
 
 
 # ── Headers & Layout Helpers ──────────────────────────────────────────
@@ -53,9 +52,11 @@ class _DetailRow(QWidget):
 
         self.lbl = QLabel(label)
         self.lbl.setObjectName("Muted")
+        self.lbl.setStyleSheet("font-size: 12px; background: transparent;")
 
         self.val = QLabel(value)
         self.val.setObjectName("Value")
+        self.val.setStyleSheet("font-size: 12px; font-weight: 700; background: transparent;")
         if val_color:
             self.val.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {val_color}; background: transparent;")
 
@@ -69,12 +70,9 @@ class _DetailRow(QWidget):
     def setValue(self, text: str, color: str | None = None) -> None:
         self.val.setText(text)
         if color:
-            self.val.setStyleSheet(f"font-size: 11px; font-weight: 700; color: {color}; background: transparent;")
+            self.val.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {color}; background: transparent;")
         else:
-            self.val.setStyleSheet("")
-            self.val.setObjectName("Value")
-            self.val.style().unpolish(self.val)
-            self.val.style().polish(self.val)
+            self.val.setStyleSheet("font-size: 12px; font-weight: 700; background: transparent;")
 
 
 # ── Section 1: DEVICE STATUS ─────────────────────────────────────────
@@ -135,8 +133,20 @@ class DeviceStatusWidget(QFrame):
         layout.addLayout(cols)
         
     def refresh(self, state: TXAppState) -> None:
-        """Refresh transmitter connection details from physical hardware."""
-        if state.serial_connected:
+        connected = state.serial_connected
+        if state.mode == "simulated":
+            self.box_connection.setValue(
+                "Simulation Connected" if connected else "Waiting for RX",
+                COLORS["green"] if connected else COLORS["red"],
+            )
+            self.box_firmware.setValue("Virtual VLC Channel", COLORS["value"])
+            self.box_protocol.setValue("4B5B / NRZ-OOK", COLORS["value"])
+            self.box_usb.setValue(
+                "UDP localhost:9902" if connected else "UDP peer unavailable",
+                COLORS["green"] if connected else COLORS["muted"],
+            )
+            return
+        if connected:
             self.box_connection.setValue("Hardware Connected", COLORS["green"])
             physical = getattr(state, "_physical", None)
             firmware_info = getattr(physical, "_firmware_info", None) if physical else None
@@ -157,6 +167,8 @@ class DeviceStatusWidget(QFrame):
             self.box_usb.setValue("Inactive", COLORS["muted"])
 
 
+# ── Section 2: TRANSMISSION PIPELINE ─────────────────────────────────
+
 class _PipelineStage(QFrame):
     def __init__(self, name: str, desc: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -169,9 +181,8 @@ class _PipelineStage(QFrame):
         )
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(2)
-        self.setMinimumHeight(44)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(4)
         
         self.name_lbl = QLabel(name)
         self.name_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -261,10 +272,11 @@ class TransmissionPipelineWidget(Card):
 class CurrentSessionWidget(Card):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("CURRENT SESSION", parent)
-        self.body.setSpacing(6)
+        self.body.setContentsMargins(10, 8, 10, 8)
+        self.body.setSpacing(3)
         
         self.row_sent = _DetailRow("Files Sent", "0")
-        self.row_success = _DetailRow("Success Rate", "100 %", val_color=COLORS["green"])
+        self.row_success = _DetailRow("Success Rate", "—", val_color=COLORS["muted"])
         self.row_rate = _DetailRow("Average Throughput", "0 bps")
         self.row_last = _DetailRow("Last Transfer", "None")
         
@@ -282,15 +294,16 @@ class CurrentSessionWidget(Card):
             if item["outcome"] == "SUCCESS":
                 success += 1
                 
+        rate_pct = int((success / sent) * 100) if sent > 0 else None
+
         self.row_sent.setValue(str(sent))
-        if sent:
-            rate_pct = int((success / sent) * 100)
+        if rate_pct is None:
+            self.row_success.setValue("—", COLORS["muted"])
+        else:
             self.row_success.setValue(
                 f"{rate_pct} %",
                 COLORS["green"] if rate_pct >= 90 else COLORS["amber"],
             )
-        else:
-            self.row_success.setValue("—", COLORS["muted"])
 
         # Compute average throughput from completed transmissions
         rates_bps: list[float] = []
@@ -327,8 +340,7 @@ class CurrentSessionWidget(Card):
 class FileDetailsWidget(Card):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__("FILE DETAILS", parent)
-        self.body.setContentsMargins(12, 10, 12, 12)
-        self.body.setSpacing(4)
+        self.body.setSpacing(6)
         
         self.row_name = _DetailRow("Filename", "—")
         self.row_size = _DetailRow("Size", "—")
@@ -344,10 +356,10 @@ class FileDetailsWidget(Card):
         
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
-        btn_row.setContentsMargins(0, 4, 0, 0)
+        btn_row.setContentsMargins(0, 1, 0, 0)
         
         self.select_btn = QPushButton("Select File...")
-        self.select_btn.setMinimumHeight(30)
+        self.select_btn.setMinimumHeight(36)
         self.select_btn.setStyleSheet(
             f"QPushButton {{ background-color: {COLORS['panel_alt']}; color: {COLORS['text']}; border: 1px solid {COLORS['border']}; border-radius: 6px; padding: 6px 12px; font-weight: 600; font-size: 11px; }}"
             f"QPushButton:hover {{ border-color: {COLORS['accent']}; background-color: {COLORS['sidebar_active']}; }}"
@@ -355,7 +367,7 @@ class FileDetailsWidget(Card):
         )
         
         self.start_btn = primary_button("Start")
-        self.start_btn.setMinimumHeight(30)
+        self.start_btn.setMinimumHeight(36)
         self.start_btn.setStyleSheet(
             f"QPushButton {{ background-color: {COLORS['accent']}; color: white; border: none; border-radius: 6px; padding: 6px 16px; font-weight: 700; font-size: 11px; }}"
             f"QPushButton:hover {{ background-color: {COLORS['header']}; }}"
@@ -394,75 +406,19 @@ class FileDetailsWidget(Card):
             self.row_crc.setValue("SUCCESS (CRC OK)", COLORS["green"])
         elif "failed" in status_lower or "send failed" in status_lower:
             self.row_crc.setValue("FAILED (CRC Error)", COLORS["red"])
-        elif not state.serial_connected:
-            self.row_crc.setValue("Hardware offline", COLORS["muted"])
         elif status_lower.startswith("selected") or "idle" in status_lower or not status_lower:
             self.row_crc.setValue("Idle", COLORS["muted"])
         else:
             self.row_crc.setValue("Idle", COLORS["muted"])
             
-        self.start_btn.setEnabled(not is_transmitting and state.serial_connected)
-
-
-# ── Section 5: TX LINK PROFILE ───────────────────────────────────────
-
-class TXConfigurationWidget(Card):
-    """Show saved TX settings without fabricating a live bitstream."""
-
-    def __init__(self, parent: QWidget | None = None, settings_manager=None) -> None:
-        super().__init__("TX LINK PROFILE", parent)
-        if settings_manager is None:
-            from gui_dev_v3.settings import SettingsManager
-            settings_manager = SettingsManager("tx")
-        self._settings_manager = settings_manager
-        self.body.setSpacing(5)
-        self._status = muted_label("Saved settings · TX disconnected")
-        self.body.addWidget(self._status)
-
-        self.row_protocol = _DetailRow("Protocol", "4B5B / NRZ-OOK")
-        self.row_rate = _DetailRow("Symbol Rate", "15,000 sym/s")
-        self.row_gpio = _DetailRow("LED Output", "GPIO 5")
-        self.row_drive = _DetailRow("LED Drive", "100 %")
-        self.row_driver = _DetailRow("Driver / Idle", "Active-low · Idle on")
-        self.row_gap = _DetailRow("Frame Gap", "1 ms")
-        for row in (
-            self.row_protocol,
-            self.row_rate,
-            self.row_gpio,
-            self.row_drive,
-            self.row_driver,
-            self.row_gap,
-        ):
-            self.body.addWidget(row)
-        self.body.addStretch(1)
-
-    def _int_setting(self, key: str, default: int) -> int:
-        try:
-            return max(0, int(self._settings_manager.get(key, default)))
-        except (TypeError, ValueError, OverflowError):
-            return default
-
-    def refresh(self, state: TXAppState) -> None:
-        self._status.setText(
-            "Saved settings · TX connected"
-            if state.serial_connected
-            else "Saved settings · TX disconnected"
+        has_selected_file = bool(state.filename)
+        self.start_btn.setEnabled(
+            has_selected_file and not is_transmitting and state.serial_connected
         )
-        symbol_hz = self._int_setting("link/symbol_hz", 15000)
-        intensity = self._int_setting("link/cal_intensity_pct", 100)
-        frame_gap_ms = self._int_setting("link/frame_gap_ms", 1)
-        active_low = bool(self._settings_manager.get("link/active_low", True))
-        idle_on = bool(self._settings_manager.get("link/idle_on", True))
-
-        self.row_rate.setValue(f"{symbol_hz:,} sym/s")
-        self.row_drive.setValue(f"{intensity} %")
-        driver_mode = "Active-low" if active_low else "Active-high"
-        idle_mode = "Idle on" if idle_on else "Idle off"
-        self.row_driver.setValue(f"{driver_mode} · {idle_mode}")
-        self.row_gap.setValue(f"{frame_gap_ms} ms")
+        self.start_btn.setVisible(not is_transmitting)
 
 
-# ── Section 6: TRANSMISSION LOGS ─────────────────────────────────────
+# ── Section 5: ENCODED BIT STREAM ────────────────────────────────────
 
 class _LogEntryWidget(QWidget):
     """Single log entry: timestamp + message, monospace style."""
@@ -512,7 +468,7 @@ class _LogEntryWidget(QWidget):
 
 
 class _TXLogPanel(Card):
-    """TRANSMISSION LOG panel — scrollable list of log entries."""
+    """TRANSMISSION LOG panel — compact, non-scrollable recent activity."""
 
     def __init__(self, state: TXAppState, parent: QWidget | None = None) -> None:
         super().__init__("", parent)
@@ -526,18 +482,12 @@ class _TXLogPanel(Card):
         self._log_layout.setSpacing(0)
         self._log_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        self._scroll_area = QScrollArea()
-        self._scroll_area.setWidgetResizable(True)
-        self._scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
-        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll_area.setStyleSheet(
+        self._log_container.setMinimumHeight(64)
+        self._log_container.setMaximumHeight(140)
+        self._log_container.setStyleSheet(
             f"background: {COLORS['panel']}; border: 1px solid {COLORS['border']}; border-radius: 6px;"
         )
-        self._scroll_area.setWidget(self._log_container)
-
-        self._scroll_area.setMinimumHeight(64)
-        self._scroll_area.setMaximumHeight(140)
-        self.body.addWidget(self._scroll_area, 1)
+        self.body.addWidget(self._log_container, 1)
 
         self._last_log_len = 0
         self._no_entries_label = muted_label("No log entries yet.")
@@ -563,8 +513,9 @@ class _TXLogPanel(Card):
             self._log_layout.addWidget(self._no_entries_label)
             return
 
-        # Build new - limit to top 100 for UI performance
-        for i, entry in enumerate(reversed(log_entries[-100:])):
+        # Show only the latest few events here. The dedicated Logs page
+        # remains the place for full history; the dashboard never scrolls.
+        for i, entry in enumerate(reversed(log_entries[-4:])):
             widget = _LogEntryWidget(entry, i)
             self._log_layout.addWidget(widget)
 
@@ -579,23 +530,15 @@ class TXDashboardPage(QWidget):
         self._state = state
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(20, 12, 20, 8)
-        outer.setSpacing(8)
+        outer.setContentsMargins(20, 16, 20, 16)
+        outer.setSpacing(14)
 
-        # Clear page hierarchy: purpose first, live device state second.
-        intro = QVBoxLayout()
-        intro.setContentsMargins(2, 0, 2, 2)
-        intro.setSpacing(3)
-        eyebrow = QLabel("TRANSMITTER  /  CONTROL ROOM")
-        eyebrow.setObjectName("SectionTitle")
-        heading = QLabel("Prepare an optical transfer")
-        heading.setStyleSheet("font-size: 21px; font-weight: 750; letter-spacing: -0.4px; background: transparent;")
-        description = QLabel("Choose a file, review the link state, then start transmission.")
-        description.setObjectName("Muted")
-        intro.addWidget(eyebrow)
-        intro.addWidget(heading)
-        intro.addWidget(description)
-        outer.addLayout(intro)
+        outer.addWidget(PageIntro(
+            "TRANSMITTER  /  CONTROL ROOM",
+            "Prepare an optical transfer",
+            "Choose a file, review the link state, then start transmission.",
+            self,
+        ))
 
         self._device_status = DeviceStatusWidget()
         outer.addWidget(self._device_status)
@@ -605,27 +548,33 @@ class TXDashboardPage(QWidget):
         work_row = QHBoxLayout()
         work_row.setSpacing(14)
         self._file_details = FileDetailsWidget()
-        self._file_details.setMinimumHeight(210)
         self._file_details.select_btn.clicked.connect(self._on_select_file_clicked)
         self._file_details.start_btn.clicked.connect(self._on_start_clicked)
         self._session = CurrentSessionWidget()
-        self._link_profile = TXConfigurationWidget()
         work_row.addWidget(self._file_details, 5)
         work_row.addWidget(self._session, 4)
-        work_row.addWidget(self._link_profile, 4)
-        outer.addLayout(work_row, 7)
+        outer.addLayout(work_row, 5)
 
         # Keep the progress strip compact so file controls retain usable height
         # on short displays and at increased system display scaling.
         self._pipeline = TransmissionPipelineWidget()
-        self._pipeline.setMinimumHeight(112)
         outer.addWidget(self._pipeline, 1)
 
         self._logs = _TXLogPanel(state)
-        self._logs.setMaximumHeight(104)
         outer.addWidget(self._logs, 1)
 
+        self._apply_compact_layout()
         self.refresh()
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._apply_compact_layout()
+
+    def _apply_compact_layout(self) -> None:
+        """Prioritize file actions on short displays; history has its own page."""
+        height = self.height()
+        self._pipeline.setVisible(height >= 640)
+        self._logs.setVisible(height >= 680)
 
     def _on_select_file_clicked(self) -> None:
         from PySide6.QtWidgets import QFileDialog
@@ -676,6 +625,7 @@ class TXDashboardPage(QWidget):
                 file_log("TX", "User Action", f"Clicked Start Transmission for {Path(filepath).name}")
                 self._state.start_transmission(filepath)
 
+
     def refresh(self, state: TXAppState | None = None) -> None:
         if state is not None:
             self._state = state
@@ -684,5 +634,4 @@ class TXDashboardPage(QWidget):
         self._pipeline.refresh(self._state)
         self._session.refresh(self._state)
         self._file_details.refresh(self._state)
-        self._link_profile.refresh(self._state)
         self._logs.refresh(self._state)

@@ -167,10 +167,15 @@ def test_tx_and_rx_sessions_can_open_distinct_ports_concurrently(fake_serial):
     assert fake_serial.open_ports == set()
 
 
-def test_tx_reader_marks_connection_lost_after_unplug(fake_serial):
+def test_tx_reader_marks_connection_lost_after_unplug(fake_serial, monkeypatch):
     session = SerialSession("tx")
 
     assert session.connect("MOCK_TX") is True
+    persisted_status = []
+    monkeypatch.setattr(
+        "gui_dev_v3.serial.session.write_status",
+        lambda role, payload: persisted_status.append((role, dict(payload))),
+    )
     fake_serial.read_errors.add("MOCK_TX")
 
     deadline = time.monotonic() + 1.0
@@ -180,6 +185,17 @@ def test_tx_reader_marks_connection_lost_after_unplug(fake_serial):
     assert session.is_connected is False
     assert session.serial_obj is None
     assert fake_serial.open_ports == set()
+    assert persisted_status == [
+        (
+            "tx",
+            {
+                "role": "tx",
+                "stage": "Connection Lost",
+                "detail": "OSError",
+                "state": "error",
+            },
+        )
+    ]
     session.disconnect()
 
 
@@ -247,6 +263,31 @@ def test_failed_open_never_reports_connected(monkeypatch: pytest.MonkeyPatch):
     assert session.is_connected is False
     assert session.serial_obj is None
     assert registry.open_ports == set()
+
+
+
+
+def test_connect_reader_start_failure_releases_open_serial_handle(fake_serial, monkeypatch):
+    class FailingThread:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("simulated reader startup failure")
+
+        def is_alive(self):
+            return False
+
+    monkeypatch.setattr(
+        "gui_dev_v3.serial.session.threading.Thread", FailingThread
+    )
+    session = SerialSession("tx")
+
+    assert session.connect("MOCK_TX") is False
+    assert session.is_connected is False
+    assert session.serial_obj is None
+    assert session._reader_thread is None
+    assert fake_serial.open_ports == set()
 
 
 
@@ -401,3 +442,552 @@ def test_serial_scan_lock_serializes_separate_processes(tmp_path: Path):
 
     assert first.exitcode == 0
     assert second.exitcode == 0
+
+
+def test_serial_reader_dispatches_only_complete_fragmented_lines(fake_serial):
+    received: list[str] = []
+    completed = threading.Event()
+    fake_serial.responses[("MOCK_TX", 115200)] = [
+        b"RX_FILE_HEX:17:DATA:",
+        b"81920:320:ABCD:66696C652E62696E:",
+        b"deadbeef" * 8,
+        b"\n",
+    ]
+    session = SerialSession("tx")
+    session.handle_line = lambda line: (received.append(line), completed.set())
+
+    assert session.connect("MOCK_TX") is True
+    assert completed.wait(timeout=2.0)
+    session.disconnect()
+
+    assert received == [
+        "RX_FILE_HEX:17:DATA:81920:320:ABCD:66696C652E62696E:" + ("deadbeef" * 8)
+    ]
+
+
+def test_preferred_serial_port_is_tried_first_without_dropping_fallbacks():
+    from gui_dev_v3.serial.detection import prioritize_preferred_port
+
+    assert prioritize_preferred_port(["COM4", "COM7", "COM4"], "COM7") == [
+        "COM7", "COM4"
+    ]
+    assert prioritize_preferred_port(["COM4", "COM7"], "COM9") == [
+        "COM4", "COM7"
+    ]
+    assert prioritize_preferred_port(["COM4", "COM7"], "") == [
+        "COM4", "COM7"
+    ]
+
+
+def test_rx_auto_connect_prioritizes_only_rx_saved_port(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager,
+        "get",
+        lambda self, key, default=None: "RX_PREFERRED" if key == "connection/port" else default,
+    )
+    saved = []
+    monkeypatch.setattr(SettingsManager, "set", lambda self, key, value: saved.append((self.scope, key, value)))
+    backend = RXPhysicalBackend()
+    attempts = []
+    backend.scan_ports = lambda: ["OTHER", "RX_PREFERRED"]
+    backend.detect_firmware = lambda port: (
+        attempts.append(port) or
+        ({"device": "VLC_RX", "firmware": "rx_test", "board": "test"}
+         if port == "RX_PREFERRED" else None)
+    )
+    backend._open_serial = lambda: True
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._auto_connect_locked() is True
+    assert attempts == ["RX_PREFERRED"]
+    assert backend.port == "RX_PREFERRED"
+    assert saved == [("rx", "connection/port", "RX_PREFERRED")]
+    backend._connected = False
+
+
+def test_tx_auto_connect_prioritizes_only_tx_saved_port(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager,
+        "get",
+        lambda self, key, default=None: "TX_PREFERRED" if key == "connection/port" else default,
+    )
+    saved = []
+    monkeypatch.setattr(SettingsManager, "set", lambda self, key, value: saved.append((self.scope, key, value)))
+    backend = TXPhysicalBackend()
+    attempts = []
+    backend.scan_ports = lambda: ["OTHER", "TX_PREFERRED"]
+    backend.detect_firmware = lambda port: (
+        attempts.append(port) or
+        ({"device": "VLC_TX", "firmware": "tx_test", "board": "test"}
+         if port == "TX_PREFERRED" else None)
+    )
+    backend._open_serial = lambda: True
+    backend._wait_for_firmware_ready = lambda: True
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._auto_connect_locked() is True
+    assert attempts == ["TX_PREFERRED"]
+    assert backend.port == "TX_PREFERRED"
+    assert saved == [("tx", "connection/port", "TX_PREFERRED")]
+    backend._connected = False
+
+
+
+def test_legacy_rx_serial_controller_uses_application_owned_receive_directory(monkeypatch, tmp_path):
+    from gui_dev_v3.serial.controllers import RXSerialController
+
+    monkeypatch.setenv("VLC_DATA_DIR", str(tmp_path / "openvlc-data"))
+    controller = RXSerialController()
+
+    assert controller._save_dir == tmp_path / "openvlc-data" / "received"
+
+
+
+def test_rx_manual_connect_uses_only_the_explicitly_selected_port(monkeypatch):
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    backend = RXPhysicalBackend()
+    attempted = []
+
+    def detect(port):
+        attempted.append(port)
+        return {"device": "VLC_RX", "firmware": "rx_test", "board": "test"}
+
+    backend.scan_ports = lambda: pytest.fail("manual connection must not scan fallback ports")
+    backend.detect_firmware = detect
+    backend._open_serial = lambda: True
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._connect_locked("MANUAL_RX_PORT") is True
+    assert attempted == ["MANUAL_RX_PORT"]
+    assert backend.port == "MANUAL_RX_PORT"
+    backend.disconnect()
+
+
+def test_tx_manual_connect_uses_only_the_explicitly_selected_port(monkeypatch):
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    backend = TXPhysicalBackend()
+    attempted = []
+
+    def detect(port):
+        attempted.append(port)
+        return {"device": "VLC_TX", "firmware": "tx_test", "board": "test"}
+
+    backend.scan_ports = lambda: pytest.fail("manual connection must not scan fallback ports")
+    backend.detect_firmware = detect
+    backend._open_serial = lambda: True
+    backend._wait_for_firmware_ready = lambda: True
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._connect_locked("MANUAL_TX_PORT") is True
+    assert attempted == ["MANUAL_TX_PORT"]
+    assert backend.port == "MANUAL_TX_PORT"
+    backend.disconnect()
+
+
+def test_rx_close_releases_serial_handle_before_joining_reader():
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    backend = RXPhysicalBackend()
+    reader_started = threading.Event()
+    handle_closed = threading.Event()
+
+    class BlockingReadHandle:
+        is_open = True
+
+        def close(self):
+            self.is_open = False
+            handle_closed.set()
+
+    def reader():
+        reader_started.set()
+        handle_closed.wait(timeout=5.0)
+
+    backend._ser = BlockingReadHandle()
+    backend._reader_thread = threading.Thread(target=reader, daemon=True)
+    backend._reader_thread.start()
+    assert reader_started.wait(timeout=1.0)
+
+    assert backend._close_serial() is True
+    assert handle_closed.is_set()
+    assert backend._ser is None
+    assert backend._reader_thread is None
+
+
+def test_rx_auto_connect_falls_back_when_preferred_port_is_busy(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager,
+        "get",
+        lambda self, key, default=None: "RX_PREFERRED" if key == "connection/port" else default,
+    )
+    saved = []
+    monkeypatch.setattr(
+        SettingsManager,
+        "set",
+        lambda self, key, value: saved.append((self.scope, key, value)),
+    )
+    backend = RXPhysicalBackend()
+    attempts = []
+    opened = []
+    backend.scan_ports = lambda: ["RX_PREFERRED", "RX_FALLBACK"]
+    backend.detect_firmware = lambda port: (
+        attempts.append(port)
+        or {"device": "VLC_RX", "firmware": "rx_test", "board": "test"}
+    )
+
+    def open_selected():
+        opened.append(backend.port)
+        return backend.port == "RX_FALLBACK"
+
+    backend._open_serial = open_selected
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._auto_connect_locked() is True
+    assert attempts == ["RX_PREFERRED", "RX_FALLBACK"]
+    assert opened == ["RX_PREFERRED", "RX_FALLBACK"]
+    assert backend.port == "RX_FALLBACK"
+    assert saved == [("rx", "connection/port", "RX_FALLBACK")]
+    backend._connected = False
+
+
+def test_tx_auto_connect_falls_back_when_preferred_port_is_busy(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager,
+        "get",
+        lambda self, key, default=None: "TX_PREFERRED" if key == "connection/port" else default,
+    )
+    saved = []
+    monkeypatch.setattr(
+        SettingsManager,
+        "set",
+        lambda self, key, value: saved.append((self.scope, key, value)),
+    )
+    backend = TXPhysicalBackend()
+    attempts = []
+    opened = []
+    backend.scan_ports = lambda: ["TX_PREFERRED", "TX_FALLBACK"]
+    backend.detect_firmware = lambda port: (
+        attempts.append(port)
+        or {"device": "VLC_TX", "firmware": "tx_test", "board": "test"}
+    )
+
+    def open_selected():
+        opened.append(backend.port)
+        return backend.port == "TX_FALLBACK"
+
+    backend._open_serial = open_selected
+    backend._wait_for_firmware_ready = lambda: True
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._auto_connect_locked() is True
+    assert attempts == ["TX_PREFERRED", "TX_FALLBACK"]
+    assert opened == ["TX_PREFERRED", "TX_FALLBACK"]
+    assert backend.port == "TX_FALLBACK"
+    assert saved == [("tx", "connection/port", "TX_FALLBACK")]
+    backend._connected = False
+
+
+def test_rx_manual_mode_without_selected_port_never_starts_auto_discovery(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    values = {
+        "connection/mode": "Manual",
+        "connection/auto_connect": True,
+        "connection/scan_interval": 1,
+        "connection/port": "",
+    }
+    monkeypatch.setattr(
+        SettingsManager, "get", lambda self, key, default=None: values.get(key, default)
+    )
+    monkeypatch.setattr(
+        "gui_dev_v3.rx.backends.physical.read_status", lambda _role: {}
+    )
+    backend = RXPhysicalBackend()
+    # The offline snapshot may enumerate ports to populate the UI's port
+    # count. It must not probe firmware or initiate an automatic connection.
+    backend.scan_ports = lambda: []
+    backend.detect_firmware = lambda _port: pytest.fail(
+        "empty manual mode must not probe firmware"
+    )
+    backend.auto_connect = lambda: pytest.fail("empty manual mode must not auto-connect")
+    backend.connect = lambda _port: pytest.fail("empty manual mode has no port to connect")
+
+    snapshot = backend.refresh()
+
+    assert backend._connecting is False
+    assert backend._connect_thread is None
+    assert any(entry["event"] == "Manual Port Required" for entry in snapshot.activity_log)
+
+def test_rx_auto_connect_skips_wrong_firmware_and_uses_later_rx_candidate(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager,
+        "get",
+        lambda self, key, default=None: "" if key == "connection/port" else default,
+    )
+    saved = []
+    monkeypatch.setattr(
+        SettingsManager,
+        "set",
+        lambda self, key, value: saved.append((self.scope, key, value)),
+    )
+    backend = RXPhysicalBackend()
+    attempts = []
+    backend.scan_ports = lambda: ["TX_BOARD", "RX_BOARD"]
+    backend.detect_firmware = lambda port: (
+        attempts.append(port)
+        or {
+            "device": "VLC_TX" if port == "TX_BOARD" else "VLC_RX",
+            "firmware": "test",
+            "board": "test",
+        }
+    )
+    backend._open_serial = lambda: True
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._auto_connect_locked() is True
+    assert attempts == ["TX_BOARD", "RX_BOARD"]
+    assert backend.port == "RX_BOARD"
+    assert saved == [("rx", "connection/port", "RX_BOARD")]
+    backend._connected = False
+
+
+def test_tx_auto_connect_skips_wrong_firmware_and_uses_later_tx_candidate(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager,
+        "get",
+        lambda self, key, default=None: "" if key == "connection/port" else default,
+    )
+    saved = []
+    monkeypatch.setattr(
+        SettingsManager,
+        "set",
+        lambda self, key, value: saved.append((self.scope, key, value)),
+    )
+    backend = TXPhysicalBackend()
+    attempts = []
+    backend.scan_ports = lambda: ["RX_BOARD", "TX_BOARD"]
+    backend.detect_firmware = lambda port: (
+        attempts.append(port)
+        or {
+            "device": "VLC_RX" if port == "RX_BOARD" else "VLC_TX",
+            "firmware": "test",
+            "board": "test",
+        }
+    )
+    backend._open_serial = lambda: True
+    backend._wait_for_firmware_ready = lambda: True
+    backend.apply_link_settings = lambda: None
+    backend.log = lambda *_args, **_kwargs: None
+    backend._record_diag = lambda *_args, **_kwargs: None
+
+    assert backend._auto_connect_locked() is True
+    assert attempts == ["RX_BOARD", "TX_BOARD"]
+    assert backend.port == "TX_BOARD"
+    assert saved == [("tx", "connection/port", "TX_BOARD")]
+    backend._connected = False
+
+
+def test_serial_scan_lock_times_out_without_entering_critical_section(tmp_path, monkeypatch):
+    import gui_dev_v3.serial.detection as detection
+
+    lock_path = tmp_path / "serial_scan.lock"
+    monkeypatch.setattr(detection, "_SERIAL_SCAN_LOCK_PATH", lock_path)
+    entered = False
+
+    with detection.serial_scan_lock(timeout=1.0):
+        with pytest.raises(TimeoutError, match="serial scan lock"):
+            with detection.serial_scan_lock(timeout=0.0):
+                entered = True
+
+    assert entered is False
+
+
+
+
+def test_tx_auto_connect_stops_before_open_if_shutdown_begins_during_probe(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager, "get", lambda self, key, default=None: default
+    )
+    backend = TXPhysicalBackend()
+    backend.scan_ports = lambda: ["MOCK_TX"]
+    backend.detect_firmware = lambda _port: (
+        setattr(backend, "_shutting_down", True)
+        or {"device": "VLC_TX", "firmware": "test", "board": "test"}
+    )
+    backend._open_serial = lambda: pytest.fail(
+        "TX must not open a port after shutdown begins"
+    )
+
+    assert backend._auto_connect_locked() is False
+
+
+def test_rx_auto_connect_stops_before_open_if_shutdown_begins_during_probe(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager, "get", lambda self, key, default=None: default
+    )
+    backend = RXPhysicalBackend()
+    backend.scan_ports = lambda: ["MOCK_RX"]
+    backend.detect_firmware = lambda _port: (
+        setattr(backend, "_shutting_down", True)
+        or {"device": "VLC_RX", "firmware": "test", "board": "test"}
+    )
+    backend._open_serial = lambda: pytest.fail(
+        "RX must not open a port after shutdown begins"
+    )
+
+    assert backend._auto_connect_locked() is False
+
+
+def test_tx_firmware_readiness_wait_is_cancellable_during_shutdown(monkeypatch):
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    backend = TXPhysicalBackend()
+    calls = []
+
+    class Controller:
+        is_connected = True
+        line_counter = 0
+
+        def send_line(self, _line):
+            return True
+
+        def wait_for_line_containing(self, *_args, **_kwargs):
+            calls.append(True)
+            backend._shutting_down = True
+            return False
+
+    backend._controller = Controller()
+
+    assert backend._wait_for_firmware_ready(timeout=5.0) is False
+    assert len(calls) == 1
+
+
+def test_serial_sessions_set_bounded_write_timeout(fake_serial):
+    session = SerialSession("tx")
+
+    assert session.connect("MOCK_TX") is True
+    assert session.serial_obj.write_timeout == 0.5
+
+    session.disconnect()
+    assert fake_serial.open_ports == set()
+
+
+def test_tx_cleanup_disconnects_then_joins_active_transmission_worker(monkeypatch):
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    backend = TXPhysicalBackend()
+    order = []
+
+    class ActiveWorker:
+        alive = True
+
+        def is_alive(self):
+            return self.alive
+
+        def join(self, timeout=None):
+            order.append(("join", timeout))
+            self.alive = False
+
+    worker = ActiveWorker()
+    backend._transmission_thread = worker
+    backend.disconnect = lambda: order.append(("disconnect", None))
+
+    backend.cleanup()
+
+    assert backend._shutting_down is True
+    assert order == [("disconnect", None), ("join", 2.0)]
+    assert backend._transmission_thread is None
+
+
+def test_tx_reader_failure_closes_handle_even_when_is_open_property_raises(monkeypatch):
+    session = SerialSession("tx")
+    closed = []
+    monkeypatch.setattr(
+        "gui_dev_v3.serial.session.write_status",
+        lambda *_args, **_kwargs: True,
+    )
+
+    class BrokenHandle:
+        @property
+        def is_open(self):
+            raise OSError("USB state unavailable")
+
+        def close(self):
+            closed.append(True)
+
+    handle = BrokenHandle()
+    session.serial_obj = handle
+    session.is_connected = True
+    session._running = True
+
+    session._mark_reader_failed(OSError("USB unplugged"))
+
+    assert closed == [True]
+    assert session.serial_obj is None
+    assert session.is_connected is False
+    assert session._running is False
+
+
+@pytest.mark.parametrize("failure_path", ["intentional", "unexpected"])
+def test_serial_disconnect_logs_status_write_failure(failure_path, monkeypatch):
+    logs = []
+    session = SerialSession("tx", on_log=logs.append)
+    monkeypatch.setattr(
+        "gui_dev_v3.serial.session.write_status",
+        lambda *_args, **_kwargs: False,
+    )
+
+    class FakeHandle:
+        def close(self):
+            pass
+
+    session.serial_obj = FakeHandle()
+    session.is_connected = True
+    session._running = True
+
+    if failure_path == "intentional":
+        session.disconnect()
+    else:
+        session._mark_reader_failed(OSError("USB unplugged"))
+
+    assert any("Could not persist serial disconnect status" in line for line in logs)

@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
-import json
-import os
 import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from .detection import BAUDRATE, BAUDRATE_RX, BAUDRATE_TX, baud_for_role
+from .line_buffer import SerialLineBuffer
 
 # ── Protocol constants (match firmware exactly) ────────────────────────────────
 MAX_STREAM_FILE_BYTES = 81920   # 80 KB — matches firmware MAX_STREAM_FILE_BYTES
 MAX_NAME_BYTES        = 80      # matches firmware MAX_NAME_BYTES (was wrongly 64)
 STREAM_SERIAL_BLOCK   = 512    # bytes per STREAM_DATA chunk sent to firmware
+# DMA can return a full file as one hex-encoded RX_FILE_HEX line. Reserve
+# enough bounded space for 512 × 1 KiB payload bytes encoded as hex plus header.
+MAX_SERIAL_LINE_BYTES = 2 * 1024 * 1024
 
 LogCallback    = Callable[[str], None]
 StatusCallback = Callable[[dict[str, Any]], None]
@@ -24,11 +25,11 @@ StatusCallback = Callable[[dict[str, Any]], None]
 # How many serial lines to keep in memory (prevents unbounded growth).
 _MAX_LOG_LINES = 2000
 
-_STATUS_DIR = Path(__file__).resolve().parent.parent.parent / "state"
-
-
-def crc16_ccitt(data: bytes, poly: int = 0x1021) -> int:
-    crc = 0xFFFF
+def crc16_ccitt(
+    data: bytes, poly: int = 0x1021, initial_crc: int = 0xFFFF
+) -> int:
+    """Calculate CRC-16/CCITT, optionally continuing from a prior CRC."""
+    crc = initial_crc & 0xFFFF
     for byte in data:
         crc ^= byte << 8
         for _ in range(8):
@@ -37,13 +38,20 @@ def crc16_ccitt(data: bytes, poly: int = 0x1021) -> int:
     return crc
 
 
-def write_status(role: str, payload: dict[str, Any]) -> None:
-    _STATUS_DIR.mkdir(parents=True, exist_ok=True)
-    path = _STATUS_DIR / f"{role}_status.json"
-    try:
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    except OSError:
-        pass
+def write_status(role: str, payload: dict[str, Any]) -> bool:
+    """Write serial status through the application-owned runtime data layer."""
+    from gui_dev_v3.data.status import write_status as write_runtime_status
+
+    reserved = {"role", "stage", "detail", "state", "updated_at", "percent"}
+    extras = {key: value for key, value in payload.items() if key not in reserved}
+    return write_runtime_status(
+        role,
+        str(payload.get("stage", "")),
+        str(payload.get("detail", "")),
+        percent=payload.get("percent"),
+        state=str(payload.get("state", "idle")),
+        **extras,
+    )
 
 
 class SerialSession:
@@ -113,6 +121,7 @@ class SerialSession:
         """
         role_key = (expected_role or self.role).lower()
         baud = BAUDRATE_RX if "rx" in role_key else BAUDRATE_TX
+        ser = None
         try:
             import serial  # type: ignore[import-untyped]
 
@@ -123,6 +132,9 @@ class SerialSession:
             ser.port = device
             ser.baudrate = baud
             ser.timeout = 0.1
+            # Bound a blocked USB write so disconnect/shutdown can acquire the
+            # write lock and release the serial handle after device removal.
+            ser.write_timeout = 0.5
             # Prevent Windows from resetting the ESP32 and dropping the handle
             ser.dtr = False
             ser.rts = False
@@ -145,6 +157,33 @@ class SerialSession:
             )
             return True
         except Exception as exc:
+            # Opening can succeed before reader startup or a UI/status callback
+            # fails. Release that partially established session so a failed
+            # connect never leaves a hidden handle or background reader behind.
+            self._running = False
+            with self._write_lock:
+                if self.serial_obj is ser:
+                    self.serial_obj = None
+                if ser is not None:
+                    try:
+                        # Attempt close unconditionally: some USB drivers can
+                        # raise while querying is_open after a hot unplug.
+                        ser.close()
+                    except Exception:
+                        pass
+            reader = self._reader_thread
+            if reader is not None and reader is not threading.current_thread():
+                try:
+                    if reader.is_alive():
+                        reader.join(timeout=1.0)
+                except Exception:
+                    pass
+                try:
+                    if not reader.is_alive():
+                        self._reader_thread = None
+                except Exception:
+                    self._reader_thread = None
+            self.is_connected = False
             self.log(f"Connection failed: {exc}")
             self.status("Connection Failed", str(exc), state="error")
             return False
@@ -155,7 +194,7 @@ class SerialSession:
         with self._write_lock:
             ser = self.serial_obj
             self.serial_obj = None
-            if ser is not None and getattr(ser, "is_open", False):
+            if ser is not None:
                 try:
                     ser.close()
                 except Exception:
@@ -173,7 +212,8 @@ class SerialSession:
         self.is_connected = False
         self.log("Disconnected")
         self.status("Disconnected", "", state="idle")
-        write_status(self.role, {"role": self.role, "stage": "Idle", "state": "idle"})
+        if not write_status(self.role, {"role": self.role, "stage": "Idle", "state": "idle"}):
+            self.log("Could not persist serial disconnect status: write returned False")
 
     # ── I/O ─────────────────────────────────────────────────────────────────
 
@@ -229,14 +269,30 @@ class SerialSession:
             import serial
         except ImportError:
             return
-        while self._running and self.serial_obj and self.serial_obj.is_open:
+
+        # PySerial readline() may return a partial fragment when its timeout
+        # expires. Do not dispatch that fragment as a complete protocol line:
+        # large RX_FILE_HEX messages can span many reads.
+        line_buffer = SerialLineBuffer(max_line_bytes=MAX_SERIAL_LINE_BYTES)
+        while self._running:
+            # Snapshot the handle once per iteration. disconnect() may clear
+            # self.serial_obj from another thread while readline() is waking
+            # from its timeout; repeated attribute reads here could otherwise
+            # race into an AttributeError outside the protected read block.
+            ser = self.serial_obj
+            if ser is None:
+                break
             try:
-                raw = self.serial_obj.readline()
+                if not ser.is_open:
+                    break
+                raw = ser.readline()
                 if raw:
-                    line = raw.decode("utf-8", errors="replace").strip()
-                    if line:
+                    previous_overflows = line_buffer.overflow_count
+                    for line in line_buffer.feed(raw):
                         self._append_line(line)
                         self.handle_line(line)
+                    if line_buffer.overflow_count > previous_overflows:
+                        self.log("Discarded an overlong or malformed serial line")
             except serial.SerialException as exc:
                 if self._running:
                     self._mark_reader_failed(exc)
@@ -245,21 +301,39 @@ class SerialSession:
                 if self._running:
                     self._mark_reader_failed(exc)
                 break
+        line_buffer.clear()
 
     def _mark_reader_failed(self, exc: Exception) -> None:
-        """Invalidate and release a TX serial handle after an unexpected read failure."""
+        """Invalidate the serial handle and persist an unexpected disconnect."""
         self._running = False
         with self._write_lock:
             ser = self.serial_obj
             self.serial_obj = None
-            if ser is not None and getattr(ser, "is_open", False):
+            if ser is not None:
                 try:
                     ser.close()
                 except Exception:
                     pass
         self.is_connected = False
-        self.log(f"Serial disconnected unexpectedly: {type(exc).__name__}")
-        self.status("Connection Lost", type(exc).__name__, state="error")
+        detail = type(exc).__name__
+        self.log(f"Serial disconnected unexpectedly: {detail}")
+        self.status("Connection Lost", detail, state="error")
+        try:
+            persisted = write_status(
+                self.role,
+                {
+                    "role": self.role,
+                    "stage": "Connection Lost",
+                    "detail": detail,
+                    "state": "error",
+                },
+            )
+            if not persisted:
+                self.log("Could not persist serial disconnect status: write returned False")
+        except Exception as status_exc:
+            # A status-file failure must not resurrect the serial session or
+            # prevent the reader thread from terminating.
+            self.log(f"Could not persist serial disconnect status: {status_exc}")
 
     # ── Hooks for subclasses ─────────────────────────────────────────────────
 

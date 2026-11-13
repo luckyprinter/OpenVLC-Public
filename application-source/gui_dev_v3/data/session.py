@@ -2,8 +2,33 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from gui_dev_v3.data.status import read_status
 from gui_dev_v3.data.records import parse_lq_detail
+import math
+
+
+def _safe_number(value: Any, default: float = 0.0) -> float:
+    """Convert untrusted status values to finite numbers without raising."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return number if math.isfinite(number) else default
+
+
+def _safe_integer(value: Any, default: int = 0) -> int:
+    """Convert untrusted status values to integers without raising."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    if not math.isfinite(number):
+        return default
+    return int(number)
+
+
 from gui_dev_v3.models import (
     ChunkRecord,
     ChunkStatus,
@@ -22,28 +47,28 @@ def build_session_from_status(role: str, transfer: TransferRecord | None = None)
     sig_status = read_status("signal") or {}
 
     # Extract signal data
-    margin_v = float(sig_status.get("margin_v") or rx_status.get("margin_v") or 0.0)
-    pvo_v = float(sig_status.get("pvo_v") or rx_status.get("pvo_v") or 0.0)
-    vref_v = float(sig_status.get("vref_v") or rx_status.get("vref_v") or 0.0)
-    swing_v = float(sig_status.get("swing_v") or 0.0)
-    pass_rate = float(sig_status.get("pass_rate") or 0.0)
+    margin_v = _safe_number(sig_status.get("margin_v") or rx_status.get("margin_v"))
+    pvo_v = _safe_number(sig_status.get("pvo_v") or rx_status.get("pvo_v"))
+    vref_v = _safe_number(sig_status.get("vref_v") or rx_status.get("vref_v"))
+    swing_v = _safe_number(sig_status.get("swing_v"))
+    pass_rate = _safe_number(sig_status.get("pass_rate"))
     quality_label = str(sig_status.get("quality_label") or rx_status.get("stage") or "No Signal")
 
     # Parse margin from detail string if not present as float
     if margin_v == 0.0 and not sig_status:
         detail = str(rx_status.get("detail") or "")
         parsed = parse_lq_detail(detail)
-        margin_v = float(parsed.get("Margin") or 0.0)
-        pvo_v = float(parsed.get("PVo") or 0.0) or float(parsed.get("SIGNAL") or 0.0)
-        vref_v = float(parsed.get("Vref") or 0.0)
+        margin_v = _safe_number(parsed.get("Margin"))
+        pvo_v = _safe_number(parsed.get("PVo")) or _safe_number(parsed.get("SIGNAL"))
+        vref_v = _safe_number(parsed.get("Vref"))
 
     # Parse stage/progress from rx_status
     stage = str(rx_status.get("stage") or "Idle")
     detail = str(rx_status.get("detail") or "")
-    percent = float(rx_status.get("percent") or 0)
+    percent = min(100.0, max(0.0, _safe_number(rx_status.get("percent"))))
     file_name = str(rx_status.get("file_name") or "")
-    size_bytes = int(rx_status.get("size") or rx_status.get("size_bytes") or 0)
-    rate_bps = float(rx_status.get("rate_bps") or 0)
+    size_bytes = max(0, _safe_integer(rx_status.get("size") or rx_status.get("size_bytes")))
+    rate_bps = max(0.0, _safe_number(rx_status.get("rate_bps")))
     saved_path = str(rx_status.get("path") or "")
 
     # Build signal state
@@ -53,33 +78,47 @@ def build_session_from_status(role: str, transfer: TransferRecord | None = None)
         vref=vref_v,
         margin=margin_v,
         target_margin=0.365,
-        adc_vref=3.300,
-        lux=420,
-        data_rate=rate_bps / 1000.0 if rate_bps else 0.0,
-        ber=0.0,
-        strict_ber=0.0,
-        crc_status="PASS" if "complete" in stage.lower() else "Unknown",
-        time_elapsed="--",
+        adc_vref=(
+            _safe_number(sig_status.get("adc_vref") or rx_status.get("adc_vref"))
+            if sig_status.get("adc_vref") or rx_status.get("adc_vref") else None
+        ),
+        # No lux meter is part of this receiver setup.
+        lux=None,
+        data_rate=rate_bps / 1000.0 if rate_bps > 0 else None,
+        ber=None,
+        strict_ber=None,
+        crc_status=str(rx_status.get("crc_status") or sig_status.get("crc_status") or "Unknown"),
+        time_elapsed=str(rx_status.get("time_elapsed") or ""),
     )
 
     # Use provided transfer or build a minimal one from status
     if transfer is None:
-        total_chunks = 97  # reasonable default when unknown
-        received = int(percent / 100 * total_chunks) if percent > 0 else 0
-        status = TransferStatus.INCOMPLETE
+        total_chunks = min(500_000, max(0, _safe_integer(rx_status.get("total_chunks"))))
+        received = min(total_chunks, max(0, _safe_integer(rx_status.get("received_chunks"))))
+        if total_chunks > 0 and received <= 0 and percent > 0:
+            received = int(percent / 100 * total_chunks)
+        received = min(max(received, 0), total_chunks)
+        transfer_tid = min(999_999, max(0, _safe_integer(rx_status.get("tid"))))
+        has_transfer = bool(
+            transfer_tid > 0
+            or size_bytes > 0
+            or total_chunks > 0
+            or (file_name and file_name not in {"No active transfer", "No file", "No data"})
+        )
+        status = TransferStatus.INCOMPLETE if has_transfer else TransferStatus.PENDING
         if "complete" in stage.lower() or "success" in stage.lower():
             status = TransferStatus.COMPLETE
             received = total_chunks
             percent = 100.0
         elif "fail" in stage.lower() or "error" in stage.lower():
             status = TransferStatus.CRC_FAILED
-        elif "stall" in stage.lower():
-            status = TransferStatus.STALLED
+        elif "stall" in stage.lower() or "disconnect" in stage.lower() or "lost" in stage.lower():
+            status = TransferStatus.STALLED if has_transfer else TransferStatus.PENDING
         elif "idle" in stage.lower():
             status = TransferStatus.PENDING
 
         transfer = TransferRecord(
-            tid=int(rx_status.get("tid") or 0),
+            tid=transfer_tid,
             filename=file_name or "No active transfer",
             status=status,
             time_label="",
@@ -88,15 +127,15 @@ def build_session_from_status(role: str, transfer: TransferRecord | None = None)
             received_chunks=received,
             quality=TransferQuality(
                 label=quality_label,
-                strict_ber=0.0,
-                bit_accuracy=100.0,
-                bit_errors=0,
-                total_bits=size_bytes * 8,
+                strict_ber=None,
+                bit_accuracy=None,
+                bit_errors=None,
+                total_bits=0,
                 compared_bytes=0,
                 missing_chunks=total_chunks - received,
                 missing_bytes=0,
                 first_issue="None",
-                crc_status="PASS" if "complete" in stage.lower() else "Pending",
+                crc_status=str(rx_status.get("crc_status") or rx_status.get("crc16_ccitt") or "Unknown"),
                 recovery_rate=percent,
             ),
         )
@@ -114,8 +153,8 @@ def build_session_from_status(role: str, transfer: TransferRecord | None = None)
 def build_empty_session() -> SessionState:
     """Build an empty session when no status data is available.
 
-    All fields are explicitly set to zero/empty to prevent leaking
-    dataclass defaults (e.g. data_rate=3.42, lux=420) into offline state.
+    All fields are explicitly set to unavailable/empty values so offline
+    state never presents measurements that were not actually collected.
     """
     empty_transfer = TransferRecord(
         tid=0,
@@ -127,9 +166,9 @@ def build_empty_session() -> SessionState:
         received_chunks=0,
         quality=TransferQuality(
             label="No Data",
-            strict_ber=0.0,
-            bit_accuracy=100.0,
-            bit_errors=0,
+            strict_ber=None,
+            bit_accuracy=None,
+            bit_errors=None,
             total_bits=0,
             compared_bytes=0,
             missing_chunks=0,
@@ -150,12 +189,12 @@ def build_empty_session() -> SessionState:
             vref=0.0,
             margin=0.0,
             target_margin=0.365,
-            adc_vref=0.0,
-            lux=0,
-            data_rate=0.0,
-            ber=0.0,
-            strict_ber=0.0,
-            crc_status="",
+            adc_vref=None,
+            lux=None,
+            data_rate=None,
+            ber=None,
+            strict_ber=None,
+            crc_status="Unknown",
             time_elapsed="",
         ),
         latest_transfer=empty_transfer,
@@ -164,9 +203,9 @@ def build_empty_session() -> SessionState:
 
 def default_experiment_metadata() -> ExperimentMetadata:
     return ExperimentMetadata(
-        environment="Lab desk, indoor ambient light",
-        distance="45 cm",
-        frequency="15 kHz",
-        vref_mode="Auto lock before receive",
+        environment="",
+        distance="",
+        frequency="",
+        vref_mode="",
         notes="",
     )

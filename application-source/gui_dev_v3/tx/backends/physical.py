@@ -14,20 +14,7 @@ from typing import Any
 
 import threading
 from gui_dev_v3.serial.controllers import TXSerialController
-
-# Resolve beta state/log dirs with VLC_DATA_DIR env var fallback
-def _resolve_beta_dir() -> tuple[Path, Path]:
-    import os
-    env = os.getenv("VLC_DATA_DIR")
-    if env:
-        base = Path(env).expanduser()
-        return base / "state", base / "logs" / "tx"
-    parent = Path(__file__).resolve().parents[4] / "vlc_beta"
-    return parent / "state", parent / "logs" / "tx"
-
-BETA_STATE_DIR, BETA_TX_LOG_DIR = _resolve_beta_dir()
-STATUS_FRESHNESS_SEC = 30.0
-
+from gui_dev_v3.serial.detection import prioritize_preferred_port
 
 @dataclass
 class TXPhysicalSnapshot:
@@ -72,6 +59,7 @@ class TXPhysicalBackend:
         # Auto-connect runs off the GUI thread so serial discovery cannot freeze the UI.
         self._connect_thread: threading.Thread | None = None
         self._connecting: bool = False
+        self._shutting_down: bool = False
         self._latest_status: dict[str, Any] = {}
         # Preserved completion metrics — never wiped by idle polls
         self._last_completion: dict[str, Any] = {}
@@ -168,12 +156,24 @@ class TXPhysicalBackend:
 
     def _auto_connect_locked(self) -> bool:
         """Perform discovery and persistent connection while holding the shared lock."""
+        if self._shutting_down:
+            return False
         ports = self.scan_ports()
+        # Keep TX's saved preference separate from RX's and fall back to all
+        # currently enumerated devices when the saved port is no longer present.
+        from gui_dev_v3.settings import SettingsManager
+        settings = SettingsManager("tx")
+        preferred = settings.get("connection/port", "")
+        ports = prioritize_preferred_port(ports, str(preferred or ""))
         if ports:
             self.log("Scan", f"Found {len(ports)} ports: {', '.join(ports)}")
         for port in ports:
+            if self._shutting_down:
+                return False
             self.log("Detect", f"Probing {port}...")
             info = self.detect_firmware(port)
+            if self._shutting_down:
+                return False
             if info and info.get("device") == "VLC_TX":
                 self._port = port
                 if not self._open_serial():
@@ -182,12 +182,24 @@ class TXPhysicalBackend:
                     self.log("Error [C02]", f"PySerial failed to open {port}; continuing scan")
                     self._port = None
                     continue
+                if self._shutting_down:
+                    self._controller.disconnect()
+                    self._port = None
+                    return False
                 if not self._wait_for_firmware_ready():
                     self._controller.disconnect()
                     self.log("Error [C03]", f"TX firmware did not acknowledge readiness on {port}")
                     self._port = None
+                    if self._shutting_down:
+                        return False
                     continue
+                if self._shutting_down:
+                    self._controller.disconnect()
+                    self._port = None
+                    return False
                 self._connected = True
+                # Remember only a successfully identified, ready, and opened TX device.
+                settings.set("connection/port", port)
                 fw = info.get("firmware", "tx_unknown")
                 family = "tx_non_dma" if ("non_dma" in fw or "nondma" in fw) else ("tx_dma" if "dma" in fw else "unknown")
                 self._record_diag("serial_connected", role="tx", baud_rate=115200,
@@ -210,9 +222,13 @@ class TXPhysicalBackend:
             return False
 
     def _connect_locked(self, port: str, force: bool = False) -> bool:
+        if self._shutting_down:
+            return False
         if not force:
             self.log("Connect", f"Detecting firmware on {port}...")
             info = self.detect_firmware(port)
+            if self._shutting_down:
+                return False
             if not info:
                 self.log("Error [C01]", f"Firmware detection failed on {port}")
                 return False
@@ -229,11 +245,19 @@ class TXPhysicalBackend:
             self._connected = False
             self.log("Error [C02]", f"PySerial failed to open {port}")
             return False
+        if self._shutting_down:
+            self._controller.disconnect()
+            self._port = None
+            return False
         if not self._wait_for_firmware_ready():
             self._controller.disconnect()
             self._port = None
             self._connected = False
             self.log("Error [C03]", f"TX firmware did not acknowledge readiness on {port}")
+            return False
+        if self._shutting_down:
+            self._controller.disconnect()
+            self._port = None
             return False
 
         self._connected = True
@@ -275,9 +299,16 @@ class TXPhysicalBackend:
         start_counter = self._controller.line_counter
         if not self._controller.send_line(""):
             return False
-        return self._controller.wait_for_line_containing(
-            "TX Ready", timeout=timeout, start_counter=start_counter
-        )
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._shutting_down or not self._controller.is_connected:
+                return False
+            remaining = max(0.01, min(0.1, deadline - time.monotonic()))
+            if self._controller.wait_for_line_containing(
+                "TX Ready", timeout=remaining, start_counter=start_counter
+            ):
+                return True
+        return False
 
     def _close_serial(self) -> None:
         self._controller.disconnect()
@@ -343,7 +374,7 @@ class TXPhysicalBackend:
         self._latest_status.update(payload)
         
     def start_transmission(self, filepath: str) -> None:
-        if not self._connected or not self._port:
+        if self._shutting_down or not self._connected or not self._port:
             return
             
         path = Path(filepath)
@@ -359,42 +390,74 @@ class TXPhysicalBackend:
         )
         self._transmission_thread.start()
 
-    def apply_link_settings(self) -> None:
-        """Apply saved settings to physical TX firmware.
+    def apply_link_settings(self) -> bool:
+        """Apply saved settings and report partial/complete application accurately.
 
-        Uses the controller's gated apply_4b5b_settings() so that DMA-only
-        commands (DMA_MODE=, PREAMBLE=, CARRIER=) are only sent when the
-        connected firmware is confirmed DMA-capable. Sending these to
-        tx_non_dma.ino causes 'TX_ERROR: unknown command' responses.
+        A connected serial port does not imply that every requested setting
+        reached firmware. Keep the connection available on a settings failure,
+        but log the exact failed stage and return False to callers.
         """
         if not self._connected or not self._controller.is_connected:
-            return
+            return False
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("tx")
 
-        symbol_hz  = int(mgr.get("link/symbol_hz", 15000))
-        gap        = int(mgr.get("link/post_frame_idle_ms", 0))
-        fgap       = int(mgr.get("link/frame_gap_ms", 1))
-        active_low = bool(mgr.get("link/active_low", True))
-        idle_on    = bool(mgr.get("link/idle_on", True))
-        quiet      = bool(mgr.get("link/quiet_mode", True))
-        intensity  = int(mgr.get("link/cal_intensity_pct", 100))
+        try:
+            symbol_hz = int(mgr.get("link/symbol_hz", 15000))
+            gap = int(mgr.get("link/post_frame_idle_ms", 0))
+            fgap = int(mgr.get("link/frame_gap_ms", 1))
+            active_low = bool(mgr.get("link/active_low", True))
+            idle_on = bool(mgr.get("link/idle_on", True))
+            quiet = bool(mgr.get("link/quiet_mode", True))
+            intensity = int(mgr.get("link/cal_intensity_pct", 100))
+        except (TypeError, ValueError, OverflowError) as exc:
+            self.log("Settings apply failed", f"Invalid saved TX link setting: {exc}")
+            return False
 
-        # apply_4b5b_settings() gates DMA_MODE/PREAMBLE/CARRIER to DMA firmware only
-        self._controller.apply_4b5b_settings(
+        if not self._controller.apply_4b5b_settings(
             freq=symbol_hz,
             gap=gap,
             fgap=fgap,
             active_low=active_low,
             idle_on=idle_on,
             quiet=quiet,
+        ):
+            self.log("Settings apply failed", "Firmware rejected or could not receive 4B5B link settings")
+            return False
+
+        # INTENSITY is common to both firmware variants.
+        if not self.send_command(f"INTENSITY={intensity}"):
+            self.log("Settings apply failed", "Serial write failed at INTENSITY")
+            return False
+
+        self.log(
+            "Settings applied",
+            f"4B5B · {symbol_hz} Hz · FGAP {fgap} ms · intensity {intensity}%",
         )
-        # INTENSITY is common to both firmware variants
-        self.send_command(f"INTENSITY={intensity}")
+        return True
 
     def cleanup(self) -> None:
-        """Close serial connection and release port."""
+        """Stop discovery, close the port, and join the TX transfer worker."""
+        self._shutting_down = True
+        worker = self._connect_thread
+        if worker is not None and worker.is_alive() and worker is not threading.current_thread():
+            worker.join(timeout=3.0)
+        if worker is None or not worker.is_alive():
+            self._connect_thread = None
+
+        # Closing the port makes an in-flight send fail promptly; then join the
+        # worker so it cannot continue touching the controller after teardown.
         self.disconnect()
+        transfer = self._transmission_thread
+        if transfer is not None and transfer.is_alive() and transfer is not threading.current_thread():
+            transfer.join(timeout=2.0)
+        if transfer is None or not transfer.is_alive():
+            self._transmission_thread = None
+        else:
+            self.log(
+                "Shutdown",
+                "TX transmission worker did not stop within 2 seconds after disconnect.",
+            )
 
     @property
     def is_connected(self) -> bool:
@@ -412,7 +475,7 @@ class TXPhysicalBackend:
             mode = mgr.get("connection/mode", "Auto Detect (Recommended)")
             auto_conn = mgr.get("connection/auto_connect", True)
             
-            if auto_conn and not self._connecting:
+            if auto_conn and not self._connecting and not self._shutting_down:
                 # Throttle scans and run discovery in the background. Serial
                 # probing can take several seconds per port and must not block
                 # the GUI event loop.
@@ -547,93 +610,6 @@ class TXPhysicalBackend:
 
 
 # ── Helpers ──
-
-def _is_status_fresh(status: dict | None, max_age: float = STATUS_FRESHNESS_SEC) -> bool:
-    if not status:
-        return False
-    updated = status.get("updated_at")
-    if updated is not None:
-        return (time.time() - float(updated)) < max_age
-    return False
-
-
-def _read_tx_status() -> dict[str, Any] | None:
-    path = BETA_STATE_DIR / "tx_status.json"
-    if not path.exists():
-        return None
-    try:
-        data: dict[str, Any] | None = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else None
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def _read_latest_tx_record() -> dict[str, Any] | None:
-    path = BETA_TX_LOG_DIR / "latest_tx_record.json"
-    if not path.exists():
-        return None
-    try:
-        data: dict[str, Any] | None = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else None
-    except (OSError, json.JSONDecodeError):
-        return None
-
-
-def _parse_tx_record(record: dict[str, Any]) -> dict[str, Any]:
-    payload = record.get("payload") or {}
-    settings = record.get("settings") or {}
-    batch = record.get("batch") or {}
-    parts = record.get("parts") or []
-
-    filename = payload.get("name", "thesis.pdf")
-    size_bytes = int(payload.get("size_bytes", 0))
-    chunk_bytes = int(settings.get("chunk_bytes", 256))
-    total_chunks = max(size_bytes // max(chunk_bytes, 1), 1) if size_bytes else 0
-
-    if parts:
-        total_chunks = sum(
-            int(p.get("size_bytes", 0)) // max(chunk_bytes, 1) for p in parts
-        )
-        total_chunks = max(total_chunks, 1)
-
-    status = str(record.get("status", "pending")).lower()
-    mode = str(settings.get("mode", "4B5B"))
-    symbol_rate = f"{int(settings.get('symbol_hz', 15000)):,} sym/s"
-    led_pin = int(settings.get("led_pin", 5))
-    tx_power = 100
-
-    if status == "complete":
-        percent = 100
-        current_chunk = total_chunks
-    elif status in ("failed", "error"):
-        percent = 0
-        current_chunk = 0
-    else:
-        percent = 0
-        current_chunk = 0
-
-    return {
-        "filename": filename,
-        "filetype": _guess_filetype(filename),
-        "size_bytes": size_bytes,
-        "total_chunks": total_chunks,
-        "chunk_size": chunk_bytes,
-        "encoding": mode,
-        "modulation": "NRZ / OOK",
-        "symbol_rate": symbol_rate,
-        "led_pin": led_pin,
-        "tx_power": tx_power,
-        "pre_emphasis": "Enabled" if settings.get("pre_emphasis", False) else "Disabled",
-        "status_text": "Ready to transmit" if status in ("pending", "idle") else status.capitalize(),
-        "percent": percent,
-        "current_chunk": current_chunk,
-        "elapsed_time": "00:00:00",
-        "estimated_time": "00:00:00",
-        "data_rate": "0 bps",
-        "serial_connected": True,
-        "port": str(record.get("tx_port", "COM6")),
-    }
-
 
 def _guess_filetype(filename: str) -> str:
     ext = filename.split(".")[-1].lower() if "." in filename else ""

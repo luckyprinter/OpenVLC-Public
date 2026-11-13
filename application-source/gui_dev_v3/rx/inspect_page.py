@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt, Signal, QRectF, QSize
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QBrush
 from PySide6.QtWidgets import (
     QDialog,
+    QBoxLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -19,13 +20,16 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QFileDialog,
+    QMessageBox,
 )
 
+import os
 
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.models import ChunkRecord, ChunkStatus
 from gui_dev_v3.theme import COLORS
 from gui_dev_v3.widgets import Card, muted_label, value_label, panel_header
+from gui_dev_v3.ui_foundation import PageIntro
 
 # Color palette for chunk statuses mapping
 _COLORS = {
@@ -333,27 +337,37 @@ class InspectPage(QWidget):
         self._last_chunk_count = -1
         self._last_expected_path = ""
         self._current_chunks: list[ChunkRecord] = []
+        self._compact_layout = False
 
         # Page layout
         lo = QVBoxLayout(self)
         lo.setContentsMargins(20, 16, 20, 20)
         lo.setSpacing(12)
+        lo.addWidget(PageIntro(
+            "RECEIVER  /  DATA INSPECTION",
+            "Inspect received data",
+            "Compare chunks, review integrity, and inspect received bytes against a reference file.",
+            self,
+        ))
 
         # ── 1. Transfer Snapshot Card ──
         self.snap_card = Card("Transfer Snapshot")
         self.snap_lbl = QLabel("TID: —  |  Filename: —  |  Size: —  |  Total: 0 chunks")
         self.snap_lbl.setStyleSheet("font-weight: 600; font-size: 13px; color: #FFFFFF;")
+        self.snap_lbl.setWordWrap(True)
         self.snap_card.body.addWidget(self.snap_lbl)
         lo.addWidget(self.snap_card)
 
         # ── 2. Reference File Status Card ──
         self.ref_status_card = Card("Reference File Status")
-        ref_status_lo = QHBoxLayout()
+        ref_status_lo = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._ref_status_layout = ref_status_lo
         ref_status_lo.setContentsMargins(4, 4, 4, 4)
         ref_status_lo.setSpacing(12)
         
-        self.ref_status_lbl = QLabel("No original reference file selected")
+        self.ref_status_lbl = QLabel("No original reference file loaded")
         self.ref_status_lbl.setStyleSheet("font-weight: 600; font-size: 11px; color: #8c99aa;")
+        self.ref_status_lbl.setWordWrap(True)
         ref_status_lo.addWidget(self.ref_status_lbl, 1)
         
         self.inspect_load_btn = QPushButton("Load Reference")
@@ -374,7 +388,8 @@ class InspectPage(QWidget):
         self.map_card.body.addWidget(self._health_map)
         
         # Legend row
-        legend_row = QHBoxLayout()
+        legend_row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._legend_layout = legend_row
         legend_row.setSpacing(16)
         CHUNK_LEGEND = [
             ("Match",     "#22c55e"),
@@ -388,12 +403,15 @@ class InspectPage(QWidget):
             dot.setStyleSheet(f"color: {color}; font-size: 10px; font-weight: 700; background: transparent;")
             legend_row.addWidget(dot)
         legend_row.addStretch(1)
-        self.map_card.body.addLayout(legend_row)
+        self._legend_row = QWidget()
+        self._legend_row.setLayout(legend_row)
+        self.map_card.body.addWidget(self._legend_row)
         
         lo.addWidget(self.map_card)
 
         # ── 4. Bottom Row (Byte Explorer & Chunk Details) ──
-        bottom_lo = QHBoxLayout()
+        bottom_lo = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._bottom_layout = bottom_lo
         bottom_lo.setSpacing(12)
 
         # Left Column: Chunk Explorer
@@ -426,16 +444,39 @@ class InspectPage(QWidget):
         self._health_map.selection_changed.connect(self._on_map_selection)
         self._health_map.chunk_selected.connect(self._on_map_double_click)
 
-        # Wire table selections
         self.chunk_table.itemSelectionChanged.connect(self._on_table_selection)
         self.chunk_table.cellDoubleClicked.connect(self._on_table_double_click)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Stack the byte/chunk explorers when the available width is small."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        direction = (
+            QBoxLayout.Direction.TopToBottom
+            if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self._ref_status_layout.setDirection(direction)
+        self._bottom_layout.setDirection(direction)
+        self._legend_layout.setDirection(direction)
+        self.chunk_table.setMinimumHeight(150 if compact else 180)
+        self.byte_table.setMinimumHeight(150 if compact else 180)
 
     def _on_inspect_load_ref(self) -> None:
         filepath, _ = QFileDialog.getOpenFileName(self, "Load Expected Reference File", "", "All Files (*)")
         if filepath:
             state = self._get_state()
             if state:
-                state.load_expected_file(filepath)
+                try:
+                    state.load_expected_file(filepath)
+                except OSError as exc:
+                    QMessageBox.warning(
+                        self,
+                        "Reference File Unavailable",
+                        f"The selected file could not be loaded for Method 2 comparison.\\n\\n{exc}",
+                    )
 
     def _on_inspect_clear_ref(self) -> None:
         state = self._get_state()
@@ -463,21 +504,28 @@ class InspectPage(QWidget):
         self._last_chunk_count = len(transfer.chunks)
         self._last_expected_path = expected_path
         self._current_chunks = transfer.chunks
+        self._legend_row.setVisible(bool(self._current_chunks))
 
-        # Reference-file selection is path-based to avoid loading large files into RAM.
+        # Method 2 requires the original reference file selected by the user.
         if expected_path:
-            from pathlib import Path
             try:
-                ref_file = Path(expected_path)
-                ref_size = ref_file.stat().st_size
-                self.ref_status_lbl.setText(f"Reference loaded: {ref_file.name} ({ref_size:,} B)")
-                self.ref_status_lbl.setStyleSheet("font-weight: 600; font-size: 11px; color: #22c55e;")
+                reference_size = os.path.getsize(expected_path)
             except OSError:
-                self.ref_status_lbl.setText("Selected reference file is unavailable")
-                self.ref_status_lbl.setStyleSheet("font-weight: 600; font-size: 11px; color: #ef4444;")
+                reference_size = None
+            size_label = f" ({reference_size:,} B)" if reference_size is not None else " (file unavailable)"
+            self.ref_status_lbl.setText(
+                f"Original reference: {os.path.basename(expected_path)}{size_label}"
+            )
+            self.ref_status_lbl.setStyleSheet(
+                "font-weight: 600; font-size: 11px; color: #22c55e;"
+            )
         else:
-            self.ref_status_lbl.setText("No original reference file selected")
-            self.ref_status_lbl.setStyleSheet("font-weight: 600; font-size: 11px; color: #8c99aa;")
+            self.ref_status_lbl.setText(
+                "No original reference loaded — Method 2 BER is unavailable"
+            )
+            self.ref_status_lbl.setStyleSheet(
+                "font-weight: 600; font-size: 11px; color: #8c99aa;"
+            )
 
         # Update snapshot label
         filename = transfer.filename or "No active transfer"

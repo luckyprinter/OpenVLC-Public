@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import math
-from PySide6.QtCore import Qt, QSettings, Signal
+from typing import Any
+from PySide6.QtCore import Qt, QSettings, Signal, QSize
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
+    QMessageBox,
     QHBoxLayout,
-    QLabel,
     QLabel,
     QLineEdit,
     QListWidget,
@@ -52,53 +53,166 @@ class SettingsManager:
             return raw.lower() == "true"
         return raw
 
-    def set(self, key: str, value: object) -> None:
-        self._settings.setValue(key, value)
-        self._settings.sync()
+    def set(self, key: str, value: object) -> bool:
+        """Persist one value and report QSettings write failures to the caller."""
+        try:
+            self._settings.setValue(key, value)
+            self._settings.sync()
+            return self._settings.status() == QSettings.Status.NoError
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return False
 
     def value(self, key: str, default: object = None) -> object:
         """Alias for get()."""
         return self.get(key, default)
 
-    def clear(self) -> None:
-        """Clear all settings from persistence."""
-        self._settings.clear()
-        self._settings.sync()
+    def clear(self) -> bool:
+        """Clear all settings and report persistence failures."""
+        try:
+            self._settings.clear()
+            self._settings.sync()
+            return self._settings.status() == QSettings.Status.NoError
+        except (OSError, RuntimeError):
+            return False
 
 
-def reset_all_settings(mgr: SettingsManager, window: QWidget | None = None) -> None:
+class OperatingModeSelector(QWidget):
+    """Persistent Hardware/Simulation selector shared by TX and RX settings."""
+
+    def __init__(
+        self,
+        mgr: SettingsManager,
+        state: Any | None = None,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._mgr = mgr
+        self._state = state
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        self.combo = QComboBox(self)
+        self.combo.addItem("Hardware (ESP32)", "physical")
+        self.combo.addItem("Simulation (UDP)", "simulated")
+        current = (
+            state.mode if state is not None
+            else str(mgr.get("general/mode", "physical") or "physical")
+        )
+        self._set_combo_mode(current)
+        self.combo.setToolTip(
+            "Hardware opens the selected ESP32 serial port. Simulation uses a "
+            "localhost UDP link and never opens a serial port."
+        )
+        self.combo.currentIndexChanged.connect(self._on_mode_changed)
+        layout.addWidget(self.combo)
+        if state is not None and hasattr(state, "subscribe"):
+            state.subscribe(self._sync_from_state)
+            self.destroyed.connect(
+                lambda *_args: state.unsubscribe(self._sync_from_state)
+                if hasattr(state, "unsubscribe") else None
+            )
+
+    def _set_combo_mode(self, mode: str) -> None:
+        index = self.combo.findData(mode)
+        if index >= 0:
+            self.combo.blockSignals(True)
+            self.combo.setCurrentIndex(index)
+            self.combo.blockSignals(False)
+
+    def _sync_from_state(self, _state: Any | None = None) -> None:
+        if self._state is None:
+            return
+        mode = self._state.mode
+        self._set_combo_mode(mode)
+        if self._mgr.get("general/mode", "physical") != mode:
+            self._mgr.set("general/mode", mode)
+
+    def _on_mode_changed(self, _index: int = -1) -> None:
+        mode = str(self.combo.currentData() or "physical")
+        old_mode = (
+            self._state.mode if self._state is not None
+            else str(self._mgr.get("general/mode", "physical") or "physical")
+        )
+        if mode == old_mode:
+            return
+        if not self._mgr.set("general/mode", mode):
+            self._set_combo_mode(old_mode)
+            QMessageBox.warning(
+                self,
+                "Mode Not Saved",
+                "The operating mode could not be saved. The previous mode remains active.",
+            )
+            return
+        if self._state is not None:
+            try:
+                self._state.set_mode(mode)
+            except Exception as exc:
+                self._mgr.set("general/mode", old_mode)
+                self._set_combo_mode(old_mode)
+                QMessageBox.warning(
+                    self,
+                    "Mode Switch Failed",
+                    f"The application could not switch modes: {exc}",
+                )
+
+
+def _persist_bound_value(
+    control: QWidget, mgr: SettingsManager, key: str, value: object
+) -> bool:
+    """Persist a control value and expose failures on that control."""
+    saved = mgr.set(key, value)
+    if saved:
+        control.setProperty("settingsSaveFailed", False)
+        control.setToolTip("")
+        control.setAccessibleDescription(f"Saved setting: {key}.")
+    else:
+        message = f"Could not save this setting ({key}). Check the config folder permissions and available disk space."
+        control.setProperty("settingsSaveFailed", True)
+        control.setToolTip(message)
+        control.setAccessibleDescription(message)
+    return saved
+
+
+def reset_all_settings(mgr: SettingsManager, window: QWidget | None = None) -> bool:
     """Reset both console preference scopes and the shared display settings.
 
-    RX and TX use separate QSettings application scopes under the same
-    organization. Resetting from either console must clear both scopes;
-    otherwise the other console would silently retain its old preferences.
+    Persist and verify the shared defaults before clearing either QSettings
+    scope. If a corrupt settings file cannot be backed up or the new file
+    cannot be written, leave the existing console preferences and in-memory
+    window settings untouched so the UI can report the failure accurately.
     """
     from gui_dev_v3.settings_store import AppSettings, save_settings
 
-    # Reuse the current manager and clear the other console's scope too.
-    mgr.clear()
-    other_scope = "tx" if getattr(mgr, "scope", "rx") == "rx" else "rx"
-    SettingsManager(other_scope).clear()
-
     defaults = AppSettings()
-    save_settings(defaults)
+    if not save_settings(defaults, allow_corrupt_recovery=True):
+        return False
+
+    # Reuse the current manager and clear the other console's scope too.
+    # QSettings.sync() can fail independently of the JSON settings store.
+    if mgr.clear() is False:
+        return False
+    other_scope = "tx" if getattr(mgr, "scope", "rx") == "rx" else "rx"
+    if SettingsManager(other_scope).clear() is False:
+        return False
+
     # closeEvent persists the window's in-memory display values. Replace them
     # too, otherwise closing after reset would silently restore the old values.
     if window is not None and hasattr(window, "settings"):
         window.settings = defaults
+    return True
 
 
 def bind_toggle(toggle: ToggleSetting, mgr: SettingsManager, key: str, default: bool = True) -> None:
     """Load initial value from settings and save on toggle."""
     toggle.setChecked(mgr.get(key, default))  # type: ignore[arg-type]
-    toggle.toggled.connect(lambda checked: mgr.set(key, checked))
+    toggle.toggled.connect(lambda checked: _persist_bound_value(toggle, mgr, key, checked))
 
 
 def bind_radio_node(setting: RadioNodeSetting, mgr: SettingsManager, key: str, default: bool = False) -> None:
     """Bind a RadioNodeSetting to a SettingsManager key."""
     val = mgr.get(key, default)
     setting.setChecked(bool(val))
-    setting.toggled.connect(lambda v: mgr.set(key, v))
+    setting.toggled.connect(lambda v: _persist_bound_value(setting, mgr, key, v))
 
 
 def bind_spin(setting: SpinSetting | FreeformSpinSetting, mgr: SettingsManager, key: str, default: int = 0) -> None:
@@ -108,7 +222,7 @@ def bind_spin(setting: SpinSetting | FreeformSpinSetting, mgr: SettingsManager, 
     except (ValueError, TypeError):
         val = default
     setting.setValue(val)
-    setting.valueChanged.connect(lambda val: mgr.set(key, val))
+    setting.valueChanged.connect(lambda val: _persist_bound_value(setting, mgr, key, val))
 
 
 def bind_double_spin(spin: DoubleSpinSetting, mgr: SettingsManager, key: str, default: float = 0.0) -> None:
@@ -118,7 +232,7 @@ def bind_double_spin(spin: DoubleSpinSetting, mgr: SettingsManager, key: str, de
     except (ValueError, TypeError):
         val = default
     spin.setValue(val)
-    spin.valueChanged.connect(lambda val: mgr.set(key, val))
+    spin.valueChanged.connect(lambda val: _persist_bound_value(spin, mgr, key, val))
 
 
 def bind_combo(combo: ComboSetting, mgr: SettingsManager, key: str, default: str = "") -> None:
@@ -127,7 +241,7 @@ def bind_combo(combo: ComboSetting, mgr: SettingsManager, key: str, default: str
     idx = combo.findText(default_val)
     if idx >= 0:
         combo.setCurrentIndex(idx)
-    combo.currentTextChanged.connect(lambda text: mgr.set(key, text))
+    combo.currentTextChanged.connect(lambda text: _persist_bound_value(combo, mgr, key, text))
 
 
 def bind_radio_group(group: RadioGroup, mgr: SettingsManager, key: str, default: str = "") -> None:
@@ -138,7 +252,7 @@ def bind_radio_group(group: RadioGroup, mgr: SettingsManager, key: str, default:
             btn.setChecked(True)
             break
     for btn in group._buttons:
-        btn.toggled.connect(lambda checked, b=btn: mgr.set(key, b.text()) if checked else None)
+        btn.toggled.connect(lambda checked, b=btn: _persist_bound_value(b, mgr, key, b.text()) if checked else None)
 
 
 # ── Form controls ────────────────────────────────────────────────────
@@ -196,7 +310,7 @@ class SpinSetting(QSpinBox):
         self.setValue(value)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
 
 
@@ -211,7 +325,7 @@ class FreeformSpinSetting(QSpinBox):
         self._rec_max = rec_max
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.setValue(value)
         
@@ -239,7 +353,7 @@ class FreeformDoubleSpinSetting(QDoubleSpinBox):
         self.setDecimals(decimals)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
         self.setValue(value)
         
@@ -301,7 +415,7 @@ class DoubleSpinSetting(QDoubleSpinBox):
         self.setDecimals(decimals)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
 
 
@@ -351,7 +465,7 @@ class SliderSpinSetting(QDoubleSpinBox):
         self.setValue(value)
         if suffix:
             self.setSuffix(f" {suffix}")
-        self.setFixedWidth(100)
+        self.setFixedWidth(max(128, self.sizeHint().width()))
         self.setAlignment(Qt.AlignmentFlag.AlignRight)
 
 def bind_double_spin(setting: FreeformDoubleSpinSetting | DoubleSpinSetting, mgr: SettingsManager, key: str, default: float = 0.0) -> None:
@@ -361,7 +475,7 @@ def bind_double_spin(setting: FreeformDoubleSpinSetting | DoubleSpinSetting, mgr
     except (ValueError, TypeError):
         val = default
     setting.setValue(val)
-    setting.valueChanged.connect(lambda v: mgr.set(key, float(v)))
+    setting.valueChanged.connect(lambda v: _persist_bound_value(setting, mgr, key, float(v)))
 
 
 def bind_slider_spin(slider_spin: SliderSpinSetting, mgr: SettingsManager, key: str, default: float = 0.0) -> None:
@@ -373,8 +487,8 @@ def bind_slider_spin(slider_spin: SliderSpinSetting, mgr: SettingsManager, key: 
     slider_spin.setValue(val)
     # Persist the possibly clamped value back to SettingsManager
     clamped_val = slider_spin.value()
-    mgr.set(key, clamped_val)
-    slider_spin.valueChanged.connect(lambda val: mgr.set(key, val))
+    _persist_bound_value(slider_spin, mgr, key, clamped_val)
+    slider_spin.valueChanged.connect(lambda val: _persist_bound_value(slider_spin, mgr, key, val))
 
 
 class DirectorySetting(QWidget):
@@ -387,8 +501,12 @@ class DirectorySetting(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        self.edit = QLineEdit(path)
+        self._path = str(path)
+        self.edit = QLineEdit(self._path)
         self.edit.setReadOnly(True)
+        self.edit.setCursorPosition(0)
+        self.edit.setToolTip(self._path)
+        self.setToolTip(self._path)
         self.edit.setStyleSheet(
             f"QLineEdit {{ background: {COLORS['panel_alt']}; border: 1px solid {COLORS['border']}; "
             f"border-radius: 6px; padding: 6px 10px; color: {COLORS['text']}; }}"
@@ -402,24 +520,30 @@ class DirectorySetting(QWidget):
         layout.addWidget(self.btn)
 
     def _on_browse(self) -> None:
-        current_dir = self.edit.text()
-        path = QFileDialog.getExistingDirectory(self, "Select Directory", current_dir)
+        # Keep the real path separate from the visible line-edit viewport.
+        # A read-only QLineEdit otherwise opens at the end of a long path,
+        # hiding its beginning on compact/high-DPI displays.
+        path = QFileDialog.getExistingDirectory(self, "Select Directory", self.text())
         if path:
-            self.edit.setText(path)
+            self.setText(path)
             self.valueChanged.emit(path)
 
     def text(self) -> str:
-        return self.edit.text()
+        return self._path
 
     def setText(self, text: str) -> None:
-        self.edit.setText(text)
+        self._path = str(text)
+        self.edit.setText(self._path)
+        self.edit.setCursorPosition(0)
+        self.edit.setToolTip(self._path)
+        self.setToolTip(self._path)
 
 
 def bind_directory_setting(widget: DirectorySetting, mgr: SettingsManager, key: str, default: str = "") -> None:
     """Load initial value and save on change."""
     val = str(mgr.get(key, default) or default)
     widget.setText(val)
-    widget.valueChanged.connect(lambda new_val: mgr.set(key, new_val))
+    widget.valueChanged.connect(lambda new_val: _persist_bound_value(widget, mgr, key, new_val))
 
 
 # ── Settings Container ───────────────────────────────────────────────
@@ -436,6 +560,7 @@ class SettingsContainer(QWidget):
         super().__init__(parent)
         self._sections = sections
         self._developer_index = developer_index
+        self._page_wrappers: list[QWidget] = []
 
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -445,6 +570,7 @@ class SettingsContainer(QWidget):
         nav_panel = QWidget()
         nav_panel.setObjectName("Card")
         nav_panel.setFixedWidth(200)
+        self._nav_panel = nav_panel
         nav_lo = QVBoxLayout(nav_panel)
         nav_lo.setContentsMargins(8, 16, 8, 8)
         nav_lo.setSpacing(2)
@@ -455,7 +581,13 @@ class SettingsContainer(QWidget):
         nav_lo.addSpacing(8)
 
         self._nav_list = QListWidget()
-        self._nav_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._nav_list.setObjectName("SettingsNavigation")
+        self._nav_list.setAccessibleName("Settings sections")
+        self._nav_list.setAccessibleDescription("Choose a settings category.")
+        self._nav_list.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._nav_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self._nav_list.setWordWrap(True)
+        self._nav_list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self._nav_list.setSpacing(1)
         self._nav_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._nav_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -478,6 +610,11 @@ class SettingsContainer(QWidget):
         # Build nav items and pages
         for idx, (label, page) in enumerate(sections):
             item = QListWidgetItem(label)
+            item.setToolTip(label)
+            item.setData(Qt.ItemDataRole.AccessibleTextRole, label)
+            item.setData(Qt.ItemDataRole.AccessibleDescriptionRole, f"Open {label} settings.")
+            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            item.setSizeHint(QSize(0, 42))
             self._nav_list.addItem(item)
             # Wrap page in a padded container so all sub-pages have consistent
             # breathing room at the top and sides — fixes the "bald top" issue.
@@ -486,6 +623,7 @@ class SettingsContainer(QWidget):
             wrapper_lo.setContentsMargins(24, 20, 24, 24)
             wrapper_lo.setSpacing(0)
             wrapper_lo.addWidget(page)
+            self._page_wrappers.append(wrapper)
             wrapper_lo.addStretch(1)
             # Wrap in scroll area
             scroll = QScrollArea()
@@ -502,6 +640,34 @@ class SettingsContainer(QWidget):
         self._nav_list.currentRowChanged.connect(self._on_nav_changed)
         if sections:
             self._nav_list.setCurrentRow(0)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Reduce settings-page gutters on compact laptop work areas."""
+        super().resizeEvent(event)
+        compact = self.width() < 900
+        # On compact work areas the settings navigation must not consume the
+        # width needed by the active form. Keep category labels readable while
+        # giving the stacked page enough room for controls such as directory
+        # pickers and theme choices.
+        self._nav_panel.setFixedWidth(180 if compact else 200)
+        # Long category labels need a second line at high scaling; a fixed
+        # 42px row clips them even though word wrapping is enabled.
+        for index in range(self._nav_list.count()):
+            item = self._nav_list.item(index)
+            if item is not None:
+                label = str(
+                    item.data(Qt.ItemDataRole.AccessibleTextRole) or item.toolTip()
+                )
+                # Keep the visible compact label concise on Windows; the full
+                # category name remains in its tooltip and accessible text.
+                compact_label = {"General & Display": "General"}.get(label, label)
+                item.setText(compact_label if compact else label)
+                item.setSizeHint(QSize(0, 56 if compact else 42))
+        margins = (10, 12, 10, 12) if compact else (24, 20, 24, 24)
+        for wrapper in self._page_wrappers:
+            layout = wrapper.layout()
+            if layout is not None:
+                layout.setContentsMargins(*margins)
 
     def _on_nav_changed(self, index: int) -> None:
         if 0 <= index < self._stack.count():
@@ -549,6 +715,9 @@ class _SwatchCard(QWidget):
         self._active = active
         self._preset = preset
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName(preset["label"])
+        self.setAccessibleDescription(f"Select the {preset['label']} theme.")
         self.setFixedHeight(40)
         self.setMinimumWidth(120)
         self._build()
@@ -588,6 +757,7 @@ class _SwatchCard(QWidget):
         self.setStyleSheet(
             f"QWidget#ThemeSwatch {{ border: {border_width} solid {border_color}; "
             f"border-radius: 6px; background: {bg}; }}"
+            f"QWidget#ThemeSwatch:focus {{ border: 2px solid {self._preset['preview_accent']}; }}"
         )
 
     def set_active(self, active: bool) -> None:
@@ -597,6 +767,13 @@ class _SwatchCard(QWidget):
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         self.clicked.emit(self._key)
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event) -> None:  # type: ignore[override]
+        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.clicked.emit(self._key)
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
 
 class ThemePickerGrid(QWidget):
@@ -613,11 +790,11 @@ class ThemePickerGrid(QWidget):
         self._current = current
         self._cards: list[_SwatchCard] = []
 
-        from PySide6.QtWidgets import QApplication
         from PySide6.QtWidgets import QGridLayout
-        grid = QGridLayout(self)
-        grid.setContentsMargins(0, 6, 0, 6)
-        grid.setSpacing(6)
+        self._grid = QGridLayout(self)
+        self._grid.setContentsMargins(0, 6, 0, 6)
+        self._grid.setSpacing(6)
+        self._column_count = 3
 
         # Keep the default picker focused on five curated presets. Older
         # presets remain supported in theme.py so existing saved preferences
@@ -634,12 +811,22 @@ class ThemePickerGrid(QWidget):
             preset for preset in THEME_PRESETS
             if preset["key"] in curated_keys or preset["key"] == current
         ]
-        cols = 3
         for i, preset in enumerate(primary_presets):
             card = _SwatchCard(preset, active=(preset["key"] == current))
             card.clicked.connect(self._on_card_clicked)
             self._cards.append(card)
-            grid.addWidget(card, i // cols, i % cols)
+            self._grid.addWidget(card, i // self._column_count, i % self._column_count)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Reflow theme choices instead of clipping them on narrow windows."""
+        super().resizeEvent(event)
+        columns = 1 if self.width() < 320 else 2 if self.width() < 560 else 3
+        if columns == self._column_count:
+            return
+        self._column_count = columns
+        for index, card in enumerate(self._cards):
+            self._grid.removeWidget(card)
+            self._grid.addWidget(card, index // columns, index % columns)
 
     def _on_card_clicked(self, key: str) -> None:
         if key == self._current:
@@ -670,10 +857,32 @@ def bind_theme_picker(picker: ThemePickerGrid, mgr: SettingsManager, key: str = 
     from gui_dev_v3.settings_store import load_settings, save_settings
     app_settings = load_settings()
     saved = str(app_settings.theme or default)
+    saved_theme = saved
     picker.set_current(saved)
     def _on_theme_changed(k: str) -> None:
-        mgr.set(key, k)  # Keep QSettings updated just in case
+        nonlocal saved_theme
+        previous = saved_theme
         latest_settings = load_settings()
-        latest_settings.theme = k # type: ignore[assignment]
-        save_settings(latest_settings)
+        latest_settings.theme = k  # type: ignore[assignment]
+        if not save_settings(latest_settings):
+            # The live preview is not a saved preference. Revert it so the
+            # screen cannot imply that a failed write will survive restart.
+            apply_theme(theme=previous)
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app:
+                app.setStyleSheet(build_qss())
+            picker.set_current(previous)
+            message = "Theme could not be saved. The previous theme has been restored. Check config-folder permissions and disk space."
+            picker.setToolTip(message)
+            picker.setAccessibleDescription(message)
+            return
+        saved_theme = k
+        if not mgr.set(key, k):
+            message = "Theme was saved, but the secondary display preference could not be synchronized."
+            picker.setToolTip(message)
+            picker.setAccessibleDescription(message)
+        else:
+            picker.setToolTip("")
+            picker.setAccessibleDescription("Choose the application theme.")
     picker.theme_changed.connect(_on_theme_changed)

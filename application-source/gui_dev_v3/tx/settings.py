@@ -5,13 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QBoxLayout, QWidget, QPushButton, QSizePolicy
 
 from gui_dev_v3.settings import (
     BrowseButton,
     ComboSetting,
     RadioGroup,
     SettingsManager,
+    OperatingModeSelector,
     SettingRow,
     SettingsContainer,
     SpinSetting,
@@ -29,16 +30,30 @@ from gui_dev_v3.settings import (
 )
 from gui_dev_v3.settings_store import RESOLUTION_PRESETS
 from gui_dev_v3.tx_app_state import TXAppState
-from gui_dev_v3.widgets import Card, muted_label, primary_button
+from gui_dev_v3.widgets import Card, muted_label, ModeSelectCard, primary_button
 
 # ── General & Display ──────────────────────────────────────────────────
 
 class GeneralDisplayPage(QWidget):
-    def __init__(self, mgr: SettingsManager, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        mgr: SettingsManager,
+        parent: QWidget | None = None,
+        state: TXAppState | None = None,
+    ) -> None:
         super().__init__(parent)
         lo = QVBoxLayout(self)
         lo.setContentsMargins(0, 0, 0, 0)
         lo.setSpacing(12)
+
+        mode_card = Card("Operating Mode")
+        self._mode_selector = OperatingModeSelector(mgr, state=state)
+        mode_card.body.addWidget(SettingRow("Active Backend", self._mode_selector))
+        mode_card.body.addWidget(muted_label(
+            "Hardware uses the ESP32 over USB. Simulation uses a localhost UDP "
+            "channel; set the RX console to Simulation too for an end-to-end virtual link."
+        ))
+        lo.addWidget(mode_card)
 
         theme_card = Card("Theme")
         from gui_dev_v3.settings_store import load_settings
@@ -99,9 +114,22 @@ class GeneralDisplayPage(QWidget):
         return self._window
 
     def _on_reset_clicked(self) -> None:
-        reset_all_settings(self._mgr, self._get_window())
         from PySide6.QtWidgets import QMessageBox
-        QMessageBox.information(self, "Settings Reset", "All settings have been reset to defaults. Please restart the application for all changes to take effect.")
+
+        if not reset_all_settings(self._mgr, self._get_window()):
+            QMessageBox.critical(
+                self,
+                "Settings Reset Incomplete",
+                "OpenVLC could not complete the settings reset. Some settings may already have been reset. "
+                "Check the configuration directory permissions and available disk space before retrying.",
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Settings Reset",
+            "All settings have been reset to defaults. Please restart the application for all changes to take effect.",
+        )
 
     def _on_switch_mode_clicked(self) -> None:
         window = self._get_window()
@@ -160,11 +188,23 @@ class HardwareConnectionPage(QWidget):
         bind_radio_group(mode_group, mgr, "connection/mode", "Auto Detect (Recommended)")
         self.opts_card.body.addWidget(mode_group)
 
-        port_layout = QHBoxLayout()
+        self._port_row_compact = True
+        port_layout = QBoxLayout(QBoxLayout.Direction.TopToBottom)
+        self._port_layout = port_layout
+        port_layout.setSpacing(8)
         self.port_combo = ComboSetting([], "")
+        self.port_combo.setMinimumWidth(0)
+        self.port_combo.setMinimumHeight(38)
+        self.port_combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         from gui_dev_v3.tx.backends.physical import _list_usb_serial_ports
         
         def _refresh_ports():
+            if self._state is not None and self._state.mode == "simulated":
+                self.port_combo.blockSignals(True)
+                self.port_combo.clear()
+                self.port_combo.addItem("Simulation mode active")
+                self.port_combo.blockSignals(False)
+                return
             self.port_combo.blockSignals(True)
             self.port_combo.clear()
             ports = _list_usb_serial_ports()
@@ -185,10 +225,12 @@ class HardwareConnectionPage(QWidget):
         bind_combo(self.port_combo, mgr, "connection/port", "")
         
         refresh_btn = QPushButton("Refresh")
+        refresh_btn.setMinimumHeight(36)
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.clicked.connect(_refresh_ports)
         
         force_btn = QPushButton("Force Connect")
+        force_btn.setMinimumHeight(36)
         force_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         force_btn.setToolTip("Bypass verification and force open this COM port.")
         force_btn.setStyleSheet("""
@@ -262,12 +304,44 @@ class HardwareConnectionPage(QWidget):
         self.status_card.body.addWidget(self._port_label)
         self.status_card.body.addWidget(self._conn_label)
         lo.addWidget(self.status_card)
+
+        self.simulation_card = Card("Simulation Link")
+        self._simulation_status = muted_label("Waiting for the RX console to enter Simulation mode.")
+        self.simulation_card.body.addWidget(self._simulation_status)
+        self.simulation_card.body.addWidget(muted_label(
+            "No serial port is opened in this mode. TX and RX exchange virtual VLC frames over localhost UDP."
+        ))
+        self.simulation_card.hide()
+        lo.addWidget(self.simulation_card)
         lo.addStretch(1)
 
 
 
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Keep the port selector and connection actions reachable at narrow widths."""
+        super().resizeEvent(event)
+        compact = self.width() < 700
+        if compact == self._port_row_compact:
+            return
+        self._port_row_compact = compact
+        self._port_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self._port_layout.setSpacing(8 if compact else 6)
+
     def refresh(self, state: TXAppState) -> None:
         if state is None:
+            return
+        simulated = state.mode == "simulated"
+        self.opts_card.setVisible(not simulated)
+        self.status_card.setVisible(not simulated)
+        self.simulation_card.setVisible(simulated)
+        if simulated:
+            self._simulation_status.setText(
+                "Connected to RX Simulation." if state.serial_connected
+                else "Waiting for the RX console to enter Simulation mode."
+            )
             return
         if state.serial_connected:
             self._port_label.setText(f"Port: {state.port or '—'}")
@@ -401,8 +475,9 @@ class TXSettingsPage(QWidget):
         quiet = self.quiet_set.isChecked()
         dma_mode = self.dma_set.isChecked()
 
-        # Apply settings through the hardware controller. DMA-specific commands
-        # are gated by the controller so non-DMA firmware is not disrupted.
+        # Use the gated helper so DMA_MODE/PREAMBLE/CARRIER are only sent
+        # to DMA-capable firmware. Sending them to tx_non_dma.ino causes
+        # 'TX_ERROR: unknown command' which disrupts the non-DMA blinking.
         applied = self._state.apply_link_settings_from_ui(
             freq=freq,
             preamble=preamble,
@@ -424,6 +499,7 @@ class TXSettingsPage(QWidget):
                 "The transmitter is not connected or a serial write failed. "
                 "Check the TX connection and reapply the settings.",
             )
+
 
     def _update_link_param(self, command_key: str, value: Any) -> None:
         if not self._state:
@@ -479,7 +555,7 @@ def build_tx_settings(state: TXAppState | None = None) -> SettingsContainer:
     from gui_dev_v3.tx.placeholders import AboutPage
     mgr = SettingsManager("tx")
     sections: list[tuple[str, QWidget]] = [
-        ("General & Display", GeneralDisplayPage(mgr)),
+        ("General & Display", GeneralDisplayPage(mgr, state=state)),
         ("Hardware Connection", HardwareConnectionPage(mgr, state=state)),
         ("TX Settings", TXSettingsPage(mgr, state=state)),
         ("Diagnostics & Logs", DiagnosticsLogsPage(mgr)),

@@ -29,6 +29,9 @@ class BERAnalyzerPage(QWidget):
         self._comparison_key: tuple | None = None
         self._comparison_result: dict | None = None
         
+        self._compact_layout = False
+        self._stat_cells: list[tuple[QLabel, QLabel]] = []
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 20)
         layout.setSpacing(12)
@@ -49,6 +52,7 @@ class BERAnalyzerPage(QWidget):
         # ── 2. Statistics Card ──
         self.stats_card = Card("Quality & Bit Error Rate Analysis")
         stats_grid = QGridLayout()
+        self._stats_grid = stats_grid
         stats_grid.setSpacing(16)
 
         # Labels
@@ -64,6 +68,7 @@ class BERAnalyzerPage(QWidget):
             title_lbl.setStyleSheet("font-size: 9px; font-weight: 700; color: #8c99aa;")
             grid.addWidget(title_lbl, row, col * 2)
             grid.addWidget(val_lbl, row, col * 2 + 1)
+            self._stat_cells.append((title_lbl, val_lbl))
 
         add_stat_row(stats_grid, 0, 0, "Compared Bytes", self.lbl_compared)
         add_stat_row(stats_grid, 0, 1, "Bit Errors", self.lbl_bit_errors)
@@ -86,6 +91,27 @@ class BERAnalyzerPage(QWidget):
         self.mismatch_table.setMinimumHeight(150)
         self.mismatch_card.body.addWidget(self.mismatch_table)
         layout.addWidget(self.mismatch_card, 1)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Reflow metric pairs into two or three columns as space permits."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        columns = 2 if compact else 3
+        self.mismatch_table.setHorizontalHeaderLabels(
+            ["Offset", "Expected", "Received", "Errors"]
+            if compact
+            else ["Offset", "Expected (Hex)", "Received (Hex)", "Bit Errors"]
+        )
+        for index, (title_label, value_widget) in enumerate(self._stat_cells):
+            self._stats_grid.removeWidget(title_label)
+            self._stats_grid.removeWidget(value_widget)
+            row = index // columns
+            column = (index % columns) * 2
+            self._stats_grid.addWidget(title_label, row, column)
+            self._stats_grid.addWidget(value_widget, row, column + 1)
 
     def _get_state(self) -> RXAppState | None:
         parent = self.parent()
@@ -157,7 +183,7 @@ class BERAnalyzerPage(QWidget):
 
         # Store Method 2 on the matching completed capture. CRC status remains
         # independent and is never used to infer BER.
-        state.apply_method2_result(transfer.tid, result["strict_ber"])
+        state.set_method2_comparison(transfer.tid, result)
 
         self.lbl_compared.setText(
             f"{result['overlap_bytes']:,} / {result['expected_bytes']:,} B"

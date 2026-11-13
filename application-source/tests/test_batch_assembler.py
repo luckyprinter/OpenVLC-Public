@@ -70,3 +70,74 @@ def test_metadata_change_discards_existing_group():
             filename="capture.bin",part_data=b"b",part_crc_ok=True,
             part_chunks=1,tid=2,now=2)
     assert a.pending_count==0
+
+
+def test_concurrent_parts_are_serialized_and_assembled_once():
+    from concurrent.futures import ThreadPoolExecutor
+
+    assembler = BatchAssembler()
+    parts = [
+        {
+            "group_id": "concurrent",
+            "part_index": 1,
+            "part_count": 2,
+            "full_crc": 0x1234,
+            "filename": "concurrent.bin",
+            "part_data": b"first",
+            "part_crc_ok": True,
+            "part_chunks": 1,
+            "tid": 61,
+        },
+        {
+            "group_id": "concurrent",
+            "part_index": 2,
+            "part_count": 2,
+            "full_crc": 0x1234,
+            "filename": "concurrent.bin",
+            "part_data": b"second",
+            "part_crc_ok": True,
+            "part_chunks": 1,
+            "tid": 62,
+        },
+    ]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda item: assembler.add_part(**item), parts))
+
+    completed = [result for result in results if result is not None]
+    assert len(completed) == 1
+    assert completed[0]["data"] == b"firstsecond"
+    assert assembler.pending_count == 0
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"part_index": "not-an-index"},
+        {"part_count": "not-a-count"},
+        {"full_crc": "not-a-crc"},
+        {"part_chunks": "not-a-chunk-count"},
+        {"tid": "not-a-tid"},
+        {"part_data": None},
+    ],
+)
+def test_malformed_field_conversion_discards_existing_group(overrides):
+    a = BatchAssembler()
+    _add(a, 1, b"a")
+    values = {
+        "group_id": "g",
+        "part_index": 2,
+        "part_count": 2,
+        "full_crc": 0x1234,
+        "filename": "capture.bin",
+        "part_data": b"b",
+        "part_crc_ok": True,
+        "part_chunks": 1,
+        "tid": 2,
+        "now": 2,
+    }
+    values.update(overrides)
+
+    with pytest.raises(ValueError, match="invalid batch part metadata"):
+        a.add_part(**values)
+
+    assert a.pending_count == 0

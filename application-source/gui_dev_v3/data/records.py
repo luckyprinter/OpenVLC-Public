@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import tempfile
 from pathlib import Path
@@ -219,6 +220,53 @@ CAPTURE_DIR = _resolve_capture_dir()
 LEGACY_CAPTURE_DIR = Path.home() / ".vlc_rx" / "captures"
 
 
+def _validate_capture_data(data: Any, expected_tid: int) -> None:
+    """Validate persisted capture structure before reading or replacing it."""
+    required = {
+        "tid", "timestamp", "filename", "ber", "crc_status",
+        "throughput_kbps", "analog_time", "pvo_samples", "vref_samples",
+        "margin_samples", "ook_bits", "protocol_events",
+    }
+    if not isinstance(data, dict) or not required.issubset(data):
+        raise ValueError("capture has an invalid structure")
+    if int(data["tid"]) != expected_tid:
+        raise ValueError("capture TID does not match its filename/request")
+    for key in ("timestamp", "filename", "crc_status"):
+        if not isinstance(data[key], str):
+            raise ValueError(f"capture {key} must be text")
+
+    for key in ("analog_time", "pvo_samples", "vref_samples", "margin_samples"):
+        values = data[key]
+        if not isinstance(values, list) or len(values) > 2_000_000:
+            raise ValueError(f"capture {key} must be a bounded array")
+        if any(not math.isfinite(float(value)) for value in values):
+            raise ValueError(f"capture {key} contains a non-finite sample")
+
+    bits = data["ook_bits"]
+    if (
+        not isinstance(bits, list)
+        or len(bits) > 2_000_000
+        or any(value not in (0, 1) for value in bits)
+    ):
+        raise ValueError("capture OOK bits must be a bounded binary array")
+    events = data["protocol_events"]
+    if (
+        not isinstance(events, list)
+        or len(events) > 200_000
+        or any(not isinstance(item, dict) for item in events)
+    ):
+        raise ValueError("capture protocol events must be a bounded object array")
+
+    ber = data.get("ber")
+    if ber is not None and (
+        not math.isfinite(float(ber)) or not 0.0 <= float(ber) <= 1.0
+    ):
+        raise ValueError("capture BER must be finite and between zero and one")
+    throughput = float(data["throughput_kbps"])
+    if not math.isfinite(throughput) or throughput < 0.0:
+        raise ValueError("capture throughput must be finite and non-negative")
+
+
 def save_session_capture(capture: SessionCapture) -> None:
     """Atomically save a capture without replacing an unreadable existing file."""
     from dataclasses import asdict
@@ -229,17 +277,7 @@ def save_session_capture(capture: SessionCapture) -> None:
     if path.exists():
         try:
             existing = json.loads(path.read_text(encoding="utf-8"))
-            required = {
-                "tid", "timestamp", "filename", "ber", "crc_status",
-                "throughput_kbps", "analog_time", "pvo_samples",
-                "vref_samples", "margin_samples", "ook_bits", "protocol_events",
-            }
-            if (
-                not isinstance(existing, dict)
-                or not required.issubset(existing)
-                or int(existing.get("tid", -1)) != capture.tid
-            ):
-                raise ValueError("existing capture has an invalid structure or TID")
+            _validate_capture_data(existing, capture.tid)
         except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
             print(
                 f"Refusing to overwrite unreadable session capture {capture.tid}; "
@@ -289,29 +327,10 @@ def load_session_capture(tid: int) -> SessionCapture | None:
     try:
         raw_text = source_path.read_text(encoding="utf-8")
         data = json.loads(raw_text)
-        if not isinstance(data, dict):
-            raise ValueError("capture root must be a JSON object")
-        stored_tid = int(data["tid"])
-        if stored_tid != requested_tid:
-            raise ValueError(
-                f"capture TID mismatch: requested {requested_tid}, stored {stored_tid}"
-            )
-
-        array_fields = (
-            "analog_time", "pvo_samples", "vref_samples",
-            "margin_samples", "ook_bits", "protocol_events",
-        )
-        if any(not isinstance(data.get(key), list) for key in array_fields):
-            raise ValueError("capture sample and event fields must be arrays")
-        if any(not isinstance(item, dict) for item in data["protocol_events"]):
-            raise ValueError("protocol events must contain JSON objects")
-
+        _validate_capture_data(data, requested_tid)
+        stored_tid = requested_tid
         ber_value = float(data["ber"]) if data.get("ber") is not None else None
         throughput = float(data["throughput_kbps"])
-        if ber_value is not None and (not 0.0 <= ber_value <= 1.0):
-            raise ValueError("capture BER must be between zero and one")
-        if not 0.0 <= throughput < float("inf"):
-            raise ValueError("capture throughput must be finite and non-negative")
 
         capture = SessionCapture(
             tid=stored_tid,

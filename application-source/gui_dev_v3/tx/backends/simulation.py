@@ -9,11 +9,30 @@ from __future__ import annotations
 import math
 import random
 import time
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, BinaryIO
 
-from PySide6.QtCore import QTimer, Qt
+from gui_dev_v3.tx.protocol import crc16_ccitt
+
+from PySide6.QtCore import QTimer
 from PySide6.QtNetwork import QUdpSocket, QHostAddress
+
+
+
+MAX_SIMULATION_FILE_BYTES = 80 * 1024 * 1024
+
+
+def _crc16_ccitt_file(path: Path) -> int:
+    """Compute the firmware-compatible CRC16 in bounded memory."""
+    crc = 0xFFFF
+    with path.open("rb") as stream:
+        while block := stream.read(1024 * 1024):
+            for byte in block:
+                crc ^= byte << 8
+                for _ in range(8):
+                    crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return crc
 
 
 @dataclass
@@ -81,7 +100,9 @@ class TXSimulationBackend:
         self._rx_connected = False
         self._last_rx_time = time.time()
         self._log: list[dict[str, str]] = []
-        self._file_data = b""
+        self._file_handle: BinaryIO | None = None
+        self._file_size_bytes = 0
+        self._file_crc16 = 0
         self._filename = "No file"
         self._total_chunks = 0
         self._current_chunk = 0
@@ -101,7 +122,13 @@ class TXSimulationBackend:
         self._send_timer.timeout.connect(self._send_next_chunk)
 
     def stop(self) -> None:
-        """Stop timers and close sockets gracefully."""
+        """Stop timers, close any active file, and release the UDP socket."""
+        if hasattr(self, "_file_handle") and self._file_handle is not None:
+            try:
+                self._file_handle.close()
+            except OSError:
+                pass
+            self._file_handle = None
         if hasattr(self, "_ping_timer") and self._ping_timer:
             self._ping_timer.stop()
         if hasattr(self, "_send_timer") and self._send_timer:
@@ -142,28 +169,60 @@ class TXSimulationBackend:
                 pass
 
     def start_transmission(self, filepath: str) -> None:
-        from pathlib import Path
         import json
-        p = self._params
-        self._compute_channel()
-        path = Path(filepath)
-        if not path.exists():
-            self._log_append({"time": time.strftime("%H:%M:%S"), "event": "Error", "details": f"File {path.name} not found"})
+
+        path = Path(filepath).expanduser()
+        try:
+            file_size = path.stat().st_size
+            if not path.is_file():
+                raise OSError("Selected path is not a regular file")
+            if file_size > MAX_SIMULATION_FILE_BYTES:
+                raise ValueError("Simulation files are limited to 80 MiB.")
+            file_crc16 = _crc16_ccitt_file(path)
+            file_handle = path.open("rb")
+        except (OSError, ValueError) as exc:
+            self._log_append({
+                "time": time.strftime("%H:%M:%S"),
+                "event": "Error",
+                "details": f"Could not open {path.name}: {exc}",
+            })
+            self._status_text = "Failed"
             return
-        self._file_data = path.read_bytes()
+
+        if self._file_handle is not None:
+            self._file_handle.close()
+        self._file_handle = file_handle
+        self._file_size_bytes = file_size
+        self._file_crc16 = file_crc16
         self._filename = path.name
-        self._chunk_size = p.chunk_size
-        self._total_chunks = max(1, math.ceil(len(self._file_data) / self._chunk_size))
+        self._chunk_size = max(1, min(16 * 1024, int(self._params.chunk_size)))
+        self._total_chunks = max(1, math.ceil(file_size / self._chunk_size))
         self._current_chunk = 0
         self._progress = 0.0
         self._session_start = time.time()
         self._status_text = "Transmitting..."
         self._log.clear()
-        self._log_append({"time": time.strftime("%H:%M:%S"), "event": "Start TX", "details": f"Sending {self._filename} ({self._total_chunks} chunks)"})
-        self._transfer_id = int(time.time() * 10) % 100000
-        start_msg = {"event": "start_tx", "filename": self._filename, "total_chunks": self._total_chunks, "chunk_size": self._chunk_size, "tid": self._transfer_id}
-        self._socket.writeDatagram(json.dumps(start_msg).encode("utf-8"), QHostAddress(QHostAddress.SpecialAddress.LocalHost), 9901)
-        delay_ms = int(max(10, ((self._chunk_size * 8) / max(p.symbol_hz, 100)) * 1000.0))
+        self._log_append({
+            "time": time.strftime("%H:%M:%S"),
+            "event": "Start TX",
+            "details": f"Sending {self._filename} ({self._total_chunks} chunks)",
+        })
+        self._transfer_id = int(time.time_ns() % 999_999) or 1
+        start_msg = {
+            "event": "start_tx",
+            "filename": self._filename,
+            "total_chunks": self._total_chunks,
+            "chunk_size": self._chunk_size,
+            "file_size_bytes": self._file_size_bytes,
+            "file_crc16": self._file_crc16,
+            "tid": self._transfer_id,
+        }
+        self._socket.writeDatagram(
+            json.dumps(start_msg).encode("utf-8"),
+            QHostAddress(QHostAddress.SpecialAddress.LocalHost),
+            9901,
+        )
+        delay_ms = int(max(10, ((self._chunk_size * 8 * 1.25) / max(self._params.symbol_hz, 100)) * 1000.0))
         self._send_timer.start(delay_ms)
 
     def _send_next_chunk(self) -> None:
@@ -177,12 +236,28 @@ class TXSimulationBackend:
             self._send_timer.stop()
             self._progress = 0.0
             self._status_text = "Failed"
+            if self._file_handle is not None:
+                self._file_handle.close()
+                self._file_handle = None
             self._log_append({"time": now, "event": "Abort", "details": "Connection to RX lost"})
             return
-        start_offset = self._current_chunk * self._chunk_size
-        end_offset = start_offset + self._chunk_size
-        chunk_bytes = self._file_data[start_offset:end_offset]
-        chunk_msg = {"event": "chunk", "index": self._current_chunk, "data": chunk_bytes.hex()}
+        if self._file_handle is None:
+            self._send_timer.stop()
+            return
+        chunk_bytes = self._file_handle.read(self._chunk_size)
+        if self._file_size_bytes > 0 and not chunk_bytes:
+            self._send_timer.stop()
+            self._status_text = "Failed"
+            self._file_handle.close()
+            self._file_handle = None
+            self._log_append({"time": now, "event": "Abort", "details": "File ended before the expected chunk count"})
+            return
+        chunk_msg = {
+            "event": "chunk",
+            "index": self._current_chunk,
+            "data": chunk_bytes.hex(),
+            "crc16": crc16_ccitt(chunk_bytes),
+        }
         self._socket.writeDatagram(json.dumps(chunk_msg).encode("utf-8"), QHostAddress(QHostAddress.SpecialAddress.LocalHost), 9901)
         self._current_chunk += 1
         self._progress = (self._current_chunk / self._total_chunks) * 100.0
@@ -190,7 +265,14 @@ class TXSimulationBackend:
             self._send_timer.stop()
             self._status_text = "Complete"
             self._progress = 100.0
-            self._socket.writeDatagram(json.dumps({"event": "stop_tx"}).encode("utf-8"), QHostAddress(QHostAddress.SpecialAddress.LocalHost), 9901)
+            if self._file_handle is not None:
+                self._file_handle.close()
+                self._file_handle = None
+            self._socket.writeDatagram(
+                json.dumps({"event": "stop_tx", "tid": self._transfer_id}).encode("utf-8"),
+                QHostAddress(QHostAddress.SpecialAddress.LocalHost),
+                9901,
+            )
             self._log_append({"time": now, "event": "Complete", "details": "Transmission successful"})
 
     @property

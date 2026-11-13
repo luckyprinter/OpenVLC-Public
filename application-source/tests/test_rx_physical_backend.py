@@ -379,3 +379,39 @@ def test_batch_group_is_discarded_when_payload_length_fails_before_metadata_pars
     assert backend._active_batch_group_id is None
     assert backend._active_tid is None
     assert not list(tmp_path.iterdir())
+
+
+def test_truncated_file_line_clears_matching_active_transfer():
+    from gui_dev_v3.logic.batch_assembler import BatchAssembler
+
+    backend = RXPhysicalBackend()
+    backend._batch_assembler = BatchAssembler()
+    backend._batch_assembler.add_part(
+        group_id="truncated-group",
+        part_index=1,
+        part_count=2,
+        full_crc=0x1234,
+        filename="truncated.bin",
+        part_data=b"first",
+        part_crc_ok=True,
+        part_chunks=1,
+        tid=101,
+    )
+    backend._active_tid = 101
+    backend._active_filename = "truncated.bin"
+    backend._active_total_size = 10
+    backend._active_total_chunks = 2
+    backend._active_received_chunks = 1
+    backend._active_started_monotonic = 1.0
+    backend._active_batch_group_id = "truncated-group"
+
+    backend._handle_file_hex("RX_FILE_HEX:101:DATA:10")
+
+    assert backend._active_tid is None
+    assert backend._active_filename == ""
+    assert backend._active_total_size == 0
+    assert backend._active_total_chunks == 0
+    assert backend._active_received_chunks == 0
+    assert backend._active_started_monotonic is None
+    assert backend._active_batch_group_id is None
+    assert backend._batch_assembler.pending_count == 0

@@ -10,7 +10,7 @@ import pytest
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QBoxLayout, QScrollArea, QWidget
 
-from gui_dev_v3.app import VLCMainWindow, _minimum_window_dimensions
+from gui_dev_v3.app import VLCMainWindow, _BaseWindow, _minimum_window_dimensions
 from gui_dev_v3.app_state import RXAppState
 from gui_dev_v3.rx.dashboard import RXDashboardPage
 from gui_dev_v3.rx.receive_page import ReceivePage
@@ -871,3 +871,46 @@ def test_minimum_window_dimensions_allow_responsive_laptop_sizes(
     expected: tuple[int, int],
 ) -> None:
     assert _minimum_window_dimensions(available_width, available_height) == expected
+
+
+
+def test_main_window_close_cleans_up_both_console_backends(monkeypatch):
+    window = VLCMainWindow()
+    cleaned = []
+    window._rx_shell = SimpleNamespace(cleanup=lambda: cleaned.append("rx"))
+    window._tx_shell = SimpleNamespace(cleanup=lambda: cleaned.append("tx"))
+    base_close = []
+    monkeypatch.setattr(
+        _BaseWindow,
+        "closeEvent",
+        lambda _self, event: base_close.append(event),
+    )
+    event = object()
+
+    window.closeEvent(event)
+
+    assert cleaned == ["rx", "tx"]
+    assert base_close == [event]
+
+
+def test_main_window_close_continues_when_one_console_cleanup_fails(monkeypatch):
+    window = VLCMainWindow()
+    cleaned = []
+
+    def fail_cleanup():
+        raise RuntimeError("simulated RX shutdown failure")
+
+    window._rx_shell = SimpleNamespace(cleanup=fail_cleanup)
+    window._tx_shell = SimpleNamespace(cleanup=lambda: cleaned.append("tx"))
+    base_close = []
+    monkeypatch.setattr(
+        _BaseWindow,
+        "closeEvent",
+        lambda _self, event: base_close.append(event),
+    )
+    event = object()
+
+    window.closeEvent(event)
+
+    assert cleaned == ["tx"]
+    assert base_close == [event]

@@ -95,14 +95,18 @@ class BatchAssembler:
         current = time.monotonic() if now is None else float(now)
         self.prune_expired(current)
         group_id, filename = str(group_id).strip(), str(filename).strip()
-        part_index, part_count, full_crc = int(part_index), int(part_count), int(full_crc)
-        part_chunks, tid, part_data = int(part_chunks), int(tid), bytes(part_data)
 
         def reject(message: str) -> None:
             # A malformed fragment makes the group ambiguous; do not retain
             # previously accepted parts and accidentally complete it later.
             self._pending.pop(group_id, None)
             raise ValueError(message)
+
+        try:
+            part_index, part_count, full_crc = int(part_index), int(part_count), int(full_crc)
+            part_chunks, tid, part_data = int(part_chunks), int(tid), bytes(part_data)
+        except (TypeError, ValueError, OverflowError) as exc:
+            reject(f"invalid batch part metadata: {exc}")
 
         if not group_id or not filename:
             reject("batch group and filename are required")

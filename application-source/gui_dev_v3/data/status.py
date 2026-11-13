@@ -62,17 +62,20 @@ def write_status(role: str, stage: str, detail: str = "", percent: float | None 
     """Write a status file to the application-owned state directory."""
     import time
 
-    target = status_path(role)
-    payload: dict[str, Any] = {
-        "role": role.lower(),
-        "stage": stage,
-        "detail": detail,
-        "state": state,
-        "updated_at": time.time(),
-    }
-    if percent is not None:
-        payload["percent"] = max(0.0, min(100.0, float(percent)))
-    payload.update({k: v for k, v in extra.items() if v is not None})
+    try:
+        target = status_path(role)
+        payload: dict[str, Any] = {
+            "role": role.lower(),
+            "stage": stage,
+            "detail": detail,
+            "state": state,
+            "updated_at": time.time(),
+        }
+        if percent is not None:
+            payload["percent"] = max(0.0, min(100.0, float(percent)))
+        payload.update({k: v for k, v in extra.items() if v is not None})
+    except (OSError, TypeError, ValueError, OverflowError):
+        return False
 
     temporary_path: Path | None = None
     with _WRITE_LOCK:

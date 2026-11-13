@@ -15,6 +15,9 @@ def qapp():
 
 
 class FakeQSettings:
+    # Mirror the enum exposed by the real QSettings class because settings.py
+    # checks the status through the patched class during these tests.
+    Status = QSettings.Status
     status_value = QSettings.Status.NoError
 
     def __init__(self, *_args):

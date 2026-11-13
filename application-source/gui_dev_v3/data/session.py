@@ -29,7 +29,7 @@ def _safe_integer(value: Any, default: int = 0) -> int:
     return int(number)
 
 
-from gui_dev3.models import (
+from gui_dev_v3.models import (
     ChunkRecord,
     ChunkStatus,
     ExperimentMetadata,

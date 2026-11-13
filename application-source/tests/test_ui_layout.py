@@ -923,12 +923,23 @@ def test_main_window_close_continues_when_one_console_cleanup_fails(qapp, monkey
     assert base_close == [event]
 
 
-def test_receive_page_does_not_report_receiving_after_disconnect(qapp):
+def test_receive_page_reports_interrupted_for_real_transfer_after_disconnect(qapp):
+    from dataclasses import replace
     from gui_dev_v3.data.session import build_empty_session
+    from gui_dev_v3.models import TransferStatus
 
     state = RXAppState()
     state.session = build_empty_session()
     state.session.progress_percent = 50
+    state.session.latest_transfer = replace(
+        state.session.latest_transfer,
+        tid=42,
+        filename="partial.bin",
+        status=TransferStatus.INCOMPLETE,
+        size_bytes=100,
+        total_chunks=4,
+        received_chunks=2,
+    )
     state.transfer = state.session.latest_transfer
     state.serial_connected = False
 
@@ -937,6 +948,22 @@ def test_receive_page_does_not_report_receiving_after_disconnect(qapp):
 
     assert state.is_receiving is True
     assert page.status_badge.text() == "● INTERRUPTED"
+    page.close()
+
+
+def test_receive_page_keeps_empty_offline_state_idle(qapp):
+    from gui_dev_v3.data.session import build_empty_session
+
+    state = RXAppState()
+    state.session = build_empty_session()
+    state.transfer = state.session.latest_transfer
+    state.serial_connected = False
+
+    page = ReceivePage()
+    page.refresh(state)
+
+    assert state.is_receiving is False
+    assert page.status_badge.text() == "○ IDLE"
     page.close()
 
 

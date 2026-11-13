@@ -59,6 +59,7 @@ class TXPhysicalBackend:
         # Auto-connect runs off the GUI thread so serial discovery cannot freeze the UI.
         self._connect_thread: threading.Thread | None = None
         self._connecting: bool = False
+        self._shutting_down: bool = False
         self._latest_status: dict[str, Any] = {}
         # Preserved completion metrics — never wiped by idle polls
         self._last_completion: dict[str, Any] = {}
@@ -155,6 +156,8 @@ class TXPhysicalBackend:
 
     def _auto_connect_locked(self) -> bool:
         """Perform discovery and persistent connection while holding the shared lock."""
+        if self._shutting_down:
+            return False
         ports = self.scan_ports()
         # Keep TX's saved preference separate from RX's and fall back to all
         # currently enumerated devices when the saved port is no longer present.
@@ -165,8 +168,12 @@ class TXPhysicalBackend:
         if ports:
             self.log("Scan", f"Found {len(ports)} ports: {', '.join(ports)}")
         for port in ports:
+            if self._shutting_down:
+                return False
             self.log("Detect", f"Probing {port}...")
             info = self.detect_firmware(port)
+            if self._shutting_down:
+                return False
             if info and info.get("device") == "VLC_TX":
                 self._port = port
                 if not self._open_serial():
@@ -175,11 +182,21 @@ class TXPhysicalBackend:
                     self.log("Error [C02]", f"PySerial failed to open {port}; continuing scan")
                     self._port = None
                     continue
+                if self._shutting_down:
+                    self._controller.disconnect()
+                    self._port = None
+                    return False
                 if not self._wait_for_firmware_ready():
                     self._controller.disconnect()
                     self.log("Error [C03]", f"TX firmware did not acknowledge readiness on {port}")
                     self._port = None
+                    if self._shutting_down:
+                        return False
                     continue
+                if self._shutting_down:
+                    self._controller.disconnect()
+                    self._port = None
+                    return False
                 self._connected = True
                 # Remember only a successfully identified, ready, and opened TX device.
                 settings.set("connection/port", port)
@@ -205,9 +222,13 @@ class TXPhysicalBackend:
             return False
 
     def _connect_locked(self, port: str, force: bool = False) -> bool:
+        if self._shutting_down:
+            return False
         if not force:
             self.log("Connect", f"Detecting firmware on {port}...")
             info = self.detect_firmware(port)
+            if self._shutting_down:
+                return False
             if not info:
                 self.log("Error [C01]", f"Firmware detection failed on {port}")
                 return False
@@ -224,11 +245,19 @@ class TXPhysicalBackend:
             self._connected = False
             self.log("Error [C02]", f"PySerial failed to open {port}")
             return False
+        if self._shutting_down:
+            self._controller.disconnect()
+            self._port = None
+            return False
         if not self._wait_for_firmware_ready():
             self._controller.disconnect()
             self._port = None
             self._connected = False
             self.log("Error [C03]", f"TX firmware did not acknowledge readiness on {port}")
+            return False
+        if self._shutting_down:
+            self._controller.disconnect()
+            self._port = None
             return False
 
         self._connected = True
@@ -270,9 +299,16 @@ class TXPhysicalBackend:
         start_counter = self._controller.line_counter
         if not self._controller.send_line(""):
             return False
-        return self._controller.wait_for_line_containing(
-            "TX Ready", timeout=timeout, start_counter=start_counter
-        )
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self._shutting_down or not self._controller.is_connected:
+                return False
+            remaining = max(0.01, min(0.1, deadline - time.monotonic()))
+            if self._controller.wait_for_line_containing(
+                "TX Ready", timeout=remaining, start_counter=start_counter
+            ):
+                return True
+        return False
 
     def _close_serial(self) -> None:
         self._controller.disconnect()
@@ -401,7 +437,11 @@ class TXPhysicalBackend:
         return True
 
     def cleanup(self) -> None:
-        """Close serial connection and release port."""
+        """Stop discovery and transmission before releasing the TX port."""
+        self._shutting_down = True
+        worker = self._connect_thread
+        if worker is not None and worker.is_alive() and worker is not threading.current_thread():
+            worker.join(timeout=3.0)
         self.disconnect()
 
     @property
@@ -420,7 +460,7 @@ class TXPhysicalBackend:
             mode = mgr.get("connection/mode", "Auto Detect (Recommended)")
             auto_conn = mgr.get("connection/auto_connect", True)
             
-            if auto_conn and not self._connecting:
+            if auto_conn and not self._connecting and not self._shutting_down:
                 # Throttle scans and run discovery in the background. Serial
                 # probing can take several seconds per port and must not block
                 # the GUI event loop.

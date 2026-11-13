@@ -338,6 +338,8 @@ class RXPhysicalBackend:
 
     def _open_serial(self) -> bool:
         """Open persistent serial connection at RX baud rate and start reader thread."""
+        if self._shutting_down:
+            return False
         if not self._close_serial():
             self.log(
                 "Reader Stop Timeout",
@@ -374,6 +376,9 @@ class RXPhysicalBackend:
                 target=self._serial_reader_loop, daemon=True, name="rx-serial-reader"
             )
             self._reader_thread.start()
+            if self._shutting_down:
+                self._close_serial()
+                return False
 
             # The firmware answers a blank line only after setup() has completed
             # and loop() is processing serial commands. This replaces reliance

@@ -124,3 +124,32 @@ def test_user_config_directories_follow_platform_conventions(tmp_path):
     assert resolve_user_config_dir(
         platform="linux", environ={}, home=home
     ) == home / ".config" / "OpenVLC"
+
+
+def test_app_initializes_user_data_before_importing_runtime_stores():
+    import os
+    import subprocess
+    import sys
+
+    source_root = Path(__file__).resolve().parents[1]
+    environment = os.environ.copy()
+    environment.pop("VLC_DATA_DIR", None)
+    code = """
+from gui_dev_v3.app import main
+from gui_dev_v3.data import records, status
+from gui_dev_v3.runtime_paths import configure_runtime_data_dir
+
+root = configure_runtime_data_dir()
+assert records.LOG_DIR == root / "logs" / "rx"
+assert records.CAPTURE_DIR == root / "state" / "captures"
+assert status._STATE_DIR == root / "state"
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=source_root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr

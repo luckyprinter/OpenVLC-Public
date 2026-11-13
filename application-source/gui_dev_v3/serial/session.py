@@ -121,6 +121,7 @@ class SerialSession:
         """
         role_key = (expected_role or self.role).lower()
         baud = BAUDRATE_RX if "rx" in role_key else BAUDRATE_TX
+        ser = None
         try:
             import serial  # type: ignore[import-untyped]
 
@@ -153,6 +154,32 @@ class SerialSession:
             )
             return True
         except Exception as exc:
+            # Opening can succeed before reader startup or a UI/status callback
+            # fails. Release that partially established session so a failed
+            # connect never leaves a hidden handle or background reader behind.
+            self._running = False
+            with self._write_lock:
+                if self.serial_obj is ser:
+                    self.serial_obj = None
+                if ser is not None:
+                    try:
+                        if getattr(ser, "is_open", False):
+                            ser.close()
+                    except Exception:
+                        pass
+            reader = self._reader_thread
+            if reader is not None and reader is not threading.current_thread():
+                try:
+                    if reader.is_alive():
+                        reader.join(timeout=1.0)
+                except Exception:
+                    pass
+                try:
+                    if not reader.is_alive():
+                        self._reader_thread = None
+                except Exception:
+                    self._reader_thread = None
+            self.is_connected = False
             self.log(f"Connection failed: {exc}")
             self.status("Connection Failed", str(exc), state="error")
             return False

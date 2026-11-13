@@ -374,7 +374,7 @@ class TXPhysicalBackend:
         self._latest_status.update(payload)
         
     def start_transmission(self, filepath: str) -> None:
-        if not self._connected or not self._port:
+        if self._shutting_down or not self._connected or not self._port:
             return
             
         path = Path(filepath)
@@ -442,6 +442,8 @@ class TXPhysicalBackend:
         worker = self._connect_thread
         if worker is not None and worker.is_alive() and worker is not threading.current_thread():
             worker.join(timeout=3.0)
+        if worker is None or not worker.is_alive():
+            self._connect_thread = None
 
         # Closing the port makes an in-flight send fail promptly; then join the
         # worker so it cannot continue touching the controller after teardown.

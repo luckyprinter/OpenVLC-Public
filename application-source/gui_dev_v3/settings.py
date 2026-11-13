@@ -390,7 +390,7 @@ def bind_double_spin(setting: FreeformDoubleSpinSetting | DoubleSpinSetting, mgr
     except (ValueError, TypeError):
         val = default
     setting.setValue(val)
-    setting.valueChanged.connect(lambda v: mgr.set(key, float(v)))
+    setting.valueChanged.connect(lambda v: _persist_bound_value(setting, mgr, key, float(v)))
 
 
 def bind_slider_spin(slider_spin: SliderSpinSetting, mgr: SettingsManager, key: str, default: float = 0.0) -> None:

@@ -680,3 +680,45 @@ def test_rx_unexpected_disconnect_persists_connection_lost_status(monkeypatch):
             },
         )
     ]
+
+
+def test_ram_store_ignores_stale_tid_and_rejects_invalid_progress():
+    backend = RXPhysicalBackend()
+    backend._active_tid = 77
+    backend._active_total_chunks = 4
+    backend._active_received_chunks = 1
+
+    backend._handle_ram_store("RX_RAM_STORE:76:1:2:4")
+    assert backend._active_received_chunks == 1
+    assert backend._log_queue[-1]["event"] == "Ignored Stale Chunk Progress"
+
+    backend._handle_ram_store("RX_RAM_STORE:77:4:2:4")
+    assert backend._active_received_chunks == 1
+    assert backend._log_queue[-1]["event"] == "RAM Store Error"
+
+    backend._handle_ram_store("RX_RAM_STORE:77:2:2:4")
+    assert backend._active_received_chunks == 2
+    assert backend._log_queue[-1]["event"] == "Chunk Received"
+
+
+@pytest.mark.parametrize("invalid_tid", [0, -1, 0x10000])
+def test_rx_file_hex_rejects_tid_outside_firmware_range(
+    invalid_tid, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(logger, "file_log", lambda *_args, **_kwargs: None)
+    backend = RXPhysicalBackend()
+    backend._record_diag = lambda *_args, **_kwargs: None
+    backend._save_dir = tmp_path
+    payload = b"payload"
+    name_hex = "invalid-tid.bin".encode().hex()
+    line = (
+        f"RX_FILE_HEX:{invalid_tid}:DATA:{len(payload)}:1:"
+        f"{physical.crc16_ccitt(payload):04X}:{name_hex}:{payload.hex()}"
+    )
+
+    backend._handle_file_hex(line)
+
+    assert backend._last_completed_transfer is None
+    assert backend._active_tid is None
+    assert not list(tmp_path.iterdir())
+    assert backend._log_queue[-1]["event"] == "RX File Error"

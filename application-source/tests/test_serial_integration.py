@@ -835,3 +835,68 @@ def test_serial_scan_lock_times_out_without_entering_critical_section(tmp_path, 
 
     assert entered is False
 
+
+
+
+def test_tx_auto_connect_stops_before_open_if_shutdown_begins_during_probe(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager, "get", lambda self, key, default=None: default
+    )
+    backend = TXPhysicalBackend()
+    backend.scan_ports = lambda: ["MOCK_TX"]
+    backend.detect_firmware = lambda _port: (
+        setattr(backend, "_shutting_down", True)
+        or {"device": "VLC_TX", "firmware": "test", "board": "test"}
+    )
+    backend._open_serial = lambda: pytest.fail(
+        "TX must not open a port after shutdown begins"
+    )
+
+    assert backend._auto_connect_locked() is False
+
+
+def test_rx_auto_connect_stops_before_open_if_shutdown_begins_during_probe(monkeypatch):
+    from gui_dev_v3.settings import SettingsManager
+    from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
+
+    monkeypatch.setattr(
+        SettingsManager, "get", lambda self, key, default=None: default
+    )
+    backend = RXPhysicalBackend()
+    backend.scan_ports = lambda: ["MOCK_RX"]
+    backend.detect_firmware = lambda _port: (
+        setattr(backend, "_shutting_down", True)
+        or {"device": "VLC_RX", "firmware": "test", "board": "test"}
+    )
+    backend._open_serial = lambda: pytest.fail(
+        "RX must not open a port after shutdown begins"
+    )
+
+    assert backend._auto_connect_locked() is False
+
+
+def test_tx_firmware_readiness_wait_is_cancellable_during_shutdown(monkeypatch):
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    backend = TXPhysicalBackend()
+    calls = []
+
+    class Controller:
+        is_connected = True
+        line_counter = 0
+
+        def send_line(self, _line):
+            return True
+
+        def wait_for_line_containing(self, *_args, **_kwargs):
+            calls.append(True)
+            backend._shutting_down = True
+            return False
+
+    backend._controller = Controller()
+
+    assert backend._wait_for_firmware_ready(timeout=5.0) is False
+    assert len(calls) == 1

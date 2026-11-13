@@ -286,7 +286,7 @@ class TXSerialController(SerialSession):
                         time.sleep(delay_s)
 
             elapsed_total = max(0.001, time.monotonic() - batch_started)
-            data_rate = f"{(len(data) * 8 / elapsed_total):.0f} bps"
+            data_rate = f"{(file_size * 8 / elapsed_total):.0f} bps"
             elapsed_minutes, elapsed_seconds = divmod(int(elapsed_total), 60)
             elapsed_ms = int((elapsed_total - int(elapsed_total)) * 1000)
             elapsed_label = (

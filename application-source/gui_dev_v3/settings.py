@@ -51,18 +51,44 @@ class SettingsManager:
             return raw.lower() == "true"
         return raw
 
-    def set(self, key: str, value: object) -> None:
-        self._settings.setValue(key, value)
-        self._settings.sync()
+    def set(self, key: str, value: object) -> bool:
+        """Persist one value and report QSettings write failures to the caller."""
+        try:
+            self._settings.setValue(key, value)
+            self._settings.sync()
+            return self._settings.status() == QSettings.Status.NoError
+        except (OSError, RuntimeError, TypeError, ValueError):
+            return False
 
     def value(self, key: str, default: object = None) -> object:
         """Alias for get()."""
         return self.get(key, default)
 
-    def clear(self) -> None:
-        """Clear all settings from persistence."""
-        self._settings.clear()
-        self._settings.sync()
+    def clear(self) -> bool:
+        """Clear all settings and report persistence failures."""
+        try:
+            self._settings.clear()
+            self._settings.sync()
+            return self._settings.status() == QSettings.Status.NoError
+        except (OSError, RuntimeError):
+            return False
+
+
+def _persist_bound_value(
+    control: QWidget, mgr: SettingsManager, key: str, value: object
+) -> bool:
+    """Persist a control value and expose failures on that control."""
+    saved = mgr.set(key, value)
+    if saved:
+        control.setProperty("settingsSaveFailed", False)
+        control.setToolTip("")
+        control.setAccessibleDescription(f"Saved setting: {key}.")
+    else:
+        message = f"Could not save this setting ({key}). Check the config folder permissions and available disk space."
+        control.setProperty("settingsSaveFailed", True)
+        control.setToolTip(message)
+        control.setAccessibleDescription(message)
+    return saved
 
 
 def reset_all_settings(mgr: SettingsManager, window: QWidget | None = None) -> bool:
@@ -94,14 +120,14 @@ def reset_all_settings(mgr: SettingsManager, window: QWidget | None = None) -> b
 def bind_toggle(toggle: ToggleSetting, mgr: SettingsManager, key: str, default: bool = True) -> None:
     """Load initial value from settings and save on toggle."""
     toggle.setChecked(mgr.get(key, default))  # type: ignore[arg-type]
-    toggle.toggled.connect(lambda checked: mgr.set(key, checked))
+    toggle.toggled.connect(lambda checked: _persist_bound_value(toggle, mgr, key, checked))
 
 
 def bind_radio_node(setting: RadioNodeSetting, mgr: SettingsManager, key: str, default: bool = False) -> None:
     """Bind a RadioNodeSetting to a SettingsManager key."""
     val = mgr.get(key, default)
     setting.setChecked(bool(val))
-    setting.toggled.connect(lambda v: mgr.set(key, v))
+    setting.toggled.connect(lambda v: _persist_bound_value(setting, mgr, key, v))
 
 
 def bind_spin(setting: SpinSetting | FreeformSpinSetting, mgr: SettingsManager, key: str, default: int = 0) -> None:
@@ -111,7 +137,7 @@ def bind_spin(setting: SpinSetting | FreeformSpinSetting, mgr: SettingsManager, 
     except (ValueError, TypeError):
         val = default
     setting.setValue(val)
-    setting.valueChanged.connect(lambda val: mgr.set(key, val))
+    setting.valueChanged.connect(lambda val: _persist_bound_value(setting, mgr, key, val))
 
 
 def bind_double_spin(spin: DoubleSpinSetting, mgr: SettingsManager, key: str, default: float = 0.0) -> None:
@@ -121,7 +147,7 @@ def bind_double_spin(spin: DoubleSpinSetting, mgr: SettingsManager, key: str, de
     except (ValueError, TypeError):
         val = default
     spin.setValue(val)
-    spin.valueChanged.connect(lambda val: mgr.set(key, val))
+    spin.valueChanged.connect(lambda val: _persist_bound_value(spin, mgr, key, val))
 
 
 def bind_combo(combo: ComboSetting, mgr: SettingsManager, key: str, default: str = "") -> None:
@@ -130,7 +156,7 @@ def bind_combo(combo: ComboSetting, mgr: SettingsManager, key: str, default: str
     idx = combo.findText(default_val)
     if idx >= 0:
         combo.setCurrentIndex(idx)
-    combo.currentTextChanged.connect(lambda text: mgr.set(key, text))
+    combo.currentTextChanged.connect(lambda text: _persist_bound_value(combo, mgr, key, text))
 
 
 def bind_radio_group(group: RadioGroup, mgr: SettingsManager, key: str, default: str = "") -> None:
@@ -141,7 +167,7 @@ def bind_radio_group(group: RadioGroup, mgr: SettingsManager, key: str, default:
             btn.setChecked(True)
             break
     for btn in group._buttons:
-        btn.toggled.connect(lambda checked, b=btn: mgr.set(key, b.text()) if checked else None)
+        btn.toggled.connect(lambda checked, b=btn: _persist_bound_value(b, mgr, key, b.text()) if checked else None)
 
 
 # ── Form controls ────────────────────────────────────────────────────
@@ -376,8 +402,8 @@ def bind_slider_spin(slider_spin: SliderSpinSetting, mgr: SettingsManager, key: 
     slider_spin.setValue(val)
     # Persist the possibly clamped value back to SettingsManager
     clamped_val = slider_spin.value()
-    mgr.set(key, clamped_val)
-    slider_spin.valueChanged.connect(lambda val: mgr.set(key, val))
+    _persist_bound_value(slider_spin, mgr, key, clamped_val)
+    slider_spin.valueChanged.connect(lambda val: _persist_bound_value(slider_spin, mgr, key, val))
 
 
 class DirectorySetting(QWidget):
@@ -432,7 +458,7 @@ def bind_directory_setting(widget: DirectorySetting, mgr: SettingsManager, key: 
     """Load initial value and save on change."""
     val = str(mgr.get(key, default) or default)
     widget.setText(val)
-    widget.valueChanged.connect(lambda new_val: mgr.set(key, new_val))
+    widget.valueChanged.connect(lambda new_val: _persist_bound_value(widget, mgr, key, new_val))
 
 
 # ── Settings Container ───────────────────────────────────────────────
@@ -748,8 +774,27 @@ def bind_theme_picker(picker: ThemePickerGrid, mgr: SettingsManager, key: str = 
     saved = str(app_settings.theme or default)
     picker.set_current(saved)
     def _on_theme_changed(k: str) -> None:
-        mgr.set(key, k)  # Keep QSettings updated just in case
+        previous = saved
         latest_settings = load_settings()
-        latest_settings.theme = k # type: ignore[assignment]
-        save_settings(latest_settings)
+        latest_settings.theme = k  # type: ignore[assignment]
+        if not save_settings(latest_settings):
+            # The live preview is not a saved preference. Revert it so the
+            # screen cannot imply that a failed write will survive restart.
+            apply_theme(theme=previous)
+            from PySide6.QtWidgets import QApplication
+            app = QApplication.instance()
+            if app:
+                app.setStyleSheet(build_qss())
+            picker.set_current(previous)
+            message = "Theme could not be saved. The previous theme has been restored. Check config-folder permissions and disk space."
+            picker.setToolTip(message)
+            picker.setAccessibleDescription(message)
+            return
+        if not mgr.set(key, k):
+            message = "Theme was saved, but the secondary display preference could not be synchronized."
+            picker.setToolTip(message)
+            picker.setAccessibleDescription(message)
+        else:
+            picker.setToolTip("")
+            picker.setAccessibleDescription("Choose the application theme.")
     picker.theme_changed.connect(_on_theme_changed)

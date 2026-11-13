@@ -353,71 +353,91 @@ class RXSimulationBackend:
             })
 
         elif event == "chunk":
-            idx = msg.get("index", 0)
-            hex_data = msg.get("data", "")
+            try:
+                idx = int(msg.get("index", -1))
+                hex_data = str(msg.get("data", ""))
+                chunk_crc = int(msg.get("crc16", -1))
+            except (TypeError, ValueError, OverflowError):
+                self._log_append({"time": now, "event": "Invalid Chunk", "details": "Malformed chunk metadata"})
+                return
+            if not self._active or not 0 <= idx < self._total_chunks:
+                self._log_append({"time": now, "event": "Invalid Chunk", "details": f"Chunk index {idx} is outside the active transfer"})
+                return
+            if self._chunks_status_map.get(idx) != ChunkStatus.PENDING:
+                return
+            if len(hex_data) > self._chunk_size * 2 or len(hex_data) % 2:
+                self._chunks_status_map[idx] = ChunkStatus.MISSING
+                self._log_append({"time": now, "event": "Invalid Chunk", "details": f"Chunk {idx} payload length is invalid"})
+                return
             try:
                 payload_bytes = bytes.fromhex(hex_data)
-            except ValueError as e:
+            except ValueError:
                 self._chunks_status_map[idx] = ChunkStatus.MISSING
-                self._log_append({
-                    "time": now,
-                    "event": "Error",
-                    "details": f"Chunk {idx} invalid hex data: {e}"
-                })
+                self._log_append({"time": now, "event": "Invalid Chunk", "details": f"Chunk {idx} contains invalid hexadecimal data"})
+                return
+            expected_length = min(
+                self._chunk_size,
+                max(0, self._file_size_bytes - idx * self._chunk_size),
+            )
+            if len(payload_bytes) != expected_length or not 0 <= chunk_crc <= 0xFFFF:
+                self._chunks_status_map[idx] = ChunkStatus.MISSING
+                self._log_append({"time": now, "event": "Invalid Chunk", "details": f"Chunk {idx} size or CRC metadata is invalid"})
                 return
 
-            # Derive waveform bits from the actual transmission bitstream
-            chunk_bits = _encode_4b5b(payload_bytes)
-            self._bit_queue.extend(chunk_bits)
-            
-            # Cap queue to avoid lagging behind transfer
+            # Derive waveform bits from the actual transmission bitstream.
+            self._bit_queue.extend(_encode_4b5b(payload_bytes))
             if len(self._bit_queue) > 300:
                 latest_bits = list(self._bit_queue)[-100:]
                 self._bit_queue.clear()
                 self._bit_queue.extend(latest_bits)
 
-            # Apply channel impairments
-            loss_rate = self._params.packet_loss_pct / 100.0
             self._compute_channel()
             ber = min(self._params.ber_estimate, 0.5)
-
-            # Packet loss check
-            if random.random() < loss_rate:
+            if random.random() < self._params.packet_loss_pct / 100.0:
                 self._chunks_status_map[idx] = ChunkStatus.MISSING
                 self._log_append({"time": now, "event": "Chunk Lost", "details": f"Chunk {idx} dropped (simulated loss)"})
                 if self._capture_active:
                     elapsed = time.time() - self._capture_start_time
                     self._capture_events.append({"time": round(elapsed, 3), "event": "CHUNK_LOST", "details": f"Chunk {idx} lost"})
             else:
-                # Apply BER bit errors
                 received = bytearray(payload_bytes)
-                bit_errors = 0
+                random_bit_errors = 0
                 for byte_i in range(len(received)):
                     for bit in range(8):
                         if random.random() < ber:
                             received[byte_i] ^= (1 << bit)
-                            bit_errors += 1
+                            random_bit_errors += 1
+                received_bytes = bytes(received)
+                self._received_chunks_map[idx] = received_bytes
 
-                self._received_chunks_map[idx] = bytes(received)
-                
+                crc_valid = crc16_ccitt(received_bytes) == chunk_crc
+                if not crc_valid:
+                    self._crc_failed_chunks.add(idx)
+                    self._log_append({"time": now, "event": "CRC Failed", "details": f"Chunk {idx} failed simulated CRC16 validation"})
+
                 expected_chunk = self._expected_chunks_map.get(idx, b"")
-                if expected_chunk:
-                    if bytes(received) == expected_chunk:
-                        self._chunks_status_map[idx] = ChunkStatus.MATCH
-                        if self._capture_active:
-                            elapsed = time.time() - self._capture_start_time
-                            self._capture_events.append({"time": round(elapsed, 3), "event": "CHUNK_OK", "details": f"Chunk {idx} received OK"})
-                    else:
-                        self._chunks_status_map[idx] = ChunkStatus.DIFFERENT
-                        self._log_append({"time": now, "event": "Byte Mismatch", "details": f"Chunk {idx} differs from reference"})
-                        if self._capture_active:
-                            elapsed = time.time() - self._capture_start_time
-                            self._capture_events.append({"time": round(elapsed, 3), "event": "CHUNK_ERR", "details": f"Chunk {idx} byte mismatch"})
+                if self._reference_loaded:
+                    compared_length = max(len(expected_chunk), len(received_bytes))
+                    reference_errors = 0
+                    for pos in range(compared_length):
+                        expected_byte = expected_chunk[pos] if pos < len(expected_chunk) else 0
+                        received_byte = received_bytes[pos] if pos < len(received_bytes) else 0
+                        reference_errors += (expected_byte ^ received_byte).bit_count()
+                    self._bit_errors_by_chunk[idx] = reference_errors
+                    matches_reference = received_bytes == expected_chunk
+                    self._chunks_status_map[idx] = ChunkStatus.MATCH if matches_reference and crc_valid else ChunkStatus.DIFFERENT
                 else:
-                    self._chunks_status_map[idx] = ChunkStatus.RECEIVED
-                    if self._capture_active:
-                        elapsed = time.time() - self._capture_start_time
-                        self._capture_events.append({"time": round(elapsed, 3), "event": "CHUNK_RCV", "details": f"Chunk {idx} received (no ref)"})
+                    self._bit_errors_by_chunk[idx] = random_bit_errors
+                    self._chunks_status_map[idx] = ChunkStatus.RECEIVED if crc_valid else ChunkStatus.DIFFERENT
+
+                if self._capture_active:
+                    elapsed = time.time() - self._capture_start_time
+                    event_name = "CHUNK_OK" if self._chunks_status_map[idx] == ChunkStatus.MATCH else "CHUNK_RCV" if self._chunks_status_map[idx] == ChunkStatus.RECEIVED else "CHUNK_ERR"
+                    self._capture_events.append({
+                        "time": round(elapsed, 3),
+                        "event": event_name,
+                        "details": f"Chunk {idx} received; CRC {'PASS' if crc_valid else 'FAIL'}",
+                    })
 
             processed = sum(1 for status in self._chunks_status_map.values() if status != ChunkStatus.PENDING)
             if self._total_chunks > 0:

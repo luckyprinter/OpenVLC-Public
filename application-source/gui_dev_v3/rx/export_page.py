@@ -745,7 +745,7 @@ class ExportPage(QWidget):
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(source.resolve()))):
             QMessageBox.warning(
                 self, "Open File Failed",
-                f"Could not open the received file:\\n{source}",
+                f"Could not open the received file:\n{source}",
             )
 
     def _on_save_as(self) -> None:
@@ -776,7 +776,7 @@ class ExportPage(QWidget):
             )
         except OSError as exc:
             QMessageBox.warning(
-                self, "Save File Failed", f"Could not copy the received payload:\\n{exc}"
+                self, "Save File Failed", f"Could not copy the received payload:\n{exc}"
             )
 
     def _on_backup_db(self) -> None:

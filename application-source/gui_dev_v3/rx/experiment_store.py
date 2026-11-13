@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +22,7 @@ def _resolve_store_dir() -> Path:
 STORE_DIR = _resolve_store_dir()
 STORE_PATH = STORE_DIR / "experiments.json"
 LEGACY_STORE_PATH = Path.home() / ".vlc_rx" / "experiments.json"
+_STORE_LOCK = threading.RLock()
 
 
 class ExperimentStoreError(RuntimeError):
@@ -73,67 +76,90 @@ def _load_all() -> list[dict[str, Any]]:
 def _save_all(items: list[dict[str, Any]]) -> None:
     # Recheck the on-disk file immediately before writing. If it is corrupt,
     # never replace it with an empty list or a partial reconstruction.
-    _existing, corrupt = _read_all()
-    if corrupt:
-        raise ExperimentStoreError(
-            f"Experiment store is unreadable; existing data was left untouched: {STORE_PATH}"
-        )
-    temporary = STORE_PATH.with_suffix(".tmp")
-    try:
-        STORE_DIR.mkdir(parents=True, exist_ok=True)
-        temporary.write_text(json.dumps(items, indent=2), encoding="utf-8")
-        temporary.replace(STORE_PATH)
-    except OSError as exc:
+    with _STORE_LOCK:
+        _existing, corrupt = _read_all()
+        if corrupt:
+            raise ExperimentStoreError(
+                f"Experiment store is unreadable; existing data was left untouched: {STORE_PATH}"
+            )
+
+        temporary_path: Path | None = None
         try:
-            temporary.unlink(missing_ok=True)
-        except OSError:
-            pass
-        raise ExperimentStoreError(
-            f"Could not save experiment data; existing records were preserved: {exc}"
-        ) from exc
+            STORE_DIR.mkdir(parents=True, exist_ok=True)
+            # A unique same-directory temporary avoids collisions with another
+            # save and keeps os.replace atomic on the destination filesystem.
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=STORE_DIR,
+                prefix=".experiments.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary:
+                temporary_path = Path(temporary.name)
+                json.dump(items, temporary, indent=2)
+                temporary.write("\\n")
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_path, STORE_PATH)
+        except OSError as exc:
+            raise ExperimentStoreError(
+                f"Could not save experiment data; existing records were preserved: {exc}"
+            ) from exc
+        finally:
+            if temporary_path is not None and temporary_path.exists():
+                try:
+                    temporary_path.unlink()
+                except OSError:
+                    pass
 
 
 def list_experiments() -> list[Experiment]:
-    return [Experiment(**d) for d in _load_all()]
+    with _STORE_LOCK:
+        return [Experiment(**d) for d in _load_all()]
 
 
 def get_experiment(exp_id: int) -> Experiment | None:
-    for d in _load_all():
-        if d["id"] == exp_id:
-            return Experiment(**d)
-    return None
+    with _STORE_LOCK:
+        for d in _load_all():
+            if d["id"] == exp_id:
+                return Experiment(**d)
+        return None
 
 
 def create_experiment(name: str, exp_type: str, notes: str) -> Experiment:
-    items = _load_all()
-    next_id = max((d["id"] for d in items), default=0) + 1
-    now = time.strftime("%Y-%m-%d %H:%M:%S")
-    entry = dict(id=next_id, name=name, type=exp_type,
-                 created_at=now, notes=notes, record_count=0)
-    items.insert(0, entry)
-    _save_all(items)
-    return Experiment(**entry)
+    with _STORE_LOCK:
+        items = _load_all()
+        next_id = max((d["id"] for d in items), default=0) + 1
+        now = time.strftime("%Y-%m-%d %H:%M:%S")
+        entry = dict(id=next_id, name=name, type=exp_type,
+                     created_at=now, notes=notes, record_count=0)
+        items.insert(0, entry)
+        _save_all(items)
+        return Experiment(**entry)
 
 
 def update_experiment(exp_id: int, **kwargs: Any) -> Experiment | None:
-    items = _load_all()
-    for d in items:
-        if d["id"] == exp_id:
-            for k, v in kwargs.items():
-                if k in d:
-                    d[k] = v
-            _save_all(items)
-            return Experiment(**d)
-    return None
+    with _STORE_LOCK:
+        items = _load_all()
+        for d in items:
+            if d["id"] == exp_id:
+                for k, v in kwargs.items():
+                    if k in d:
+                        d[k] = v
+                _save_all(items)
+                return Experiment(**d)
+        return None
 
 
 def delete_experiment(exp_id: int) -> bool:
-    items = _load_all()
-    new_items = [d for d in items if d["id"] != exp_id]
-    if len(new_items) == len(items):
-        return False
-    _save_all(new_items)
-    return True
+    with _STORE_LOCK:
+        items = _load_all()
+        new_items = [d for d in items if d["id"] != exp_id]
+        if len(new_items) == len(items):
+            return False
+        _save_all(new_items)
+        return True
 
 
 # --- Table Builder data ---

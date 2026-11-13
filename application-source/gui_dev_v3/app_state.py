@@ -298,6 +298,7 @@ class RXAppState:
         self.transfer = s.transfer
         self.activity_log = s.activity_log[-500:]
         self.serial_connected = bool(getattr(self._simulation, "_tx_connected", False))
+        self.current_capture = s.capture
         self.using_mock_data = True
 
     def _load_empty(self) -> None:
@@ -329,7 +330,8 @@ class RXAppState:
         if current_tid != self._last_tid:
             self._last_tid = current_tid
             self._method2_comparison = None
-            self.current_capture = None
+            if self.mode == "physical":
+                self.current_capture = None
             self._phys_capture_active = False
 
         if self.mode == "physical" and current_tid > 0:

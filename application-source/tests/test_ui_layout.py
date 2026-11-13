@@ -938,3 +938,17 @@ def test_receive_page_does_not_report_receiving_after_disconnect(qapp):
     assert state.is_receiving is True
     assert page.status_badge.text() == "● INTERRUPTED"
     page.close()
+
+
+def test_tx_queue_header_uses_compact_label_at_laptop_size(qapp):
+    page = TransmitPage()
+    page.resize(680, 500)
+    page.show()
+    qapp.processEvents()
+
+    assert page.queue_table.horizontalHeaderItem(0).text() == "File"
+
+    page.resize(1024, 700)
+    qapp.processEvents()
+    assert page.queue_table.horizontalHeaderItem(0).text() == "Filename"
+    page.close()

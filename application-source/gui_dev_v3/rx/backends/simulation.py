@@ -459,16 +459,22 @@ class RXSimulationBackend:
             self._active = False
             received_bytes = sum(len(part) for part in self._received_chunks_map.values())
             missing = max(0, self._total_chunks - len(self._received_chunks_map))
+            assembled_bytes = self._assemble_received_bytes()
+            if assembled_bytes is None and missing == 0:
+                missing = 1
             missing_bytes = max(0, self._file_size_bytes - received_bytes)
+            if assembled_bytes is not None and self._expected_file_crc16 is not None:
+                if crc16_ccitt(assembled_bytes) != self._expected_file_crc16:
+                    self._crc_failed_chunks.add(-1)
             if missing > 0:
                 self._transfer_status = TransferStatus.INCOMPLETE
                 self._received_path = None
             elif self._crc_failed_chunks:
                 self._transfer_status = TransferStatus.CRC_FAILED
-                self._received_path = self._save_received_file()
+                self._received_path = self._save_received_file(assembled_bytes)
             else:
                 self._transfer_status = TransferStatus.COMPLETE
-                self._received_path = self._save_received_file()
+                self._received_path = self._save_received_file(assembled_bytes)
 
             status_event = (
                 "INCOMPLETE" if self._transfer_status == TransferStatus.INCOMPLETE
@@ -515,26 +521,75 @@ class RXSimulationBackend:
                     ber_method="simulation",
                 )
 
-    def _save_received_file(self) -> None:
-        from gui_dev_v3.settings import SettingsManager
-        from pathlib import Path
-        mgr = SettingsManager("rx")
-        default_dir = str(mgr.get("general/default_export_folder") or (Path.home() / "vlc_rx_captures"))
+    def _assemble_received_bytes(self) -> bytes | None:
+        """Assemble only a complete transfer; never synthesize missing bytes."""
+        if len(self._received_chunks_map) != self._total_chunks:
+            return None
+        assembled = bytearray()
+        for idx in range(self._total_chunks):
+            chunk = self._received_chunks_map.get(idx)
+            if chunk is None:
+                return None
+            assembled.extend(chunk)
+        assembled = assembled[:self._file_size_bytes]
+        if len(assembled) != self._file_size_bytes:
+            return None
+        return bytes(assembled)
 
-        save_path = Path(default_dir)
+    def _save_received_file(self, data: bytes | None) -> str | None:
+        """Atomically save simulation output under a dedicated subdirectory."""
+        if data is None:
+            return None
+        from gui_dev_v3.settings import SettingsManager
+
+        mgr = SettingsManager("rx")
+        default_dir = Path(
+            str(mgr.get("general/default_export_folder") or (Path.home() / "vlc_rx_captures"))
+        )
+        save_path = default_dir / "simulation"
+        temp_path: str | None = None
         try:
             save_path.mkdir(parents=True, exist_ok=True)
-            file_path = save_path / self._filename
+            source_name = Path(self._filename.replace("\\", "/")).name
+            if source_name in {"", ".", ".."}:
+                source_name = "simulated_file.bin"
+            source = Path(source_name)
+            suffix = source.suffix
+            stem = source.stem or "simulated_file"
+            base_name = f"{stem} (simulation-{self._transfer_id}){suffix}"
+            file_path = save_path / base_name
+            suffix_index = 1
+            while file_path.exists():
+                file_path = save_path / f"{stem} (simulation-{self._transfer_id}-{suffix_index}){suffix}"
+                suffix_index += 1
 
-            assembled_bytes = bytearray()
-            for idx in range(self._total_chunks):
-                chunk_data = self._received_chunks_map.get(idx, b"\x00" * self._chunk_size)
-                assembled_bytes.extend(chunk_data)
-
-            file_path.write_bytes(assembled_bytes)
-        except Exception as e:
-            now = time.strftime("%H:%M:%S")
-            self._log_append({"time": now, "event": "Save Error", "details": str(e)})
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=save_path,
+                prefix=".sim-rx-",
+                suffix=".tmp",
+                delete=False,
+            ) as stream:
+                temp_path = stream.name
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temp_path, file_path)
+            temp_path = None
+            return str(file_path)
+        except OSError as exc:
+            self._log_append({
+                "time": time.strftime("%H:%M:%S"),
+                "event": "Save Error",
+                "details": str(exc),
+            })
+            return None
+        finally:
+            if temp_path is not None:
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
 
     # ── Channel parameters ──
 

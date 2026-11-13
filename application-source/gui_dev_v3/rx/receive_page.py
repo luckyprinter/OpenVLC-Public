@@ -172,13 +172,21 @@ class ReceivePage(QWidget):
             "Connect the RX ESP32 before changing its Vref mode."
         )
         transfer = state.transfer
-        is_rec = state.is_receiving
+        is_rec = state.is_receiving and connected
+        is_interrupted = state.is_receiving and not connected
 
-        # Update status badge
+        # A persisted in-progress snapshot is not proof of a live receiver.
+        # Distinguish an interrupted transfer from active hardware reception.
         if is_rec:
             self.status_badge.setText("● RECEIVING")
             self.status_badge.setStyleSheet(
                 f"color: {COLORS['green']}; font-weight: 700; font-size: 12px; "
+                "background: transparent; letter-spacing: 1.5px;"
+            )
+        elif is_interrupted:
+            self.status_badge.setText("● INTERRUPTED")
+            self.status_badge.setStyleSheet(
+                f"color: {COLORS['red']}; font-weight: 700; font-size: 12px; "
                 "background: transparent; letter-spacing: 1.5px;"
             )
         elif transfer.status == TransferStatus.COMPLETE:

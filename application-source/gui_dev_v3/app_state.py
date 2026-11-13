@@ -48,6 +48,9 @@ class RXAppState:
     _simulation: RXSimulationBackend | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if self.mode not in {"physical", "simulated"}:
+            self.mode = "physical"
+        self.using_mock_data = self.mode == "simulated"
         self._last_tid = 0
         self._method2_comparison: dict[str, Any] | None = None
         self._phys_capture_active = False

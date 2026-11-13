@@ -208,10 +208,20 @@ def load_real_transfer_history() -> list[TransferRecord]:
 
 
 def load_tx_index_records() -> list[dict[str, Any]]:
+    """Legacy compatibility placeholder; TX history persistence is not implemented.
+
+    Kept exported to avoid breaking older imports. The current application has
+    no TX-history store or schema, so callers receive an empty result.
+    """
     return []
 
 
 def load_tx_transfer_records(index: int) -> list[TransferRecord]:
+    """Legacy compatibility placeholder; TX history persistence is not implemented.
+
+    Kept exported to avoid breaking older imports. The current application has
+    no TX-history store or schema, so callers receive an empty result.
+    """
     return []
 
 

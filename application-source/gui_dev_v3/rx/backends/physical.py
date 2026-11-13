@@ -23,7 +23,7 @@ from typing import Any
 
 from gui_dev_v3.data.records import load_real_transfer_history
 from gui_dev_v3.data.session import build_empty_session, build_session_from_status
-from gui_dev_v3.data.status import read_status
+from gui_dev_v3.data.status import read_status, write_status
 from gui_dev_v3.models import SessionState, SignalState, TransferRecord, TransferStatus
 from gui_dev_v3.logic.batch_assembler import BatchAssembler
 from gui_dev_v3.runtime_paths import configure_runtime_data_dir
@@ -390,10 +390,11 @@ class RXPhysicalBackend:
             ser = self._ser
             if ser is None:
                 break
-            if not ser.is_open:
-                self._mark_serial_lost(ser, ConnectionError("Serial port closed"))
-                break
             try:
+                # Driver properties can raise during USB removal just like
+                # readline(); keep the entire handle check inside this guard.
+                if not ser.is_open:
+                    raise ConnectionError("Serial port closed")
                 line_bytes = ser.readline()
                 if line_bytes:
                     line = line_bytes.decode("utf-8", errors="replace").strip()
@@ -431,8 +432,17 @@ class RXPhysicalBackend:
                 ser.close()
             except Exception:
                 pass
+        detail = type(exc).__name__
         self._record_diag("serial_disconnected", role="rx", reason_code="serial_error")
-        self.log("Serial Disconnected", f"RX serial reader stopped ({type(exc).__name__})")
+        self.log("Serial Disconnected", f"RX serial reader stopped ({detail})")
+        if not write_status(
+            "rx",
+            "Connection Lost",
+            detail=detail,
+            state="error",
+            port=getattr(ser, "port", None),
+        ):
+            self.log("Status Write Failed", "Could not persist the RX connection-lost state")
 
     def _dispatch_line(self, line: str) -> None:
         """Dispatch a firmware line to the appropriate handler.

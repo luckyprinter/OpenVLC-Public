@@ -952,3 +952,25 @@ def test_tx_queue_header_uses_compact_label_at_laptop_size(qapp):
     qapp.processEvents()
     assert page.queue_table.horizontalHeaderItem(0).text() == "Filename"
     page.close()
+
+
+def test_ber_mismatch_headers_fit_compact_layout(qapp):
+    page = BERAnalyzerPage()
+    page.resize(680, 500)
+    page.show()
+    qapp.processEvents()
+
+    compact_headers = [
+        page.mismatch_table.horizontalHeaderItem(i).text()
+        for i in range(page.mismatch_table.columnCount())
+    ]
+    assert compact_headers == ["Offset", "Expected", "Received", "Errors"]
+
+    page.resize(1024, 700)
+    qapp.processEvents()
+    full_headers = [
+        page.mismatch_table.horizontalHeaderItem(i).text()
+        for i in range(page.mismatch_table.columnCount())
+    ]
+    assert full_headers == ["Offset", "Expected (Hex)", "Received (Hex)", "Bit Errors"]
+    page.close()

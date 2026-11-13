@@ -68,8 +68,13 @@ def _read_all() -> tuple[list[dict[str, Any]], bool]:
 
 
 def _load_all() -> list[dict[str, Any]]:
-    """Load only user-created experiments; a fresh install starts empty."""
-    records, _corrupt = _read_all()
+    """Load user-created experiments without disguising corruption as an empty store."""
+    records, corrupt = _read_all()
+    if corrupt:
+        source_path = STORE_PATH if STORE_PATH.exists() else LEGACY_STORE_PATH
+        raise ExperimentStoreError(
+            f"Experiment store is unreadable; existing data was left untouched: {source_path}"
+        )
     return records
 
 

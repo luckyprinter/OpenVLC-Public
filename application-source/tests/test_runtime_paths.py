@@ -153,3 +153,30 @@ assert status._STATE_DIR == root / "state"
         timeout=30,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+def test_runtime_status_writes_use_unique_atomic_temporaries(tmp_path, monkeypatch):
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+    from gui_dev_v3.data import status
+
+    monkeypatch.setattr(status, "_STATE_DIR", tmp_path)
+
+    def write(index):
+        status.write_status(
+            "rx",
+            f"Stage {index}",
+            detail=f"writer {index}",
+            percent=index,
+            state="active",
+            writer=index,
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(write, range(32)))
+
+    result = json.loads((tmp_path / "rx_status.json").read_text(encoding="utf-8"))
+    assert result["writer"] in range(32)
+    assert result["stage"] == f"Stage {result['writer']}"
+    assert result["percent"] == result["writer"]
+    assert not list(tmp_path.glob(".*.tmp"))

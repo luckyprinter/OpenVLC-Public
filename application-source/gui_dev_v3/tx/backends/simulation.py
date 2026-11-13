@@ -12,7 +12,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from gui_dev_v3.tx_mock_data import TXFileInfo, TXProgress, TXSettings, TXState
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtNetwork import QUdpSocket, QHostAddress
 

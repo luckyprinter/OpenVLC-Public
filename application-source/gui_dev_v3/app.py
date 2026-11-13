@@ -23,6 +23,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+# Resolve writable per-user storage before importing modules whose
+# module-level paths are derived from VLC_DATA_DIR.
+from gui_dev_v3.runtime_paths import configure_runtime_data_dir
+
+configure_runtime_data_dir()
+
 from gui_dev_v3.app_state import build_default_state
 from gui_dev_v3.rx.shell import RXShell
 from gui_dev_v3.settings_store import AppSettings, RESOLUTION_PRESETS, load_settings, save_settings

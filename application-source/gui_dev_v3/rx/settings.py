@@ -11,6 +11,7 @@ from gui_dev_v3.settings import (
     ComboSetting,
     DirectorySetting,
     SettingsManager,
+    OperatingModeSelector,
     SettingRow,
     SettingsContainer,
     SpinSetting,
@@ -41,12 +42,27 @@ from gui_dev_v3.widgets import Card, muted_label, ModeSelectCard, primary_button
 
 
 class GeneralDisplayPage(QWidget):
-    def __init__(self, mgr: SettingsManager, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        mgr: SettingsManager,
+        parent: QWidget | None = None,
+        state: RXAppState | None = None,
+    ) -> None:
         super().__init__(parent)
         self._mgr = mgr
         lo = QVBoxLayout(self)
         lo.setContentsMargins(0, 0, 0, 0)
         lo.setSpacing(12)
+
+        # Operating mode is shared with the RX application state.
+        mode_card = Card("Operating Mode")
+        self._mode_selector = OperatingModeSelector(mgr, state=state)
+        mode_card.body.addWidget(SettingRow("Active Backend", self._mode_selector))
+        mode_card.body.addWidget(muted_label(
+            "Hardware uses the ESP32 over USB. Simulation uses a localhost UDP "
+            "channel; set the TX console to Simulation too for an end-to-end virtual link."
+        ))
+        lo.addWidget(mode_card)
 
         # 1. Theme Card
         theme_card = Card("Theme")
@@ -563,7 +579,7 @@ def build_rx_settings(state: RXAppState | None = None) -> SettingsContainer:
     from gui_dev_v3.rx.placeholders import AboutPage
     mgr = SettingsManager("rx")
     sections: list[tuple[str, QWidget]] = [
-        ("General & Display", GeneralDisplayPage(mgr)),
+        ("General & Display", GeneralDisplayPage(mgr, state=state)),
         ("Connection & Channel", ConnectionChannelPage(mgr, state)),
         ("Diagnostics & Logs", DiagnosticsLogsPage(mgr, state)),
         ("About", AboutPage()),

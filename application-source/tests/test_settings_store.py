@@ -70,6 +70,20 @@ def test_save_settings_atomically_round_trips(settings_paths: Path) -> None:
     assert list(settings_paths.parent.glob("*.tmp")) == []
 
 
+def test_save_returns_false_when_settings_are_not_json_serializable(
+    settings_paths: Path,
+) -> None:
+    settings_paths.parent.mkdir(parents=True)
+    original = settings_store.AppSettings(theme="charcoal")
+    assert settings_store.save_settings(original) is True
+    original_bytes = settings_paths.read_bytes()
+
+    invalid = settings_store.AppSettings(theme=object())  # type: ignore[arg-type]
+
+    assert settings_store.save_settings(invalid) is False
+    assert settings_paths.read_bytes() == original_bytes
+    assert list(settings_paths.parent.glob("*.tmp")) == []
+
 
 def test_reset_clears_console_and_shared_display_settings(
     settings_paths: Path,
@@ -112,7 +126,6 @@ def test_reset_clears_console_and_shared_display_settings(
     assert settings_store.load_settings() == settings_store.AppSettings()
 
 
-
 @pytest.mark.parametrize("payload", ["{ invalid json", "[]", "null", "42", '"settings"'])
 def test_automatic_save_preserves_malformed_settings_file(
     settings_paths: Path, payload: str
@@ -147,7 +160,6 @@ def test_explicit_recovery_backs_up_corrupt_settings_before_replacing(
     assert len(backups) == 1
     assert backups[0].read_bytes() == original
     assert settings_store.load_settings() == settings_store.AppSettings()
-
 
 
 def test_legacy_settings_are_loaded_and_copied_to_new_config_path_without_deletion(
@@ -197,7 +209,6 @@ def test_corrupt_legacy_settings_are_preserved_until_explicit_recovery(
     assert backups[0].read_bytes() == original
     assert legacy_path.read_bytes() == original
     assert settings_paths.exists()
-
 
 
 def test_reset_does_not_clear_preferences_when_default_settings_cannot_be_saved(
@@ -254,7 +265,6 @@ def test_save_returns_false_when_config_directory_cannot_be_created(
 
     assert settings_store.save_settings(settings_store.AppSettings(theme="charcoal")) is False
     assert blocked_directory.read_text(encoding="utf-8") == "preserve this file"
-
 
 
 def test_reset_reports_qsettings_clear_failure(

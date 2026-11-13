@@ -98,7 +98,7 @@ def _save_all(items: list[dict[str, Any]]) -> None:
             ) as temporary:
                 temporary_path = Path(temporary.name)
                 json.dump(items, temporary, indent=2)
-                temporary.write("\\n")
+                temporary.write("\n")
                 temporary.flush()
                 os.fsync(temporary.fileno())
             os.replace(temporary_path, STORE_PATH)

@@ -69,7 +69,8 @@ def test_open_file_uses_the_received_payload_path(qapp, monkeypatch, tmp_path):
 
     page._on_open_file()
 
-    assert opened == [str(source.resolve())]
+    assert len(opened) == 1
+    assert Path(opened[0]) == source.resolve()
     page.close()
 
 

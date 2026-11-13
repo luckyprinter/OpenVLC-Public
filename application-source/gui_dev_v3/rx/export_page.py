@@ -631,6 +631,14 @@ class ExportPage(QWidget):
             self._populate_table()
             return
 
+        # Older history rows may predate received-path persistence. Refresh
+        # the real payload location when the same transfer is still available.
+        changed = False
+        received_path = getattr(transfer, "received_path", None)
+        if received_path and entry.get("received_path") != received_path:
+            entry["received_path"] = received_path
+            changed = True
+
         # The transfer can enter history before the user selects its reference
         # file. Update the same record when the later Method 2 comparison exists.
         if comparison is not None:
@@ -641,8 +649,11 @@ class ExportPage(QWidget):
             ):
                 entry["ber"] = new_ber
                 entry["ber_method"] = "method2_reference_file"
-                self._save_history()
-                self._populate_table()
+                changed = True
+
+        if changed:
+            self._save_history()
+            self._populate_table()
 
     def _on_selection_changed(self) -> None:
         selected = bool(self.table.selectedItems())

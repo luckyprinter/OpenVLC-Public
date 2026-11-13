@@ -242,9 +242,18 @@ class SerialSession:
         # expires. Do not dispatch that fragment as a complete protocol line:
         # large RX_FILE_HEX messages can span many reads.
         line_buffer = SerialLineBuffer(max_line_bytes=MAX_SERIAL_LINE_BYTES)
-        while self._running and self.serial_obj and self.serial_obj.is_open:
+        while self._running:
+            # Snapshot the handle once per iteration. disconnect() may clear
+            # self.serial_obj from another thread while readline() is waking
+            # from its timeout; repeated attribute reads here could otherwise
+            # race into an AttributeError outside the protected read block.
+            ser = self.serial_obj
+            if ser is None:
+                break
             try:
-                raw = self.serial_obj.readline()
+                if not ser.is_open:
+                    break
+                raw = ser.readline()
                 if raw:
                     previous_overflows = line_buffer.overflow_count
                     for line in line_buffer.feed(raw):
@@ -263,7 +272,7 @@ class SerialSession:
         line_buffer.clear()
 
     def _mark_reader_failed(self, exc: Exception) -> None:
-        """Invalidate and release a TX serial handle after an unexpected read failure."""
+        """Invalidate the serial handle and persist an unexpected disconnect."""
         self._running = False
         with self._write_lock:
             ser = self.serial_obj
@@ -274,8 +283,23 @@ class SerialSession:
                 except Exception:
                     pass
         self.is_connected = False
-        self.log(f"Serial disconnected unexpectedly: {type(exc).__name__}")
-        self.status("Connection Lost", type(exc).__name__, state="error")
+        detail = type(exc).__name__
+        self.log(f"Serial disconnected unexpectedly: {detail}")
+        self.status("Connection Lost", detail, state="error")
+        try:
+            write_status(
+                self.role,
+                {
+                    "role": self.role,
+                    "stage": "Connection Lost",
+                    "detail": detail,
+                    "state": "error",
+                },
+            )
+        except Exception as status_exc:
+            # A status-file failure must not resurrect the serial session or
+            # prevent the reader thread from terminating.
+            self.log(f"Could not persist serial disconnect status: {status_exc}")
 
     # ── Hooks for subclasses ─────────────────────────────────────────────────
 

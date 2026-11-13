@@ -1,5 +1,6 @@
 from gui_dev_v3 import logger
 from gui_dev_v3.models import TransferStatus
+from gui_dev_v3.rx.backends import physical
 from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
 
 
@@ -587,3 +588,32 @@ def test_new_transfer_notice_discards_abandoned_active_batch_group():
     assert backend._active_tid == 502
     assert backend._active_batch_group_id is None
     assert backend._batch_assembler.pending_count == 0
+
+
+def test_atomic_received_file_write_persists_complete_bytes(tmp_path):
+    payload = bytes(range(256)) * 4
+
+    saved = physical._atomic_save_received_file(tmp_path, "capture.bin", payload)
+
+    assert saved == tmp_path / "capture.bin"
+    assert saved.read_bytes() == payload
+    assert not list(tmp_path.glob(".rx-*.tmp"))
+
+
+def test_atomic_received_file_write_failure_leaves_no_partial_destination(
+    tmp_path, monkeypatch
+):
+    def fail_replace(_source, _destination):
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr(physical.os, "replace", fail_replace)
+
+    try:
+        physical._atomic_save_received_file(tmp_path, "capture.bin", b"payload")
+    except OSError as exc:
+        assert "simulated disk failure" in str(exc)
+    else:
+        raise AssertionError("atomic write should report replacement failure")
+
+    assert not (tmp_path / "capture.bin").exists()
+    assert not list(tmp_path.glob(".rx-*.tmp"))

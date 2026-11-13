@@ -38,13 +38,13 @@ def crc16_ccitt(
     return crc
 
 
-def write_status(role: str, payload: dict[str, Any]) -> None:
+def write_status(role: str, payload: dict[str, Any]) -> bool:
     """Write serial status through the application-owned runtime data layer."""
     from gui_dev_v3.data.status import write_status as write_runtime_status
 
     reserved = {"role", "stage", "detail", "state", "updated_at", "percent"}
     extras = {key: value for key, value in payload.items() if key not in reserved}
-    write_runtime_status(
+    return write_runtime_status(
         role,
         str(payload.get("stage", "")),
         str(payload.get("detail", "")),

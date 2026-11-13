@@ -594,23 +594,51 @@ class RXPhysicalBackend:
             })
 
     def _handle_ram_store(self, line: str) -> None:
-        """Parse RX_RAM_STORE and update progress."""
+        """Validate RX_RAM_STORE against the active transfer before updating progress."""
         # Format: RX_RAM_STORE:<tid>:<chunk_index>:<received_count>:<total_chunks>
         now = time.strftime("%H:%M:%S")
         try:
             parts = line.split(":")
-            if len(parts) >= 5:
-                received = int(parts[3])
-                total = int(parts[4])
-                self._active_received_chunks = received
-                pct = int(received * 100 / total) if total > 0 else 0
+            if len(parts) != 5:
+                raise ValueError("RAM store record must contain exactly five fields")
+            tid, chunk_index, received, total = (int(value) for value in parts[1:])
+            if not 1 <= tid <= 0xFFFF:
+                raise ValueError("RAM store TID is outside the firmware range")
+            if self._active_tid is None or tid != self._active_tid:
                 self._log_queue.append({
                     "time": now,
-                    "event": "Chunk Received",
-                    "details": f"chunk {parts[2]}/{total} ({pct}%)"
+                    "event": "Ignored Stale Chunk Progress",
+                    "details": f"TID={tid} does not match active TID={self._active_tid}",
                 })
-        except Exception:
-            self._log_queue.append({"time": now, "event": "RAM Store", "details": line[:80]})
+                return
+            if not 1 <= total <= MAX_STREAM_CHUNKS:
+                raise ValueError("RAM store total chunk count is outside the firmware limit")
+            if total != self._active_total_chunks:
+                raise ValueError("RAM store chunk total does not match the active transfer")
+            if not 0 <= chunk_index < total:
+                raise ValueError("RAM store chunk index is outside its declared range")
+            if not 1 <= received <= total:
+                raise ValueError("RAM store received count is outside its declared range")
+            if received < self._active_received_chunks:
+                self._log_queue.append({
+                    "time": now,
+                    "event": "Ignored Stale Chunk Progress",
+                    "details": f"Received count regressed from {self._active_received_chunks} to {received}",
+                })
+                return
+            self._active_received_chunks = received
+            pct = int(received * 100 / total)
+            self._log_queue.append({
+                "time": now,
+                "event": "Chunk Received",
+                "details": f"chunk {chunk_index}/{total} ({pct}%)"
+            })
+        except (TypeError, ValueError, OverflowError) as exc:
+            self._log_queue.append({
+                "time": now,
+                "event": "RAM Store Error",
+                "details": str(exc)[:120],
+            })
 
     def _handle_file_hex(self, line: str) -> None:
         """Decode and save a completed file from RX_FILE_HEX line.
@@ -654,6 +682,8 @@ class RXPhysicalBackend:
                     "details": f"Ignored stale payload TID={tid}; active TID={self._active_tid}",
                 })
                 return
+            if not 1 <= tid <= 0xFFFF:
+                raise ValueError("RX file TID is outside the firmware range")
             total_size = int(parts[3])
             part_total_chunks = int(parts[4])
             part_crc_expected = int(parts[5], 16)

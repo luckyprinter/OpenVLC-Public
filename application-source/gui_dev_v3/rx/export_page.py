@@ -385,6 +385,7 @@ class ExportPage(QWidget):
 
         # Left Column Widget
         left_widget = QWidget()
+        self._history_pane = left_widget
         left_lo = QVBoxLayout(left_widget)
         left_lo.setContentsMargins(0, 0, 0, 0)
         left_lo.setSpacing(12)
@@ -541,6 +542,7 @@ class ExportPage(QWidget):
             self._database_actions.setDirection(
                 QBoxLayout.Direction.TopToBottom if stack_buttons else QBoxLayout.Direction.LeftToRight
             )
+            self._update_history_minimum_height()
         if compact == self._compact_layout:
             return
         self._compact_layout = compact
@@ -554,7 +556,18 @@ class ExportPage(QWidget):
             12 if compact else 20,
         )
         self.table.setMinimumHeight(112 if compact else 144)
+        self._update_history_minimum_height()
         self.splitter.setSizes([420, 360] if compact else [620, 580])
+
+    def _update_history_minimum_height(self) -> None:
+        """Keep the scroll area from compressing the table into its action row."""
+        body = self.history_card.body
+        body.invalidate()
+        self.history_card.setMinimumHeight(body.minimumSize().height())
+        pane = self._history_pane.layout()
+        pane.invalidate()
+        self._history_pane.setMinimumHeight(pane.minimumSize().height())
+        self._main_layout.invalidate()
 
     def _ghost_btn(self, text: str, icon_name: str) -> QPushButton:
         import qtawesome as qta
@@ -601,6 +614,7 @@ class ExportPage(QWidget):
         self._history_empty_state.setVisible(
             self._history_corrupt or self._history_write_error is not None or not self._history_data
         )
+        self._update_history_minimum_height()
         sorting = self.table.isSortingEnabled()
         self.table.setSortingEnabled(False)
         self.table.setRowCount(len(self._history_data))

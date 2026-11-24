@@ -1,11 +1,9 @@
 name: Verify PyInstaller Spec
 
+# The Build Application workflow already builds and smoke-tests PyInstaller
+# packages on Ubuntu and Windows for every application PR update. Keep this
+# independent Linux-only verifier as an on-demand diagnostic/release check.
 on:
-  pull_request:
-    branches: [main, 'refactor/**', 'redesign/**']
-    paths:
-      - 'application-source/**'
-      - '.github/workflows/verify_pyinstaller_spec.yml'
   workflow_dispatch:
 
 permissions:
@@ -18,6 +16,11 @@ jobs:
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
+
+      - name: Record Checked-Out Source
+        run: |
+          source_sha=$(git rev-parse HEAD)
+          printf 'Checked-out source commit: `%s`\n' "$source_sha" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -47,11 +50,11 @@ jobs:
 
       - name: Run Packaged Application Smoke Test
         working-directory: application-source
+        timeout-minutes: 2
         env:
           QT_DEBUG_PLUGINS: '1'
         run: |
-          xvfb-run ./dist/OpenVLC-v3/OpenVLC-v3 --smoke-test 2> smoke_test_err.log
-          if grep -q "Could not find the Qt platform plugin" smoke_test_err.log; then
+          if ! xvfb-run ./dist/OpenVLC-v3/OpenVLC-v3 --smoke-test 2> smoke_test_err.log; then
             cat smoke_test_err.log
             exit 1
           fi

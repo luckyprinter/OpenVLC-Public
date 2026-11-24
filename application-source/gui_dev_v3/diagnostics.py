@@ -209,7 +209,7 @@ def record_local_event(role: str, event: str, **fields: Any) -> bool:
 def build_diagnostics_controls(mgr: Any, role: str):
     """Build the explicit opt-in and local data controls used by TX and RX."""
     from PySide6.QtWidgets import (
-        QCheckBox, QDialog, QFileDialog, QHBoxLayout, QLabel, QMessageBox,
+        QCheckBox, QDialog, QFileDialog, QGridLayout, QLabel, QMessageBox,
         QPlainTextEdit, QPushButton, QVBoxLayout,
     )
     from gui_dev_v3.widgets import Card, muted_label, primary_button
@@ -238,14 +238,14 @@ def build_diagnostics_controls(mgr: Any, role: str):
 
     consent.toggled.connect(update_consent)
 
-    actions = QHBoxLayout()
+    actions = QGridLayout()
     review = primary_button("Review Local Data")
     export = primary_button("Export Local Data")
     clear = QPushButton("Delete Local Data")
     clear.setObjectName("Danger")
-    actions.addWidget(review)
-    actions.addWidget(export)
-    actions.addWidget(clear)
+    actions.addWidget(review, 0, 0)
+    actions.addWidget(export, 0, 1)
+    actions.addWidget(clear, 1, 0, 1, 2)
     card.body.addLayout(actions)
 
     def require_enabled() -> bool:

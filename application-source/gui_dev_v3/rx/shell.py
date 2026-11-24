@@ -10,8 +10,8 @@ from PySide6.QtWidgets import QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
 
 from gui_dev_v3.connection_status import PulsingDot
 from gui_dev_v3.app_state import POLL_INTERVAL_MS, RXAppState, build_default_state
-from gui_dev_v3.navigation import SIDEBAR_TABS
 from gui_dev_v3.settings import SettingsManager
+from gui_dev_v3.navigation import SIDEBAR_TABS
 from gui_dev_v3.rx.dashboard import RXDashboardPage
 from gui_dev_v3.rx.receive_page import ReceivePage
 from gui_dev_v3.rx.inspect_page import InspectPage
@@ -21,7 +21,13 @@ from gui_dev_v3.rx.settings import build_rx_settings
 from gui_dev_v3.rx.study_data_page import StudyDataPage
 from gui_dev_v3.rx.ber_analyzer_page import BERAnalyzerPage
 from gui_dev_v3.widgets import scrollable
+from gui_dev_v3.version import VERSION
 from gui_dev_v3.theme import COLORS
+from gui_dev_v3.ui_foundation import (
+    SidebarNavigationList,
+    WorkspaceHeader,
+    add_navigation_item,
+)
 
 
 class RXShell(QWidget):
@@ -29,9 +35,13 @@ class RXShell(QWidget):
 
     def __init__(self, state: RXAppState | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.state = state or build_default_state()
         self._settings_mgr = SettingsManager("rx")
-
+        if state is None:
+            saved_mode = str(self._settings_mgr.get("general/mode", "physical") or "physical")
+            mode = saved_mode if saved_mode in {"physical", "simulated"} else "physical"
+            self.state = build_default_state(mode=mode)
+        else:
+            self.state = state
         # Outer vertical layout: content | footer
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -69,10 +79,7 @@ class RXShell(QWidget):
         sidebar_layout.addWidget(subtitle)
 
         # Navigation list
-        self.nav = QListWidget()
-        self.nav.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.nav.setSpacing(2)
-        self.nav.setIconSize(QSize(18, 18))
+        self.nav = SidebarNavigationList("Receiver", self.sidebar)
         self._nav_items: list[tuple[QListWidgetItem, str]] = []
         self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.nav.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -109,7 +116,7 @@ class RXShell(QWidget):
         sidebar_layout.addWidget(conn_card)
 
         # Version footer
-        version = QLabel("v3.0 · PySide6")
+        version = QLabel(f"v{VERSION}")
         self._sidebar_version = version
         version.setObjectName("Muted")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -125,23 +132,9 @@ class RXShell(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        header = QWidget()
-        header.setObjectName("HeaderBar")
-        header.setFixedHeight(52)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(20, 0, 20, 0)
-        header_layout.setSpacing(10)
-
-        self._page_heading = QLabel("Dashboard")
-        self._page_heading.setStyleSheet("font-size: 15px; font-weight: 700; background: transparent;")
-        header_layout.addWidget(self._page_heading)
-        header_layout.addStretch(1)
-
-        workspace_label = QLabel("RECEIVER WORKSPACE")
-        workspace_label.setObjectName("Muted")
-        workspace_label.setStyleSheet("font-size: 10px; font-weight: 700; letter-spacing: 1px; background: transparent;")
-        header_layout.addWidget(workspace_label)
-        main_layout.addWidget(header)
+        self._workspace_header = WorkspaceHeader("RECEIVER WORKSPACE")
+        self._page_heading = self._workspace_header.page_heading
+        main_layout.addWidget(self._workspace_header)
 
         self.pages = QStackedWidget()
         main_layout.addWidget(self.pages, 1)
@@ -156,6 +149,7 @@ class RXShell(QWidget):
         # Build pages
         self._page_widgets: dict[str, QWidget] = {}
         self._build_pages()
+        self.state.subscribe(self._persist_terminal_history)
 
         # Connect navigation
         self.nav.currentRowChanged.connect(self._on_nav_changed)
@@ -217,7 +211,7 @@ class RXShell(QWidget):
         layout.setSpacing(24)
 
         # Mode indicator (left)
-        self._footer_mode = QLabel("Mode: HARDWARE")
+        self._footer_mode = QLabel("Hardware: Disconnected")
         self._footer_mode.setStyleSheet(
             "font-size: 11px; font-weight: 600; background: transparent;"
         )
@@ -247,8 +241,24 @@ class RXShell(QWidget):
         self._footer_time.setText(now.strftime("%H:%M:%S"))
 
     def _update_status_indicators(self) -> None:
-        """Update receiver connection indicators from the physical ESP32 state."""
+        """Update indicators for the selected physical or simulated RX backend."""
         connected = self.state.serial_connected
+        if self.state.mode == "simulated":
+            dot_state = "connected" if connected else "disconnected"
+            status_color = COLORS.get("status_dot_on" if connected else "status_dot_off", COLORS["green"] if connected else COLORS["red"])
+            self._conn_device.setText(
+                "Device: Simulated TX Peer" if connected else "Device: Waiting for TX Simulation"
+            )
+            self._conn_firmware.setText("Firmware: Virtual VLC Channel")
+            status_text = "Simulation Connected" if connected else "Waiting for TX"
+            self._pulse_dot.set_state(dot_state)
+            self._conn_status.setText(status_text)
+            self._conn_status.setStyleSheet(
+                f"font-size: 11px; font-weight: 600; color: {status_color}; background: transparent;"
+            )
+            self._footer_mode.setText("Mode: Simulation")
+            return
+
         if connected:
             dot_state = "connected"
             status_text = "Connected"
@@ -275,14 +285,21 @@ class RXShell(QWidget):
 
         self._pulse_dot.set_state(dot_state)
         self._conn_status.setText(status_text)
-        self._conn_status.setStyleSheet(f"font-size: 11px; font-weight: 600; color: {status_color}; background: transparent;")
-        self._footer_mode.setText("Mode: HARDWARE")
+        self._conn_status.setStyleSheet(
+            f"font-size: 11px; font-weight: 600; color: {status_color}; background: transparent;"
+        )
+        self._footer_mode.setText("Hardware: Connected" if connected else "Hardware: Disconnected")
 
     def _refresh_current_page(self) -> None:
         """Call refresh() on the current page if it supports it."""
         current = self.pages.currentWidget()
+        inner = current.widget() if hasattr(current, "widget") else current
+        study_page = self._page_widgets.get("study_data")
+        if isinstance(study_page, StudyDataPage) and inner is not study_page:
+            # History must consume completed receptions even while another
+            # page is visible. StudyDataPage already refreshes its own Export tab.
+            study_page.export_page.refresh(self.state)
         if current is not None:
-            inner = current.widget() if hasattr(current, "widget") else current
             if hasattr(inner, "refresh"):
                 try:
                     inner.refresh(self.state)
@@ -291,6 +308,11 @@ class RXShell(QWidget):
                         pass
                     else:
                         raise e
+
+    def _persist_terminal_history(self, state: RXAppState) -> None:
+        study_page = self._page_widgets.get("study_data")
+        if state.completed_physical_transfers and isinstance(study_page, StudyDataPage):
+            study_page.export_page.refresh(state)
 
     def _on_poll_timer(self) -> None:
         """Poll state and refresh the active page."""
@@ -324,22 +346,28 @@ class RXShell(QWidget):
         for label, page_key, icon_name in SIDEBAR_TABS:
             # Add icon + text to nav
             try:
-                icon = qta.icon(icon_name)
+                icon = qta.icon(icon_name, color=COLORS["text"])
             except Exception:
-                icon = qta.icon("fa5s.circle")  # Fallback
-            item = QListWidgetItem(icon, label)
-            item.setToolTip(label)
-            self.nav.addItem(item)
+                icon = qta.icon("fa5s.circle", color=COLORS["text"])  # Fallback
+            item = add_navigation_item(self.nav, icon, label)
             self._nav_items.append((item, label))
             page = page_map.get(page_key)
             if page:
-                self._page_widgets[page_key] = page
-                self.pages.addWidget(page)
+                page_container = (
+                    scrollable(page)
+                    if page_key in {"receive", "inspect", "signal", "ber_analyzer"}
+                    else page
+                )
+                self._page_widgets[page_key] = page_container
+                self.pages.addWidget(page_container)
 
         self.nav.blockSignals(False)
 
     def cleanup(self) -> None:
         """Stop poll timer and cleanup app state / backends."""
+        if self.state:
+            self.state.cleanup()
+            self.state.unsubscribe(self._persist_terminal_history)
         if hasattr(self, "_timer") and self._timer:
             self._timer.stop()
         if hasattr(self, "_time_timer") and self._time_timer:
@@ -353,9 +381,6 @@ class RXShell(QWidget):
             inner_page = signal_page.widget() if hasattr(signal_page, "widget") else signal_page
             if hasattr(inner_page, "shutdown"):
                 inner_page.shutdown()
-
-        if self.state:
-            self.state.cleanup()
 
     def _on_nav_changed(self, index: int) -> None:
         if 0 <= index < len(SIDEBAR_TABS):

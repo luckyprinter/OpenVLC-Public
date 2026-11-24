@@ -30,6 +30,8 @@ from PySide6.QtWidgets import (
 from gui_dev_v3.tx_app_state import TXAppState
 from gui_dev_v3.widgets import Card, muted_label, primary_button, secondary_button
 from gui_dev_v3.theme import COLORS
+from gui_dev_v3.ui_foundation import PageIntro
+from gui_dev_v3.version import VERSION
 
 
 class TransmitPage(QWidget):
@@ -37,17 +39,25 @@ class TransmitPage(QWidget):
         super().__init__(parent)
         self.state = state
         self._batch_active = False
-        self._current_queue_index = -1
+        self._stop_after_file = False
+        self._active_queue_item: dict[str, Any] | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 16, 20, 16)
         layout.setSpacing(14)
+        layout.addWidget(PageIntro(
+            "TRANSMITTER  /  JOB MANAGEMENT",
+            "Transmission queue",
+            "Queue files, manage batch transfers, and review completed sessions.",
+            self,
+        ))
 
         # The active queue and its controls form the primary workspace row.
         top_row = QHBoxLayout()
         top_row.setSpacing(14)
 
         queue_card = Card("Transmission Queue")
+        self._queue_card = queue_card
         self.queue_table = QTableWidget(0, 3)
         self.queue_table.setHorizontalHeaderLabels(["Filename", "Size", "Status"])
         self.queue_table.verticalHeader().setDefaultSectionSize(32)
@@ -69,6 +79,7 @@ class TransmitPage(QWidget):
         right_col = QVBoxLayout()
         right_col.setSpacing(14)
         ctrl_card = Card("Queue Controls")
+        self._controls_card = ctrl_card
         self.start_btn = primary_button("Start Batch Transmission")
         self.start_btn.setMinimumHeight(40)
         self.start_btn.clicked.connect(self._on_start_batch)
@@ -79,10 +90,11 @@ class TransmitPage(QWidget):
         ctrl_card.body.addWidget(self.clear_btn)
         right_col.addWidget(ctrl_card)
 
-        config_card = Card("Batch Configuration")
+        config_card = Card("Current Execution Policy")
+        self._config_card = config_card
         config_card.body.addWidget(_detail_row("Batch Mode", "Sequential"))
-        config_card.body.addWidget(_detail_row("Retry Policy", "Max 3 retries"))
-        config_card.body.addWidget(_detail_row("Delay Between Files", "2.0 seconds"))
+        config_card.body.addWidget(_detail_row("Automatic Retries", "Disabled"))
+        config_card.body.addWidget(_detail_row("Next File", "After prior result"))
         right_col.addWidget(config_card)
         right_col.addStretch(1)
         top_row.addLayout(right_col, 4)
@@ -90,6 +102,7 @@ class TransmitPage(QWidget):
 
         # History spans the full workspace width for readable column headings.
         history_card = Card("Session History")
+        self._history_card = history_card
         self.history_table = QTableWidget(0, 4)
         self.history_table.setHorizontalHeaderLabels(["Time", "File", "Throughput", "Outcome"])
         self.history_table.verticalHeader().setDefaultSectionSize(32)
@@ -108,33 +121,56 @@ class TransmitPage(QWidget):
         self.history_table.setSortingEnabled(True)
         history_card.body.addWidget(self.history_table, 1)
         layout.addWidget(history_card, 2)
+        self._compact_layout = False
 
         if self.state:
             self.refresh(self.state)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Prioritize the active queue on short/high-DPI displays."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        # Session history has its own navigation destination. Hiding duplicate
+        # summary panels leaves usable room for queue controls on short displays.
+        self._history_card.setVisible(not compact)
+        self._config_card.setVisible(not compact)
+        self.queue_table.setMinimumHeight(120 if compact else 150)
+        self.queue_table.setHorizontalHeaderLabels(
+            ["File" if compact else "Filename", "Size", "Status"]
+        )
 
     def _on_start_batch(self) -> None:
         if not self.state:
             return
 
-        if not self._batch_active and not self.state.serial_connected:
-            QMessageBox.warning(self, "TX Hardware Disconnected", "Connect the transmitter before starting a batch.")
-            return
-
         if self._batch_active:
-            # Stop the batch
-            self._batch_active = False
-            self._current_queue_index = -1
-            self.start_btn.setText("Start Batch Transmission")
-            self.start_btn.setObjectName("Primary")
-            self.start_btn.style().unpolish(self.start_btn)
-            self.start_btn.style().polish(self.start_btn)
-            
-            # Stop scheduling queued items. An active hardware transfer is not aborted.
+            if self._active_queue_item is None:
+                self._finish_batch()
+            else:
+                self._stop_after_file = True
+                self.start_btn.setText("Finishing Current File")
+                self.start_btn.setEnabled(False)
             return
 
-        # Start the batch
-        # Find if there are queued items
-        queued_items = [i for i, item in enumerate(self.state.transmission_queue) if item["status"] == "Queued"]
+        # A batch requires either a live ESP32 or a connected simulated RX peer.
+        # Keep the stop action available while active.
+        if not self.state.serial_connected:
+            simulated = self.state.mode == "simulated"
+            QMessageBox.information(
+                self,
+                "Simulation Peer Unavailable" if simulated else "Hardware Disconnected",
+                "Start the RX console in Simulation mode first."
+                if simulated else "Connect the transmitter before starting a batch.",
+            )
+            return
+
+        queued_items = [
+            i for i, item in enumerate(self.state.transmission_queue)
+            if item["status"] == "Queued"
+        ]
         if not queued_items:
             QMessageBox.information(
                 self, "Queue Empty", 
@@ -142,13 +178,57 @@ class TransmitPage(QWidget):
             )
             return
 
+        if getattr(self.state, "status_text", "").lower().startswith("transmitting"):
+            return
         self._batch_active = True
-        self._current_queue_index = -1
-        self.start_btn.setText("Stop Batch Transmission")
+        self.start_btn.setText("Stop After Current File")
         self.start_btn.setObjectName("Danger")
         # Force QSS re-polish after objectName change
         self.start_btn.style().unpolish(self.start_btn)
         self.start_btn.style().polish(self.start_btn)
+
+    def _finish_batch(self) -> None:
+        self._batch_active = False
+        self._stop_after_file = False
+        self._active_queue_item = None
+        self.start_btn.setText("Start Batch Transmission")
+        self.start_btn.setObjectName("Primary")
+        self.start_btn.style().unpolish(self.start_btn)
+        self.start_btn.style().polish(self.start_btn)
+
+    def advance_batch(self) -> None:
+        """Process the queue while any workspace is visible."""
+        state = self.state
+        if not self._batch_active or state is None:
+            return
+        status = state.status_text.lower()
+        if self._active_queue_item is not None:
+            if status.startswith(("send complete:", "batch complete:", "complete")):
+                self._active_queue_item["status"] = "Completed"
+            elif not state.serial_connected or status.startswith(("send failed:", "failed", "crc failure:", "abort")):
+                self._active_queue_item["status"] = "Failed"
+            else:
+                self._active_queue_item["status"] = f"Transmitting ({state.progress_percent}%)"
+                return
+            self._active_queue_item = None
+        if self._stop_after_file or not state.serial_connected:
+            self._finish_batch()
+            return
+        item = next((item for item in state.transmission_queue if item["status"] == "Queued"), None)
+        if item is None:
+            self._finish_batch()
+            return
+        if status.startswith("transmitting"):
+            return
+        filepath = item.get("filepath", "")
+        if not filepath or not os.path.isfile(filepath):
+            item["status"] = "Failed (File Missing)"
+            return
+        item["status"] = "Transmitting (0%)"
+        self._active_queue_item = item
+        if state.start_transmission(filepath) is False:
+            item["status"] = "Queued"
+            self._active_queue_item = None
 
     def _on_clear_queue(self) -> None:
         if not self.state:
@@ -162,6 +242,7 @@ class TransmitPage(QWidget):
 
     def refresh(self, state: TXAppState) -> None:
         self.state = state
+        self.advance_batch()
         
         # 1. Update Queue Table
         self.queue_table.blockSignals(True)
@@ -210,54 +291,18 @@ class TransmitPage(QWidget):
         self.history_table.setSortingEnabled(True)
         self.history_table.blockSignals(False)
 
-        queued_items = any(item["status"] == "Queued" for item in state.transmission_queue)
-        self.start_btn.setEnabled(self._batch_active or (state.serial_connected and queued_items))
-
-        # 3. Batch State Machine Processing
-        if self._batch_active:
-            if self._current_queue_index == -1:
-                # Find the next file to transmit
-                next_idx = -1
-                for idx, item in enumerate(state.transmission_queue):
-                    if item["status"] == "Queued":
-                        next_idx = idx
-                        break
-                
-                if next_idx == -1:
-                    # All done!
-                    self._batch_active = False
-                    self.start_btn.setText("Start Batch Transmission")
-                    self.start_btn.setObjectName("Primary")
-                    self.start_btn.style().unpolish(self.start_btn)
-                    self.start_btn.style().polish(self.start_btn)
-                    QMessageBox.information(self, "Batch Complete", "All batch transmission tasks completed successfully!")
-                else:
-                    # Start transmitting this file
-                    self._current_queue_index = next_idx
-                    current_item = state.transmission_queue[next_idx]
-                    current_item["status"] = "Transmitting (0%)"
-                    
-                    filepath = current_item.get("filepath", "")
-                    if filepath and os.path.exists(filepath):
-                        # Trigger state transmission
-                        state.start_transmission(filepath)
-                    else:
-                        current_item["status"] = "Failed (File Missing)"
-                        self._current_queue_index = -1
-            else:
-                # Currently transmitting a file
-                current_item = state.transmission_queue[self._current_queue_index]
-                status_lower = (state.status_text or "").lower()
-                
-                if "complete" in status_lower:
-                    current_item["status"] = "Completed"
-                    self._current_queue_index = -1  # Fetch next on next poll
-                elif "failed" in status_lower or "abort" in status_lower or "offline" in status_lower:
-                    current_item["status"] = "Failed"
-                    self._current_queue_index = -1  # Fetch next on next poll
-                else:
-                    # Update active progress
-                    current_item["status"] = f"Transmitting ({state.progress_percent}%)"
+        has_queued_items = any(
+            item.get("status") == "Queued" for item in state.transmission_queue
+        )
+        sending = getattr(state, "status_text", "").lower().startswith("transmitting")
+        can_start = not self._stop_after_file and (
+            self._batch_active or (state.serial_connected and has_queued_items and not sending)
+        )
+        self.start_btn.setEnabled(can_start)
+        self.start_btn.setToolTip(
+            "Finish the current file and leave remaining files queued" if self._batch_active
+            else "Connect hardware and queue at least one file to start"
+        )
 
 
 class LogsPage(QWidget):
@@ -444,8 +489,7 @@ class AboutPage(QWidget):
 
         card = Card("VLC GUI")
         
-        # Version and Build
-        version_label = QLabel("Version: 1.0.0 | Build: June 2026")
+        version_label = QLabel(f"Version {VERSION}")
         version_label.setObjectName("Muted")
         card.body.addWidget(version_label)
         

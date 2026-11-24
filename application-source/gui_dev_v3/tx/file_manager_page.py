@@ -8,7 +8,7 @@ from typing import Any
 from PySide6.QtCore import Qt, Signal, QFileInfo
 from PySide6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QWidget, QTableWidget, QTableWidgetItem,
-    QHeaderView, QPushButton, QMessageBox, QFileDialog, QLabel
+    QHeaderView, QPushButton, QMessageBox, QFileDialog, QLabel, QBoxLayout, QSizePolicy
 )
 
 from gui_dev_v3.tx_app_state import TXAppState
@@ -29,7 +29,7 @@ def _detail_row(label_text: str, default_val: str) -> tuple[QWidget, QLabel]:
     lo.addWidget(val, alignment=Qt.AlignmentFlag.AlignRight)
     return w, val
 
-# Estimate transfer duration from the configured symbol rate and protocol overhead
+# Define the symbol rate and protocol overhead matching TX Simulation Model
 SYMBOL_RATE = 15000.0  # sym/s
 PROTOCOL_OVERHEAD = 1.25  # 4B5B overhead
 PACKET_SIZE = 256  # bytes per packet
@@ -69,9 +69,11 @@ class FileManagerPage(QWidget):
         self.state = state
         self._files = [] # list of dicts: filepath, name, ext, size, crc, est_time
         
-        layout = QHBoxLayout(self)
+        layout = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
+        self._main_layout = layout
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(16)
+        self._compact_layout = False
 
         # Left Column - Directory Browser (Table)
         left_col = QVBoxLayout()
@@ -79,8 +81,23 @@ class FileManagerPage(QWidget):
         
         self.file_table = DragDropTable(0, 5)
         self.file_table.setHorizontalHeaderLabels(["Filename", "Type", "Size", "CRC-16", "Est. Time"])
-        self.file_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for i in range(1, 5):
+        header = self.file_table.horizontalHeader()
+        # Give the long first label a stable width; let the final column absorb
+        # spare space so the heading never gets clipped on a compact laptop.
+        header.setMinimumSectionSize(56)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.resizeSection(0, 120)
+        for column in range(1, 4):
+            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        for column in range(self.file_table.columnCount()):
+            item = self.file_table.horizontalHeaderItem(column)
+            if item is not None:
+                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.file_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.file_table.setMinimumWidth(0)
+        self.file_table.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        for i in range(1, 4):
             self.file_table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
         self.file_table.verticalHeader().setDefaultSectionSize(32)
         self.file_table.verticalHeader().setVisible(False)
@@ -143,6 +160,20 @@ class FileManagerPage(QWidget):
         
         layout.addLayout(right_col, 4)
 
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        """Stack file details below the directory table on compact workspaces."""
+        super().resizeEvent(event)
+        compact = self.width() < 900 or self.height() < 620
+        if compact == self._compact_layout:
+            return
+        self._compact_layout = compact
+        self._main_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom
+            if compact else QBoxLayout.Direction.LeftToRight
+        )
+        self._main_layout.setStretch(0, 3 if compact else 6)
+        self._main_layout.setStretch(1, 2 if compact else 4)
+
     def _format_size(self, size_bytes: int) -> str:
         if size_bytes < 1024:
             return f"{size_bytes} B"
@@ -171,13 +202,19 @@ class FileManagerPage(QWidget):
             return f"{hours} hr {mins} min"
 
     def _compute_crc16(self, filepath: str) -> str:
+        """Calculate CRC-16/CCITT incrementally without loading the whole file."""
         try:
-            with open(filepath, "rb") as f:
-                data = f.read()
-                # CRC-CCITT
-                crc = binascii.crc_hqx(data, 0xFFFF)
-                return f"0x{crc:04X}"
-        except Exception:
+            crc = 0xFFFF
+            with open(filepath, "rb") as file_stream:
+                while True:
+                    block = file_stream.read(64 * 1024)
+                    if not block:
+                        break
+                    # binascii.crc_hqx accepts the previous CRC as its seed,
+                    # so processing blocks gives the same result as one read.
+                    crc = binascii.crc_hqx(block, crc)
+            return f"0x{crc:04X}"
+        except OSError:
             return "ERROR"
 
     def _on_browse_clicked(self) -> None:

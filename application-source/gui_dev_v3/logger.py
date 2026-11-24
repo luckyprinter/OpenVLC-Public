@@ -6,9 +6,10 @@ import traceback
 from logging.handlers import RotatingFileHandler
 
 def get_base_dir() -> str:
-    if getattr(sys, 'frozen', False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    """Return a writable per-user location for logs in source and packaged builds."""
+    from gui_dev_v3.runtime_paths import configure_runtime_data_dir
+
+    return str(configure_runtime_data_dir())
 
 
 _active_role: str = "app"   # updated by reinit_logger()

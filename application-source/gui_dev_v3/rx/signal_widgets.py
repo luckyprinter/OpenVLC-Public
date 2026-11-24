@@ -317,26 +317,24 @@ class CircularGauge(QWidget):
 
 
 class SignalWaveform(QWidget):
-    """Real-time scrolling signal waveform viewer with three traces.
+    """Scrolling trend of measured PVo, Vref, and margin telemetry.
 
-    Uses pyqtgraph PlotWidget for smooth, GPU-accelerated rendering.
-    Displays PVo (green), Vref (blue), and Margin (amber) traces over a
-    configurable scrolling time window.
+    This plots the actual values reported by the receiver's low-rate status
+    telemetry. It is not an oscilloscope trace or a decoded OOK bit waveform.
     """
 
-    MAX_SAMPLES = 600  # at 100 ms / sample → 60 s
+    MAX_SAMPLES = 600  # bounded trend history; default sampling is one second
     refresh_rate_changed = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._paused = False
         self._time_window = 10.0  # 10 s default to match image
-        self._dt = 0.1  # default 100 ms interval
+        self._dt = 1.0  # receiver status telemetry refreshes once per second
         self._buffer: list[tuple[float, float, float]] = []
         self._times: list[float] = []
         self._playback_mode = False
         self._updating_range = False
-        self._target_margin = 0.365
 
         self._init_ui()
         self._init_plot()
@@ -352,7 +350,7 @@ class SignalWaveform(QWidget):
         top_row = QHBoxLayout()
         top_row.setContentsMargins(8, 4, 8, 4)
 
-        header = QLabel("SIGNAL WAVEFORMS (LIVE)")
+        header = QLabel("PVo / Vref TELEMETRY TREND")
         header.setStyleSheet(f"color: {_CLR_GREEN}; font-weight: bold; "
                              f"font-size: 12px; background: transparent;")
         top_row.addWidget(header)
@@ -442,12 +440,12 @@ class SignalWaveform(QWidget):
 
         side_panel.addSpacing(4)
 
-        refresh_lbl = QLabel("Refresh Rate")
+        refresh_lbl = QLabel("Sample Interval")
         refresh_lbl.setStyleSheet(lbl_style)
         side_panel.addWidget(refresh_lbl)
 
         self._refresh_combo = QComboBox()
-        self._refresh_combo.addItems(["100 ms", "200 ms", "500 ms"])
+        self._refresh_combo.addItems(["1 s", "2 s", "5 s"])
         self._refresh_combo.setCurrentIndex(0)
         self._refresh_combo.setStyleSheet(combo_style)
         self._refresh_combo.currentTextChanged.connect(self._on_refresh_combo_changed)
@@ -507,28 +505,6 @@ class SignalWaveform(QWidget):
         plot.setYRange(0, 3.5)
         plot.setXRange(0, self._time_window)
 
-        # Target Margin dashed line
-        self._target_line = pg.InfiniteLine(
-            pos=self._target_margin,
-            angle=0,
-            pen=QPen(QColor(_CLR_MARGIN), 1, Qt.DashLine),
-            label=f"Target {self._target_margin:.3f}V",
-            labelOpts={"color": _CLR_MARGIN, "movable": False},
-        )
-        plot.addItem(self._target_line)
-
-        # Safe Margin Zone (0.35 - 0.45 V)
-        zone_brush = QColor(_CLR_GREEN)
-        zone_brush.setAlpha(20)
-        self._safe_zone = pg.LinearRegionItem(
-            values=(0.35, 0.45),
-            orientation="horizontal",
-            brush=zone_brush,
-            pen=QPen(QColor(_CLR_GREEN), 0),
-            movable=False,
-        )
-        plot.addItem(self._safe_zone)
-
         # Trace curves (initially empty)
         self._pvo_curve = plot.plot(
             pen=QPen(QColor(_CLR_PVO), 2.5),
@@ -552,20 +528,12 @@ class SignalWaveform(QWidget):
 
         # Empty state text (hidden once data arrives)
         self._empty_text = pg.TextItem(
-            "No signal",
+            "No telemetry data",
             color=QColor(_CLR_MUTED),
             anchor=(0.5, 0.5),
         )
         self._empty_text.setPos(self._time_window / 2, 1.75)
         plot.addItem(self._empty_text)
-
-        # Dashed baseline for empty state
-        self._empty_line = pg.InfiniteLine(
-            pos=1.75,
-            angle=0,
-            pen=QPen(QColor(_CLR_BORDER), 1, Qt.DashLine),
-        )
-        plot.addItem(self._empty_line)
 
         # Connect user range changes to auto-disable follow live
         plot.getViewBox().sigRangeChanged.connect(self._on_range_changed)
@@ -584,9 +552,9 @@ class SignalWaveform(QWidget):
         else:
             self._times.append(len(self._buffer) * self._dt)
             
-        if len(self._buffer) > 10000:
-            self._buffer = self._buffer[-10000:]
-            self._times = self._times[-10000:]
+        if len(self._buffer) > self.MAX_SAMPLES:
+            del self._buffer[:-self.MAX_SAMPLES]
+            del self._times[:-self.MAX_SAMPLES]
             
         self._redraw()
 
@@ -604,11 +572,15 @@ class SignalWaveform(QWidget):
         self._pvo_curve.setData([], [])
         self._vref_curve.setData([], [])
         self._margin_curve.setData([], [])
+        self._updating_range = True
+        self._plot_widget.setXRange(0, self._time_window, padding=0)
+        self._updating_range = False
         self._update_empty_state()
 
     def set_time_window(self, seconds: float) -> None:
         """Change the visible time window in seconds."""
         self._time_window = float(seconds)
+        self._empty_text.setPos(self._time_window / 2, 1.75)
         if self._times:
             t_latest = self._times[-1]
             if self._follow_cb.isChecked():
@@ -675,9 +647,9 @@ class SignalWaveform(QWidget):
         self.set_time_window(seconds)
 
     def _on_refresh_combo_changed(self, text: str) -> None:
-        ms = int(text.replace(" ms", ""))
-        self._dt = ms / 1000.0
-        self.refresh_rate_changed.emit(ms)
+        seconds = float(text.replace(" s", ""))
+        self._dt = seconds
+        self.refresh_rate_changed.emit(int(seconds * 1000))
 
     def _on_trace_toggle(self) -> None:
         self._pvo_curve.setVisible(self._pvo_cb.isChecked())
@@ -712,9 +684,6 @@ class SignalWaveform(QWidget):
     def _update_empty_state(self) -> None:
         has_data = len(self._buffer) > 0
         self._empty_text.setVisible(not has_data)
-        self._empty_line.setVisible(not has_data)
-        self._target_line.setVisible(has_data)
-        self._safe_zone.setVisible(has_data)
 
 
 # ---------------------------------------------------------------------------
@@ -1199,500 +1168,5 @@ class MarginScaleBar(QWidget):
                 bar_x + 12, y, max(0, bar_w - 12), 12,
                 Qt.AlignLeft | Qt.AlignVCenter, label,
             )
-
-        p.end()
-
-
-# ---------------------------------------------------------------------------
-# 6. OOKWaveformWidget — Logic-Analyzer-style digital square wave
-# ---------------------------------------------------------------------------
-
-# 4B5B encoding table: maps 4-bit nibble (0-15) → 5-bit code
-_4B5B_TABLE: dict[int, tuple[int, ...]] = {
-    0x0: (1, 1, 1, 1, 0),
-    0x1: (0, 1, 0, 0, 1),
-    0x2: (1, 0, 1, 0, 0),
-    0x3: (1, 0, 1, 0, 1),
-    0x4: (0, 1, 0, 1, 0),
-    0x5: (0, 1, 0, 1, 1),
-    0x6: (0, 1, 1, 1, 0),
-    0x7: (0, 1, 1, 1, 1),
-    0x8: (1, 0, 0, 1, 0),
-    0x9: (1, 0, 0, 1, 1),
-    0xA: (1, 0, 1, 1, 0),
-    0xB: (1, 0, 1, 1, 1),
-    0xC: (1, 1, 0, 1, 0),
-    0xD: (1, 1, 0, 1, 1),
-    0xE: (1, 1, 1, 0, 0),
-    0xF: (1, 1, 1, 0, 1),
-}
-
-
-def _encode_4b5b(data: bytes | None, max_bits: int = 600) -> list[int]:
-    """Encode up to max_bits bits from data bytes using 4B5B.
-
-    Returns a flat list of 0/1 bits (NRZ/OOK — 1=LED ON, 0=LED OFF).
-    Includes a synthetic preamble of alternating 10101010 before the payload.
-    """
-    bits: list[int] = []
-    # Preamble: 16-bit alternating pattern (sync marker)
-    preamble = [1, 0] * 8
-    bits.extend(preamble)
-    if data:
-        for byte_val in data:
-            hi_nibble = (byte_val >> 4) & 0xF
-            lo_nibble = byte_val & 0xF
-            bits.extend(_4B5B_TABLE[hi_nibble])
-            bits.extend(_4B5B_TABLE[lo_nibble])
-            if len(bits) >= max_bits:
-                break
-    # Pad with idle HIGH if short
-    while len(bits) < 64:
-        bits.append(1)
-    return bits[:max_bits]
-
-
-class OOKWaveformWidget(QWidget):
-    """Logic-analyzer-style digital square wave for OOK (On-Off Keying) data.
-
-    Displays the decoded bit stream as a crisp HIGH/LOW square wave:
-      - HIGH (1) = LED ON  (light flash)
-      - LOW  (0) = LED OFF (no light)
-
-    Label: "RX DATA · OOK"
-    Color: cyan (#00E5FF) with subtle glow shadow.
-    Symbol width: 3 px per bit, scrolling left.
-    Buffer: ring buffer of MAX_SYMBOLS bits.
-
-    Data source:
-      - Physical receiver comparator decisions (PVo > Vref → 1, else 0),
-        or recorded bits loaded from a completed hardware capture.
-    """
-
-    MAX_SYMBOLS = 600
-    SYM_PX = 3          # pixels per symbol
-    _CLR_OOK = "#00E5FF"
-    _CLR_OOK_GLOW = "#007A99"
-    _CLR_BG_W = "#08111D"
-    _CLR_PANEL_W = "#0F1B2D"
-    _CLR_BORDER_W = "#1A3152"
-    _CLR_MUTED_W = "#708090"
-    _CLR_HIGH = "#22c55e"   # "1" label color
-    _CLR_LOW = "#ef4444"    # "0" label color
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._bits: deque[int] = deque(maxlen=self.MAX_SYMBOLS)
-        self._paused = False
-        self._has_data = False
-        self._playback_mode = False
-        
-        self._zoom = 3.0  # Pixels per symbol
-        self._auto_scroll = True
-        self._scroll_offset = 0  # Number of symbols offset from the right (newest)
-
-        self.setMinimumHeight(90)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setFocusPolicy(Qt.StrongFocus)
-
-        self._build_ui()
-
-    # ── ui ───────────────────────────────────────────────────────────────
-
-    def _build_ui(self) -> None:
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-
-        # Top control bar
-        bar = QHBoxLayout()
-        bar.setContentsMargins(8, 4, 8, 2)
-        bar.setSpacing(8)
-
-        header = QLabel("RX DATA · OOK")
-        header.setStyleSheet(
-            f"color: {self._CLR_OOK}; font-size: 11px; font-weight: 700; "
-            f"background: transparent; letter-spacing: 0.5px;"
-        )
-        bar.addWidget(header)
-
-        bar.addStretch()
-
-        btn_style = (
-            f"QPushButton {{ background: {self._CLR_PANEL_W}; color: #d1d5db; "
-            f"border: 1px solid {self._CLR_BORDER_W}; border-radius: 4px; "
-            f"padding: 3px 8px; font-size: 9px; }}"
-            f"QPushButton:hover {{ border-color: {self._CLR_OOK}; color: {self._CLR_OOK}; }}"
-        )
-
-        self._auto_scroll_cb = QCheckBox("Auto-scroll")
-        self._auto_scroll_cb.setChecked(True)
-        self._auto_scroll_cb.setStyleSheet(
-            f"QCheckBox {{ color: {self._CLR_MUTED_W}; font-size: 9px; background: transparent; }}"
-        )
-        self._auto_scroll_cb.toggled.connect(self._on_auto_scroll_toggled)
-        bar.addWidget(self._auto_scroll_cb)
-
-        self._zoom_fit_btn = QPushButton("Zoom Fit")
-        self._zoom_fit_btn.setStyleSheet(btn_style)
-        self._zoom_fit_btn.setFixedHeight(22)
-        self._zoom_fit_btn.clicked.connect(self._on_zoom_fit)
-        bar.addWidget(self._zoom_fit_btn)
-
-        self._pause_btn = QPushButton("Pause")
-        self._pause_btn.setStyleSheet(btn_style)
-        self._pause_btn.setFixedHeight(22)
-        self._pause_btn.clicked.connect(self._toggle_pause)
-        bar.addWidget(self._pause_btn)
-
-        self._clear_btn = QPushButton("Clear")
-        self._clear_btn.setStyleSheet(btn_style)
-        self._clear_btn.setFixedHeight(22)
-        self._clear_btn.clicked.connect(self.clear)
-        bar.addWidget(self._clear_btn)
-
-        lay.addLayout(bar)
-
-        lay.addStretch(1)
-
-    # ── public api ────────────────────────────────────────────────────────
-
-    def push_bit(self, bit: int) -> None:
-        """Push a single bit (0 or 1) and redraw."""
-        if self._paused or self._playback_mode:
-            return
-        self._bits.append(1 if bit else 0)
-        self._has_data = True
-        if not self._auto_scroll:
-            self._scroll_offset += 1
-        self.update()
-
-    def push_bits(self, bits: list[int]) -> None:
-        """Push a list of bits (bulk update from 4B5B encoder)."""
-        if self._paused or self._playback_mode:
-            return
-        if bits:
-            for b in bits:
-                self._bits.append(1 if b else 0)
-            self._has_data = True
-            if not self._auto_scroll:
-                self._scroll_offset += len(bits)
-            self.update()
-
-    def set_from_pvo_vref(self, pvo: float, vref: float) -> None:
-        """Push a single bit derived from comparator decision PVo vs Vref."""
-        if self._playback_mode:
-            return
-        bit = 1 if pvo > vref else 0
-        self.push_bit(bit)
-
-    def set_from_4b5b(self, data: bytes | None, seed_offset: int = 0) -> None:
-        """Replace buffer with 4B5B-encoded bits from data.
-
-        seed_offset shifts which part of the encoded stream is displayed,
-        allowing the waveform to scroll as chunk index advances.
-        """
-        if self._paused or self._playback_mode:
-            return
-        bits = _encode_4b5b(data)
-        # Advance the ring-buffer view to keep the waveform scrolling
-        if seed_offset > 0 and bits:
-            n = len(bits)
-            offset = seed_offset % n
-            bits = bits[offset:] + bits[:offset]
-            
-        old_len = len(self._bits)
-        self._bits.clear()
-        for b in bits:
-            self._bits.append(b)
-            
-        self._has_data = bool(bits)
-        self.update()
-
-    def clear(self) -> None:
-        """Clear all buffered bits."""
-        self._bits.clear()
-        self._has_data = False
-        self._scroll_offset = 0
-        self.update()
-
-    def set_playback_mode(self, enabled: bool, bits: list[int] | None = None) -> None:
-        self._playback_mode = enabled
-        self._auto_scroll_cb.setEnabled(not enabled)
-        self._zoom_fit_btn.setEnabled(True)
-        self._pause_btn.setEnabled(not enabled)
-        self._clear_btn.setEnabled(not enabled)
-
-        if enabled:
-            self._bits.clear()
-            if bits:
-                for b in bits:
-                    self._bits.append(b)
-            self._has_data = bool(bits)
-            self._auto_scroll = False
-            self._auto_scroll_cb.setChecked(False)
-            self._on_zoom_fit()
-        else:
-            self.clear()
-            self._auto_scroll = True
-            self._auto_scroll_cb.setChecked(True)
-
-    # ── interactivity ────────────────────────────────────────────────────
-
-    def wheelEvent(self, event) -> None:
-        """Handle mouse wheel for X-axis zooming."""
-        delta = event.angleDelta().y()
-        if delta > 0:
-            self._zoom *= 1.2
-        elif delta < 0:
-            self._zoom /= 1.2
-            
-        self._zoom = max(0.1, min(self._zoom, 50.0))
-        
-        # If zoom out pushes view past available data, snap to edge
-        max_offset = max(0, len(self._bits) - 1)
-        self._scroll_offset = min(self._scroll_offset, max_offset)
-            
-        self.update()
-        event.accept()
-
-    def mousePressEvent(self, event) -> None:
-        """Start dragging."""
-        if event.button() == Qt.LeftButton:
-            self._is_dragging = True
-            self._last_mouse_x = event.pos().x()
-            self.setCursor(Qt.ClosedHandCursor)
-            event.accept()
-
-    def mouseMoveEvent(self, event) -> None:
-        """Handle dragging to pan."""
-        if getattr(self, "_is_dragging", False):
-            dx = event.pos().x() - self._last_mouse_x
-            
-            # Convert pixel delta to symbol delta based on zoom
-            if abs(dx) >= self._zoom:
-                symbols_shifted = int(dx / self._zoom)
-                
-                # Dragging right (dx > 0) means looking at older data (increasing offset)
-                # Dragging left (dx < 0) means looking at newer data (decreasing offset)
-                self._scroll_offset += symbols_shifted
-                
-                # Constrain offset
-                max_offset = max(0, len(self._bits) - 1)
-                self._scroll_offset = max(0, min(self._scroll_offset, max_offset))
-                
-                # If the user drags away from 0, disable auto-scroll and pause
-                if self._scroll_offset > 0:
-                    self._auto_scroll_cb.setChecked(False)
-                    self._auto_scroll = False
-                    if not self._paused:
-                        self._paused = True
-                        self._pause_btn.setText("Resume")
-                elif self._scroll_offset == 0:
-                    self._auto_scroll_cb.setChecked(True)
-                    self._auto_scroll = True
-                
-                self._last_mouse_x += symbols_shifted * self._zoom
-                self.update()
-            event.accept()
-
-    def mouseReleaseEvent(self, event) -> None:
-        """End dragging."""
-        if event.button() == Qt.LeftButton:
-            self._is_dragging = False
-            self.setCursor(Qt.ArrowCursor)
-            event.accept()
-
-    def keyPressEvent(self, event) -> None:
-        """Handle keyboard shortcuts."""
-        if event.key() == Qt.Key_Space:
-            self._toggle_pause()
-            event.accept()
-        else:
-            super().keyPressEvent(event)
-
-    def _on_zoom_fit(self) -> None:
-        """Adjust zoom to fit all data."""
-        if not self._bits:
-            return
-        draw_w = self.width() - 32
-        self._zoom = max(0.1, draw_w / len(self._bits))
-        self._scroll_offset = 0
-        self._auto_scroll_cb.setChecked(True)
-        self.update()
-
-    def _on_auto_scroll_toggled(self, checked: bool) -> None:
-        self._auto_scroll = checked
-        if checked:
-            self._scroll_offset = 0
-            if self._paused:
-                self._paused = False
-                self._pause_btn.setText("Pause")
-        self.update()
-
-    # ── internal ─────────────────────────────────────────────────────────
-
-    def _toggle_pause(self) -> None:
-        self._paused = not self._paused
-        self._pause_btn.setText("Resume" if self._paused else "Pause")
-        if not self._paused:
-            self._scroll_offset = 0
-            self._auto_scroll = True
-            self._auto_scroll_cb.setChecked(True)
-
-    # ── paint ─────────────────────────────────────────────────────────────
-
-    def paintEvent(self, event) -> None:  # noqa: N802
-        """Render the OOK square wave onto the canvas area."""
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing, False)  # sharp edges for digital
-        p.setRenderHint(QPainter.TextAntialiasing, True)
-
-        w, h = self.width(), self.height()
-
-        # Full widget background
-        p.fillRect(0, 0, w, h, QColor(self._CLR_BG_W))
-
-        # Canvas area below the control bar (estimate 30px for bar)
-        bar_h = 30
-        canvas_y = bar_h
-        canvas_h = h - bar_h
-
-        if canvas_h < 10:
-            p.end()
-            return
-
-        # Panel background with border
-        p.setPen(QPen(QColor(self._CLR_BORDER_W), 1))
-        p.setBrush(QColor(self._CLR_PANEL_W))
-        p.drawRoundedRect(4, canvas_y, w - 8, canvas_h - 4, 6, 6)
-
-        if not self._has_data or not self._bits:
-            # Empty state
-            p.setPen(QColor(self._CLR_MUTED_W))
-            p.setFont(_font(9, QFont.Normal))
-            p.drawText(4, canvas_y, w - 8, canvas_h - 4, Qt.AlignCenter,
-                       "No signal data — waiting for OOK transmission")
-            p.end()
-            return
-
-        # Layout within canvas
-        pad_x = 12
-        pad_y = 10
-        draw_w = w - 2 * pad_x - 8   # total waveform draw width
-        draw_h = canvas_h - 2 * pad_y - 8
-
-        if draw_w < 20 or draw_h < 20:
-            p.end()
-            return
-
-        # ── Y positions for HIGH and LOW ──────────────────────────────────
-        high_y = canvas_y + pad_y + 4
-        low_y = canvas_y + pad_y + draw_h - 4
-        mid_y = (high_y + low_y) // 2
-
-        # ── Draw Y-axis labels ────────────────────────────────────────────
-        lbl_font = _font(8, QFont.Medium)
-        p.setFont(lbl_font)
-
-        p.setPen(QColor(self._CLR_HIGH))
-        p.drawText(pad_x - 4, high_y - 6, 8, 12, Qt.AlignCenter, "1")
-        p.setPen(QColor(self._CLR_LOW))
-        p.drawText(pad_x - 4, low_y - 6, 8, 12, Qt.AlignCenter, "0")
-
-        # ── Draw grid lines ───────────────────────────────────────────────
-        p.setPen(QPen(QColor(self._CLR_BORDER_W), 1, Qt.DashLine))
-        p.drawLine(pad_x + 8, high_y, w - pad_x - 4, high_y)
-        p.drawLine(pad_x + 8, low_y, w - pad_x - 4, low_y)
-        # Mid dashed centre line
-        p.setPen(QPen(QColor(self._CLR_BORDER_W), 1, Qt.DotLine))
-        p.drawLine(pad_x + 8, mid_y, w - pad_x - 4, mid_y)
-
-        # ── Determine how many symbols fit in draw_w ──────────────────────
-        sym_px = self._zoom
-        n_visible = max(1, int(draw_w / sym_px))
-
-        bits_list = list(self._bits)
-        n_total = len(bits_list)
-        
-        # Calculate start index based on scroll_offset
-        # offset 0 means we see the newest bits at the right
-        end_idx = n_total - self._scroll_offset
-        start_idx = max(0, end_idx - n_visible)
-        
-        if end_idx <= 0 or start_idx >= n_total:
-            bits_view = []
-        else:
-            bits_view = bits_list[start_idx:end_idx]
-
-        if not bits_view:
-            p.end()
-            return
-
-        n = len(bits_view)
-
-        # Start drawing from the right edge, filling leftward
-        start_x = pad_x + 8 + draw_w - n * sym_px
-
-        # ── Draw faint vertical separators ────────────────────────────────
-        if sym_px >= 3:
-            sep_pen = QPen(QColor(255, 255, 255, 12), 1)  # Very faint white
-            p.setPen(sep_pen)
-            x_sep = start_x
-            for _ in range(n + 1):
-                p.drawLine(int(x_sep), high_y, int(x_sep), low_y)
-                x_sep += sym_px
-
-        # ── Draw glow shadow (thicker, darker cyan, offset 1px) ───────────
-        glow_pen = QPen(QColor(self._CLR_OOK_GLOW), min(sym_px, 3) + 2)
-        glow_pen.setCapStyle(Qt.FlatCap)
-        glow_pen.setJoinStyle(Qt.MiterJoin)
-
-        p.setPen(glow_pen)
-        p.setBrush(Qt.NoBrush)
-
-        # Build path for glow
-        glow_path = QPainterPath()
-        prev_y = high_y if bits_view[0] else low_y
-        glow_path.moveTo(start_x, prev_y)
-        x = start_x
-        for i, bit in enumerate(bits_view):
-            cur_y = high_y if bit else low_y
-            if cur_y != prev_y:
-                # Vertical edge (transition)
-                glow_path.lineTo(x, cur_y)
-            glow_path.lineTo(x + sym_px, cur_y)
-            x += sym_px
-            prev_y = cur_y
-
-        p.drawPath(glow_path)
-
-        # ── Draw main OOK trace (sharp, 2px cyan) ─────────────────────────
-        main_pen = QPen(QColor(self._CLR_OOK), min(sym_px, 2))
-        main_pen.setCapStyle(Qt.FlatCap)
-        main_pen.setJoinStyle(Qt.MiterJoin)
-
-        p.setPen(main_pen)
-
-        main_path = QPainterPath()
-        prev_y = high_y if bits_view[0] else low_y
-        main_path.moveTo(start_x, prev_y)
-        x = start_x
-        for i, bit in enumerate(bits_view):
-            cur_y = high_y if bit else low_y
-            if cur_y != prev_y:
-                main_path.lineTo(x, cur_y)
-            main_path.lineTo(x + sym_px, cur_y)
-            x += sym_px
-            prev_y = cur_y
-
-        p.drawPath(main_path)
-
-        # ── Paused overlay ─────────────────────────────────────────────────
-        if self._paused:
-            p.setPen(QColor(self._CLR_OOK))
-            p.setFont(_font(9, QFont.Bold))
-            p.drawText(w - 70, canvas_y + 8, 60, 14, Qt.AlignRight,
-                       "⏸ PAUSED")
 
         p.end()

@@ -7,6 +7,7 @@ Both share theme, widgets, and data layers for future merging.
 from __future__ import annotations
 
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -23,23 +24,38 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gui_dev_v3.app_state import build_default_state
+# Resolve writable per-user storage before importing modules whose
+# module-level paths are derived from VLC_DATA_DIR.
+from gui_dev_v3.runtime_paths import configure_runtime_data_dir
+
+configure_runtime_data_dir()
+
+from gui_dev_v3.app_state import RXShutdownPending, build_default_state
 from gui_dev_v3.rx.shell import RXShell
-from gui_dev_v3.settings_store import AppSettings, RESOLUTION_PRESETS, load_settings, save_settings
+from gui_dev_v3.settings_store import AppSettings, RESOLUTION_PRESETS, load_settings, update_settings
 from gui_dev_v3.theme import APP_QSS, apply_theme, build_qss, THEME_PRESETS, COLORS
 from gui_dev_v3.tx.shell import TXShell
 from gui_dev_v3.tx_app_state import build_default_tx_state
+from gui_dev_v3.version import VERSION
 
 
 # ── Core Infrastructure ───────────────────────────────────────────────────
 
 
-def load_bundled_fonts() -> None:
-    """Load all TTF files in the assets/fonts directory into QFontDatabase."""
+_BUNDLED_FONT_FAMILIES = {"Inter", "Fira Code", "JetBrains Mono", "Plus Jakarta Sans", "Space Mono"}
+
+
+def load_bundled_fonts() -> set[str]:
+    """Register the bundled TTF files and return their Qt font families."""
     font_dir = Path(__file__).parent / "assets" / "fonts"
-    if font_dir.exists():
-        for font_file in font_dir.glob("*.ttf"):
-            QFontDatabase.addApplicationFont(str(font_file))
+    families = set()
+    for font_file in sorted(font_dir.glob("*.ttf")):
+        font_id = QFontDatabase.addApplicationFont(str(font_file))
+        if font_id == -1:
+            logging.getLogger(__name__).warning("Could not load bundled font %s", font_file)
+            continue
+        families.update(QFontDatabase.applicationFontFamilies(font_id))
+    return families
 
 
 # ── Design Loader ──────────────────────────────────────────────────────
@@ -65,6 +81,19 @@ def apply_design_tokens(tokens: dict) -> None:
     _apply(tokens)
 
 
+def _minimum_window_dimensions(available_width: int, available_height: int) -> tuple[int, int]:
+    """Choose a compact minimum logical size while leaving room for OS chrome.
+
+    The minimum must not grow with a large monitor: doing so prevents users
+    from resizing the workspace down to the compact layouts that the UI
+    explicitly supports. On small displays, cap the minimum to the available
+    work area minus a modest margin.
+    """
+    min_width = max(360, min(640, int(available_width) - 32))
+    min_height = max(320, min(480, int(available_height) - 48))
+    return min_width, min_height
+
+
 class _BaseWindow(QMainWindow):
     """Shared base window for both RX and TX apps."""
 
@@ -72,22 +101,22 @@ class _BaseWindow(QMainWindow):
 
     def __init__(self, title: str) -> None:
         super().__init__()
-        try:
-            from gui_dev_v3.version import VERSION, BUILD_DATE
-            self.setWindowTitle(f"{title} (v{VERSION} - {BUILD_DATE})")
-        except ImportError:
-            self.setWindowTitle(title)
+        self.setWindowTitle(f"{title} (v{VERSION})")
         # Use Qt's logical screen geometry so the minimum size respects
         # Windows/Linux display scaling and smaller laptop panels.
         screen = QApplication.primaryScreen()
         available = screen.availableGeometry() if screen else None
         if available is not None:
-            min_width = max(640, min(1024, available.width() - 32))
-            min_height = max(480, min(700, available.height() - 48))
+            min_width, min_height = _minimum_window_dimensions(
+                available.width(), available.height()
+            )
         else:
-            min_width, min_height = 1024, 700
+            min_width, min_height = 640, 480
         self.setMinimumSize(QSize(min_width, min_height))
         self.settings = load_settings()
+        self._initial_display_settings = {
+            name: getattr(self.settings, name) for name in ("resolution", "fullscreen", "borderless")
+        }
         self._apply_display_mode()
         self._apply_theme()
         # Apply stored resolution after the window is shown
@@ -151,12 +180,21 @@ class _BaseWindow(QMainWindow):
             super().keyPressEvent(event)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
-        from gui_dev_v3.settings_store import load_settings, save_settings
-        latest = load_settings()
-        latest.resolution = self.settings.resolution
-        latest.fullscreen = self.settings.fullscreen
-        latest.borderless = self.settings.borderless
-        save_settings(latest)
+        from PySide6.QtWidgets import QMessageBox
+
+        changes = {
+            name: getattr(self.settings, name)
+            for name, initial in self._initial_display_settings.items()
+            if getattr(self.settings, name) != initial
+        }
+        if changes and not update_settings(**changes):
+            QMessageBox.warning(
+                self,
+                "Settings Not Saved",
+                "The existing settings file could not be read, so OpenVLC left it "
+                "untouched instead of overwriting it with defaults. Use the explicit "
+                "Reset Settings action to create a backup and recover with defaults.",
+            )
         super().closeEvent(event)
 
 # ── Launcher Page ──────────────────────────────────────────────────────
@@ -328,6 +366,7 @@ class VLCMainWindow(_BaseWindow):
         self._tx_shell = None
         self._rx_state = None
         self._tx_state = None
+        self._cleanup_failed = False
 
         self._stack.setCurrentWidget(self._launcher)
 
@@ -350,12 +389,36 @@ class VLCMainWindow(_BaseWindow):
             self._stack.setCurrentWidget(self._rx_shell)
             self.setWindowTitle("VLC Receiver")
 
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """Stop both hardware consoles before the application window closes."""
+        self._cleanup_failed = False
+        shutdown_pending = False
+        for role, shell in (("RX", self._rx_shell), ("TX", self._tx_shell)):
+            if shell is None:
+                continue
+            try:
+                shell.cleanup()
+            except Exception as error:
+                self._cleanup_failed = True
+                shutdown_pending |= isinstance(error, RXShutdownPending)
+                logging.getLogger(__name__).exception(
+                    "%s console cleanup failed during application shutdown", role
+                )
+        if shutdown_pending:
+            self.statusBar().showMessage("A console is finishing a hardware operation. Retry closing shortly.", 8000)
+            event.ignore()
+            return
+        super().closeEvent(event)
+
     def return_to_launcher(self) -> None:
         if self._rx_shell is not None:
             try:
                 self._rx_shell.cleanup()
+            except RXShutdownPending:
+                self.statusBar().showMessage("The receiver is still finishing. Try returning to the launcher shortly.", 8000)
+                return
             except Exception:
-                pass
+                logging.getLogger(__name__).exception("RX console cleanup failed")
             self._stack.removeWidget(self._rx_shell)
             self._rx_shell.deleteLater()
             self._rx_shell = None
@@ -401,25 +464,56 @@ def main() -> int:
     
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
-    load_bundled_fonts()
+    loaded_fonts = load_bundled_fonts()
     app.setStyle("Fusion")
     app.setStyleSheet(APP_QSS)
     
     window = VLCMainWindow()
     
-    # Process CLI flags
-    if "--smoke-test" in sys.argv:
+    smoke_test = "--smoke-test" in sys.argv
+    smoke_passed = False
+    if smoke_test:
         print("Running smoke test sequence...", flush=True)
-        QTimer.singleShot(500, lambda: window.launch_mode("tx"))
-        QTimer.singleShot(1500, lambda: window.launch_mode("rx"))
-        QTimer.singleShot(2500, lambda: [print("Smoke test passed. Exiting cleanly.", flush=True), app.quit()])
+
+        def run_smoke_test() -> None:
+            nonlocal smoke_passed
+            logger = logging.getLogger(__name__)
+            try:
+                missing_fonts = _BUNDLED_FONT_FAMILIES - loaded_fonts
+                if missing_fonts:
+                    raise RuntimeError(f"Missing bundled fonts: {', '.join(sorted(missing_fonts))}")
+                for mode, shell_type in (("tx", TXShell), ("rx", RXShell)):
+                    window.launch_mode(mode)
+                    if not isinstance(window.centralWidget().currentWidget(), shell_type):
+                        raise RuntimeError(f"The {mode.upper()} console did not become active")
+            except Exception:
+                logger.exception("Smoke test failed during initialization")
+            else:
+                smoke_passed = True
+
+            try:
+                if not window.close() or window._cleanup_failed:
+                    raise RuntimeError("The main window did not close cleanly")
+            except Exception:
+                smoke_passed = False
+                logger.exception("Smoke test failed during shutdown")
+            finally:
+                app.exit(0 if smoke_passed else 1)
+
+        QTimer.singleShot(0, run_smoke_test)
     elif "--tx" in sys.argv:
         window.launch_mode("tx")
     elif "--rx" in sys.argv:
         window.launch_mode("rx")
         
     window.show()
-    return app.exec()
+    exit_code = app.exec()
+    if smoke_test and exit_code == 0:
+        if not smoke_passed:
+            logging.getLogger(__name__).error("Smoke test did not complete")
+            return 1
+        print("Smoke test passed. Exiting cleanly.", flush=True)
+    return exit_code
 
 
 def main_tx() -> int:

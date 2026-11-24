@@ -74,6 +74,9 @@ class TransferRecord:
     quality: TransferQuality
     chunks: list[ChunkRecord] = field(default_factory=list)
     received_path: str | None = None
+    capture_id: str | None = None
+    received_bytes: int | None = None
+    duration_seconds: float | None = None
 
 
 @dataclass(frozen=True)
@@ -83,13 +86,13 @@ class SignalState:
     vref: float
     margin: float
     target_margin: float
-    adc_vref: float = 3.300
-    lux: int = 420
-    data_rate: float = 3.42
-    ber: float = 0.0
-    strict_ber: float = 0.0
-    crc_status: str = "PASS"
-    time_elapsed: str = "00:00:38"
+    adc_vref: float | None = None
+    lux: int | None = None
+    data_rate: float | None = None
+    ber: float | None = None
+    strict_ber: float | None = None
+    crc_status: str = "Unknown"
+    time_elapsed: str = ""
 
 
 @dataclass(frozen=True)
@@ -118,7 +121,7 @@ class SessionCapture:
     filename: str
     ber: float | None
     crc_status: str
-    throughput_kbps: float
+    throughput_kbps: float | None
     analog_time: list[float]
     pvo_samples: list[float]
     vref_samples: list[float]
@@ -126,4 +129,9 @@ class SessionCapture:
     ook_bits: list[int]
     protocol_events: list[dict[str, Any]]
     ber_method: str = "unavailable"
+    capture_id: str | None = None
+    received_path: str | None = None
+    received_bytes: int | None = None
+    duration_seconds: float | None = None
+    status: str | None = None
 

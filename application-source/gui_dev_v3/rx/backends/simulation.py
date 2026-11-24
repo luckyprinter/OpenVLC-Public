@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from gui_dev_v3.tx.protocol import crc16_ccitt
+from gui_dev_v3.serial.session import crc16_ccitt
 
 from gui_dev_v3.models import (
     ChunkRecord,

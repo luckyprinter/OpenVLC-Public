@@ -577,8 +577,13 @@ def test_rx_export_updates_existing_history_after_method2_comparison(qapp: QAppl
         total_chunks=1,
         received_chunks=1,
     )
-    state = SimpleNamespace(transfer=transfer, get_method2_comparison=lambda: None)
+    state = SimpleNamespace(mode="simulated", transfer=transfer, get_method2_comparison=lambda: None)
     page = ExportPage()
+    page.refresh(state)
+    assert page._history_data == []
+    assert not export_page_module.HISTORY_PATH.exists()
+
+    state.mode = "physical"
     page.refresh(state)
     assert page._history_data[0]["ber"] == "N/A"
     assert page._history_data[0]["ber_method"] is None

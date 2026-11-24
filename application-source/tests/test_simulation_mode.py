@@ -1,11 +1,33 @@
+from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+from PySide6.QtCore import QSettings
+from PySide6.QtWidgets import QApplication
+
 from gui_dev_v3 import app_state as rx_state_module
+from gui_dev_v3 import settings as settings_module
 from gui_dev_v3 import tx_app_state as tx_state_module
 from gui_dev_v3.data.session import build_empty_session
+from gui_dev_v3.rx.backends.simulation import RXSimulationSnapshot, VirtualChannelParams
 from gui_dev_v3.settings import OperatingModeSelector, SettingsManager
 from gui_dev_v3.tx_app_state import TXAppState
 from gui_dev_v3.app_state import RXAppState
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    return QApplication.instance() or QApplication([])
+
+
+@pytest.fixture(autouse=True)
+def isolated_settings(monkeypatch, tmp_path):
+    def open_settings(app_name, scope):
+        return QSettings(str(tmp_path / f"{scope}.ini"), QSettings.Format.IniFormat)
+
+    open_settings.Status = QSettings.Status
+    monkeypatch.setattr(settings_module, "QSettings", open_settings)
 
 
 def _tx_snapshot(connected=True):
@@ -84,13 +106,14 @@ class FakeTXSimulation:
         self.params.update(kwargs)
 
 
-def _rx_snapshot(connected=True):
+def _rx_snapshot(tid=0):
     session = build_empty_session()
-    return SimpleNamespace(
-        session=session,
-        transfer=session.latest_transfer,
+    transfer = replace(session.latest_transfer, tid=tid)
+    return RXSimulationSnapshot(
+        session=replace(session, latest_transfer=transfer),
+        transfer=transfer,
         activity_log=[],
-        channel_params={},
+        channel_params=VirtualChannelParams(),
     )
 
 
@@ -235,13 +258,20 @@ def test_operating_mode_selector_persists_and_switches_backend(monkeypatch, qapp
     state.cleanup()
 
 
-def test_local_udp_simulation_backends_establish_peer_link(qapp):
+def test_local_udp_simulation_backends_transfer_original_bytes(qapp, tmp_path):
     from PySide6.QtCore import QEventLoop, QTimer
     from gui_dev_v3.rx.backends.simulation import RXSimulationBackend
     from gui_dev_v3.tx.backends.simulation import TXSimulationBackend
 
     rx = RXSimulationBackend()
     tx = TXSimulationBackend()
+    rx.set_params(packet_loss_pct=0, distance_m=0.1, noise_floor_mv=0)
+    tx.set_params(packet_loss_pct=0)
+    assert SettingsManager("rx").set("general/default_export_folder", str(tmp_path))
+    source = tmp_path / "reference.bin"
+    payload = bytes(range(256)) + b"OpenVLC"
+    source.write_bytes(payload)
+    rx.set_expected_file(payload, str(source))
     try:
         assert rx._socket is not None
         assert tx._socket is not None
@@ -252,10 +282,45 @@ def test_local_udp_simulation_backends_establish_peer_link(qapp):
         QTimer.singleShot(1800, loop.quit)
         loop.exec()
 
-        assert tx.refresh().serial_connected is True
+        idle = tx.refresh()
+        assert idle.serial_connected is True
+        assert idle.filename == "No file"
+        assert idle.file_size_bytes == idle.total_chunks == 0
         assert rx._tx_connected is True
         assert rx.get_new_samples(0)
+
+        tx.start_transmission(str(source))
+        QTimer.singleShot(800, loop.quit)
+        loop.exec()
+
+        assert tx.refresh().file_size_bytes == len(payload)
+        transfer = rx.refresh().transfer
+        received = Path(transfer.received_path)
+        assert received.parent == tmp_path / "simulation"
+        assert received.read_bytes() == payload
+        assert transfer.quality.crc_status == "PASS"
     finally:
         tx.stop()
         rx.cleanup()
         qapp.processEvents()
+
+
+def test_simulated_rx_never_loads_physical_capture_with_matching_tid(monkeypatch):
+    from gui_dev_v3 import data
+
+    class SimulationWithTransfer(FakeRXSimulation):
+        def refresh(self):
+            return _rx_snapshot(tid=42)
+
+    def load_physical_capture(tid):
+        pytest.fail(f"Tried to load physical capture {tid} from simulation")
+
+    monkeypatch.setattr(rx_state_module, "RXSimulationBackend", SimulationWithTransfer)
+    monkeypatch.setattr(data, "load_session_capture", load_physical_capture)
+    state = RXAppState(mode="simulated")
+    try:
+        state.refresh()
+        assert state.transfer.tid == 42
+        assert state.current_capture is None
+    finally:
+        state.cleanup()

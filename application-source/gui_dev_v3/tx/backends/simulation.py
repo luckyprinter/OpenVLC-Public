@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from gui_dev_v3.tx.protocol import crc16_ccitt
+from gui_dev_v3.serial.session import crc16_ccitt
 
 from PySide6.QtCore import QTimer
 from PySide6.QtNetwork import QUdpSocket, QHostAddress
@@ -29,10 +29,7 @@ def _crc16_ccitt_file(path: Path) -> int:
     crc = 0xFFFF
     with path.open("rb") as stream:
         while block := stream.read(1024 * 1024):
-            for byte in block:
-                crc ^= byte << 8
-                for _ in range(8):
-                    crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+            crc = crc16_ccitt(block, initial_crc=crc)
     return crc
 
 
@@ -318,7 +315,7 @@ class TXSimulationBackend:
         self._compute_channel()
         if time.time() - self._last_rx_time > 3.0:
             self._rx_connected = False
-        total_chunks = self._total_chunks if self._total_chunks > 0 else max((p.file_size_kb * 1024) // max(p.chunk_size, 1), 1)
+        total_chunks = self._total_chunks
         current = self._current_chunk
         elapsed = time.time() - self._session_start
         hours, rem = divmod(int(elapsed), 3600)
@@ -335,6 +332,4 @@ class TXSimulationBackend:
             h, r = divmod(remain_secs, 3600)
             m, s = divmod(r, 60)
             est_remaining = f"{h:02d}:{m:02d}:{s:02d}"
-        filename = self._filename if self._filename != "No file" else f"sim_{p.file_size_kb}kb.bin"
-        file_size = len(self._file_data) if len(self._file_data) > 0 else p.file_size_kb * 1024
-        return TXSimulationSnapshot(filename=filename, filetype="Binary Data" if self._filename != "No file" else "", file_size_bytes=file_size, total_chunks=total_chunks, chunk_size=p.chunk_size, encoding=p.encoding, modulation="NRZ / OOK", symbol_rate=f"{p.symbol_hz:,} sym/s", led_pin=5, tx_power="100 %", pre_emphasis="Enabled", status_text=self._status_text, progress_percent=int(self._progress), current_chunk=current, elapsed_time=elapsed_str, estimated_time=est_remaining, data_rate=data_rate_str, port="—", serial_connected=self._rx_connected, activity_log=self._build_log(), record_count=1, tid=self._transfer_id, channel_params=p)
+        return TXSimulationSnapshot(filename=self._filename, filetype="Binary Data" if self._filename != "No file" else "", file_size_bytes=self._file_size_bytes, total_chunks=total_chunks, chunk_size=p.chunk_size, encoding=p.encoding, modulation="NRZ / OOK", symbol_rate=f"{p.symbol_hz:,} sym/s", led_pin=5, tx_power="100 %", pre_emphasis="Enabled", status_text=self._status_text, progress_percent=int(self._progress), current_chunk=current, elapsed_time=elapsed_str, estimated_time=est_remaining, data_rate=data_rate_str, port="—", serial_connected=self._rx_connected, activity_log=self._build_log(), record_count=1, tid=self._transfer_id, channel_params=p)

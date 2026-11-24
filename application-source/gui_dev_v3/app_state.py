@@ -204,6 +204,8 @@ class RXAppState:
                 return
             updated = replace(capture, ber=strict_ber, ber_method=method)
             self.current_capture = updated
+            if self.mode != "physical":
+                return
 
         from gui_dev_v3.data import save_session_capture
         save_session_capture(updated)
@@ -387,7 +389,7 @@ class RXAppState:
                     self.current_capture = cap
                     print(f"Physical capture session saved for TID {current_tid}")
 
-        if self.current_capture is None and current_tid > 0:
+        if self.mode == "physical" and self.current_capture is None and current_tid > 0:
             from gui_dev_v3.data import load_session_capture
             loaded = load_session_capture(current_tid)
             if loaded:

@@ -604,7 +604,7 @@ class ExportPage(QWidget):
     def refresh(self, state: RXAppState) -> None:
         """Sync real transfer history and update it when Method 2 is later measured."""
         transfer = state.transfer
-        if transfer.tid <= 0 or transfer.status == "Pending":
+        if state.mode != "physical" or transfer.tid <= 0 or transfer.status == "Pending":
             return
 
         comparison = state.get_method2_comparison()

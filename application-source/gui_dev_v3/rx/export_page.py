@@ -27,7 +27,6 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
-    QSplitter,
     QStackedWidget,
     QTabWidget,
     QPlainTextEdit,
@@ -368,20 +367,13 @@ class ExportPage(QWidget):
         self._main_layout = lo
         lo.setContentsMargins(20, 16, 20, 20)
         lo.setSpacing(12)
-        # Keep the scrollable page at the splitter's current minimum, including
+        # Keep the scrollable page at the content's current minimum, including
         # when it changes orientation after the scroll area was laid out.
         lo.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
         self._compact_layout = False
 
-        # Create horizontal splitter
-        self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.splitter.setChildrenCollapsible(False)
-        self.splitter.setStyleSheet("""
-            QSplitter::handle {
-                image: none;
-                background: transparent;
-            }
-        """)
+        self._content_layout = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self._content_layout.setSpacing(12)
 
         # Left Column Widget
         left_widget = QWidget()
@@ -514,20 +506,14 @@ class ExportPage(QWidget):
         db_card.body.addLayout(db_lo)
         left_lo.addWidget(db_card)
 
-        self.splitter.addWidget(left_widget)
-
-        # Right Column Widget: Session Inspector
         self.inspector_card = SessionInspectorCard()
-        self.splitter.addWidget(self.inspector_card)
-        for index in range(self.splitter.count()):
-            child = self.splitter.widget(index)
+        for child in (left_widget, self.inspector_card):
             child.setMinimumWidth(0)
             child.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
+        self._content_layout.addWidget(left_widget, 11)
+        self._content_layout.addWidget(self.inspector_card, 10)
 
-        # Set splitter ratio/sizes (e.g., 55% left, 45% right)
-        self.splitter.setSizes([620, 580])
-
-        lo.addWidget(self.splitter)
+        lo.addLayout(self._content_layout)
 
         # Build initial table rows
         self._populate_table()
@@ -546,8 +532,8 @@ class ExportPage(QWidget):
         if compact == self._compact_layout:
             return
         self._compact_layout = compact
-        self.splitter.setOrientation(
-            Qt.Orientation.Vertical if compact else Qt.Orientation.Horizontal
+        self._content_layout.setDirection(
+            QBoxLayout.Direction.TopToBottom if compact else QBoxLayout.Direction.LeftToRight
         )
         self._main_layout.setContentsMargins(
             12 if compact else 20,
@@ -557,7 +543,7 @@ class ExportPage(QWidget):
         )
         self.table.setMinimumHeight(112 if compact else 144)
         self._update_history_minimum_height()
-        self.splitter.setSizes([420, 360] if compact else [620, 580])
+        self._main_layout.activate()
 
     def _update_history_minimum_height(self) -> None:
         """Keep the scroll area from compressing the table into its action row."""

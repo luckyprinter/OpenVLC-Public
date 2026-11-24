@@ -21,6 +21,7 @@ from gui_dev_v3.rx.settings import build_rx_settings
 from gui_dev_v3.rx.study_data_page import StudyDataPage
 from gui_dev_v3.rx.ber_analyzer_page import BERAnalyzerPage
 from gui_dev_v3.widgets import scrollable
+from gui_dev_v3.version import VERSION
 from gui_dev_v3.theme import COLORS
 from gui_dev_v3.ui_foundation import (
     SidebarNavigationList,
@@ -115,7 +116,7 @@ class RXShell(QWidget):
         sidebar_layout.addWidget(conn_card)
 
         # Version footer
-        version = QLabel("v3.0 · PySide6")
+        version = QLabel(f"v{VERSION}")
         self._sidebar_version = version
         version.setObjectName("Muted")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)

@@ -17,6 +17,7 @@ from gui_dev_v3.tx.settings import build_tx_settings
 from gui_dev_v3.tx_app_state import POLL_INTERVAL_MS, TXAppState, build_default_tx_state
 from gui_dev_v3.settings import SettingsManager
 from gui_dev_v3.widgets import scrollable
+from gui_dev_v3.version import VERSION
 from gui_dev_v3.theme import COLORS
 from gui_dev_v3.ui_foundation import (
     SidebarNavigationList,
@@ -112,7 +113,7 @@ class TXShell(QWidget):
         sidebar_layout.addWidget(conn_card)
 
         # Version footer
-        version = QLabel("v3.0 · PySide6")
+        version = QLabel(f"v{VERSION}")
         self._sidebar_version = version
         version.setObjectName("Muted")
         version.setAlignment(Qt.AlignmentFlag.AlignCenter)

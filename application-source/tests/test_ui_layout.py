@@ -475,12 +475,12 @@ def test_rx_export_stacks_history_and_inspector_on_compact_display(qapp, monkeyp
     qapp.processEvents()
 
     assert page._compact_layout
-    assert page.splitter.orientation() == Qt.Orientation.Vertical
+    assert page.inspector_card.y() > page._history_pane.geometry().bottom()
 
     page.resize(1100, 700)
     qapp.processEvents()
     assert not page._compact_layout
-    assert page.splitter.orientation() == Qt.Orientation.Horizontal
+    assert page.inspector_card.x() > page._history_pane.geometry().right()
     page.close()
 
 

@@ -371,7 +371,7 @@ def test_in_progress_physical_reception_enters_history_only_when_terminal(qapp, 
     page.close()
 
 
-def test_export_recalculates_scroll_minimum_when_rotating_splitter(qapp, stores):
+def test_export_recalculates_scroll_minimum_when_stacking_content(qapp, stores):
     from gui_dev_v3.app import VLCMainWindow
 
     window = VLCMainWindow()
@@ -386,7 +386,8 @@ def test_export_recalculates_scroll_minimum_when_rotating_splitter(qapp, stores)
     shell.nav.setCurrentRow(5)
     study.tabs.setCurrentIndex(2)
     qapp.processEvents()
-    assert page.splitter.orientation() == Qt.Orientation.Horizontal
+    assert page.inspector_card.y() == page._history_pane.y()
+    assert page.inspector_card.x() > page._history_pane.geometry().right()
 
     study.tabs.setCurrentIndex(0)
     shell.nav.setCurrentRow(6)
@@ -396,7 +397,8 @@ def test_export_recalculates_scroll_minimum_when_rotating_splitter(qapp, stores)
     study.tabs.setCurrentIndex(2)
     qapp.processEvents()
 
-    assert page.splitter.orientation() == Qt.Orientation.Vertical
+    assert page.inspector_card.x() == page._history_pane.x()
+    assert page.inspector_card.y() > page._history_pane.geometry().bottom()
     table_end = page.table.mapTo(page, page.table.rect().bottomLeft()).y()
     actions_start = page.open_file_btn.mapTo(page, QPoint()).y()
     assert table_end < actions_start

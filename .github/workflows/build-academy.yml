@@ -1,0 +1,66 @@
+name: Build OpenVLC Academy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/academy/**'
+      - '.github/workflows/build-academy.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/academy/**'
+      - '.github/workflows/build-academy.yml'
+  workflow_dispatch:
+    inputs:
+      deploy_pages:
+        description: Deploy to GitHub Pages
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs/academy
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs/academy/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:visual
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: academy-responsive-screenshots
+          path: docs/academy/artifacts/
+          if-no-files-found: ignore
+      - uses: actions/upload-pages-artifact@v3
+        if: github.ref == 'refs/heads/main' && inputs.deploy_pages
+        with:
+          path: docs/academy/dist
+
+  deploy:
+    if: github.ref == 'refs/heads/main' && inputs.deploy_pages
+    needs: build
+    runs-on: ubuntu-latest
+    concurrency: academy-pages
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

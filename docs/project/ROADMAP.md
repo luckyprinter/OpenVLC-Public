@@ -4,19 +4,19 @@ OpenVLC is a two-ESP32 visible light communication prototype for short-range ind
 
 ## Candidate
 
-Work is based on PR [#18](https://github.com/luckyprinter/OpenVLC-Public/pull/18), branch `redesign/product-shell-method2`, originally verified at `80ef4afa63a3fe571ffd5026560bf7d7d90fbecc`. Baseline recovery is `ffaa97dc70cd41fad57cde8a0cdda8e41f136a4d`. The stabilization implementation is `6902da6276253dd7282508607bf56d450bebc6dd`. The [validation matrix](VALIDATION_MATRIX.md) records the commands, coverage, and remaining gates.
+Draft PR [#18](https://github.com/luckyprinter/OpenVLC-Public/pull/18), branch `redesign/product-shell-method2`, started at `80ef4afa63a3fe571ffd5026560bf7d7d90fbecc`. The last implementation commit is `acc161e78c56556a126cde7143783cde77f4ff26`. Its exact and PR merge builds passed on Windows and Ubuntu. The [validation matrix](VALIDATION_MATRIX.md) records the commands, run links, coverage, and remaining gates.
 
 ## Release sequence
 
 1. **Application baseline.** Local collection, 265 tests, and source smoke passed after recovery. Physical mode remains the default. UDP simulation has separate inputs, outputs, and capture handling.
 2. **Physical workflows and measurements.** Host regressions exercise serial framing, interrupted receives, CRC and file publication, and exact capture identity. Method 2 compares actual files. User settings and receiver database updates preserve legacy data and recover from interrupted restore. Hardware verification is still required.
-3. **Packaging and UI.** Both sketches compiled. Linux geometry checks generated 288 images across four logical viewport sizes and three scale factors. Visual review led to corrections in RX Export, TX Connection, and both Diagnostics pages. Check exact-head Windows and Linux workflow artifacts, package fonts and licenses, and frozen smoke before integration.
+3. **Packaging and UI.** Both sketches compiled. Windows and Linux each passed 322 tests, source and packaged smoke, and a 288-image geometry matrix across four logical viewport sizes and three scale factors. Screenshot review led to corrections in RX Export, TX Connection, and both Diagnostics pages. Packages contain the tested commit, fonts, and available license texts.
 4. **Stack integration.** Review #7 → #15 → #16 → #17 → #18. PR #15 starts from `ad465019`, one commit before #7's original `733b802` head. Carry forward #7's validation workflow change and check for patch-equivalent changes before approving each merge. Recheck the integrated candidate and record both the PR merge checkout and the exact implementation SHA.
 5. **Prototype and release.** Record the owner-run hardware evidence below. Confirm exact bundled-component notices and the intended academic distribution with the owner before publication. OAEL 1.0 commercial distribution requires separate written permission from the copyright holder.
 
 ## Continuation
 
-Verify the current branch checkout with the [application builds](https://github.com/luckyprinter/OpenVLC-Public/actions/workflows/build_application.yml?query=branch%3Aredesign%2Fproduct-shell-method2). If the exact SHA lacks a successful matrix run, dispatch `build_application.yml` with that full SHA as `source_ref` and an empty `release_tag`. Review any failed step and downloaded Windows screenshots, then continue at the first open validation gate. Avoid reusing the public `v1.0.0` binaries as evidence for this branch. That tag refers to `30c3e682c87755955b6601f0c9cda4c3f8dcf47c`.
+Run the physical validation checklist below against the candidate packages linked in the [validation matrix](VALIDATION_MATRIX.md). Record firmware SHA, port mappings, reconstructed files, and measurement results. Confirm the intended academic distribution and the bundled component obligations. For software follow-ups, dispatch `build_application.yml` with the full candidate SHA as `source_ref` and an empty `release_tag`, then review both jobs and any updated screenshots. The public `v1.0.0` tag refers to `30c3e682c87755955b6601f0c9cda4c3f8dcf47c`, an earlier implementation. [Application build history](https://github.com/luckyprinter/OpenVLC-Public/actions/workflows/build_application.yml?query=branch%3Aredesign%2Fproduct-shell-method2)
 
 ## Physical validation gate
 

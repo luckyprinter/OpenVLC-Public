@@ -1,0 +1,28 @@
+.reference-nav-control, .inline-line-note { display: none; }
+@media (max-width: 720px) {
+  .studio-sidebar[data-open="false"] { display: none; }
+  .reference-nav-control {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 44px;
+    padding: .55rem .85rem;
+    border: 1px solid var(--line);
+    border-radius: .45rem;
+    background: var(--panel);
+    color: var(--ink);
+    font: inherit;
+    cursor: pointer;
+  }
+  .studio-main, .deep-file-head h3, .deep-symbol-detail h4 { scroll-margin-top: 5rem; }
+  .deep-file-detail > .reference-nav-control, .deep-symbol-detail > .reference-nav-control { margin-bottom: .85rem; }
+  .inline-line-note {
+    display: block;
+    margin: 0 0 .25rem;
+    padding: .7rem 1rem;
+    border-inline-start: .18rem solid currentColor;
+    font: 1rem/1.55 var(--display, system-ui);
+    overflow-wrap: anywhere;
+  }
+  .code-studio .editor-explain > span, .code-studio .editor-explain > p { display: none; }
+}

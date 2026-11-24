@@ -1,0 +1,12 @@
+.deep-source-viewer > pre {
+  font-size: .875rem;
+  line-height: 1.65;
+}
+
+.deep-source-viewer > p {
+  font-size: .875rem;
+}
+
+.deep-source-viewer > pre > span > i {
+  color: var(--dim);
+}

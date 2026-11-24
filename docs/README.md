@@ -2,7 +2,7 @@
 
 | Goal | Start here |
 | --- | --- |
-| Learn how the optical link works | [OpenVLC Academy](https://openvlc-academy-preview.awareclock514.chatgpt.site) |
+| Learn how the optical link works | [OpenVLC Academy on GitHub Pages](https://luckyprinter.github.io/lifi/academy/) |
 | Install and run the desktop applications | [Application guide](../application-source/README.md) |
 | Build or flash the transmitter and receiver | [Firmware guide](../firmware/README.md) |
 | Inspect serial commands and frame formats | [Protocol specification](../firmware/specs/protocol_spec.md) |

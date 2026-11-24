@@ -7,7 +7,7 @@
 
 This repository contains the software, firmware, and communication-protocol implementation associated with the Visible Light Communication (VLC) prototype developed as part of a Bachelor of Science in Electronics Engineering thesis.
 
-Start with the [documentation hub](docs/README.md) for setup and technical references, or explore the [interactive OpenVLC Academy](https://openvlc-academy-preview.awareclock514.chatgpt.site) for the signal journey and guided code lessons.
+Start with the [documentation hub](docs/README.md) for setup and technical references, or explore the [interactive OpenVLC Academy](https://luckyprinter.github.io/lifi/academy/) for the signal journey and guided code lessons.
 
 The repository serves as the software and firmware companion to the thesis. The thesis remains the primary academic reference for the research objectives, methodology, experimental procedures, measured results, analysis, conclusions, and recommendations.
 

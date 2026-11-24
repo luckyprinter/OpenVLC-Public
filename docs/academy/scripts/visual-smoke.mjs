@@ -6,12 +6,14 @@ const widths = [320, 360, 390, 430, 768, 1024, 1366];
 const output = 'artifacts';
 await mkdir(output, { recursive: true });
 
-const server = await preview({
+const externalUrl = process.env.ACADEMY_TEST_URL;
+const server = externalUrl ? null : await preview({
   preview: { host: '127.0.0.1', port: 4173, strictPort: true },
 });
+const baseUrl = externalUrl || 'http://127.0.0.1:4173/';
 const browser = await chromium.launch({
   headless: true,
-  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE,
+  executablePath: process.env.ACADEMY_CHROMIUM,
   args: ['--no-sandbox'],
 });
 const failures = [];
@@ -20,7 +22,7 @@ try {
   for (const width of widths) {
     const page = await browser.newPage({ viewport: { width, height: 900 }, deviceScaleFactor: 1 });
     page.on('pageerror', error => failures.push(width + 'px JavaScript error: ' + error.message));
-    await page.goto('http://127.0.0.1:4173/', { waitUntil: 'domcontentloaded' });
+    await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('.academy-header');
     await page.waitForTimeout(180);
 
@@ -62,7 +64,14 @@ try {
     await page.getByRole('button', { name: 'CODE STUDIO' }).click();
     await page.waitForSelector('.source-map-section');
     await page.locator('.editor-line').nth(1).click();
-    const lineExplain = await page.locator('.editor-explain p').innerText();
+    if (width <= 720) {
+      await page.getByRole('button', { name: 'Choose a source lesson' }).click();
+      const search = page.getByRole('textbox', { name: 'Find a source lesson' });
+      await search.fill('Encode one byte');
+      await page.locator('.file-group button').first().click();
+      await page.locator('.inline-line-note').waitFor({ state: 'visible' });
+    }
+    const lineExplain = await page.locator(width <= 720 ? '.inline-line-note' : '.editor-explain p').innerText();
     if (!lineExplain.trim()) failures.push(width + 'px code line explanation is empty');
     const codeScroll = await page.evaluate(() => document.documentElement.scrollWidth);
     if (codeScroll > width + 1) failures.push(width + 'px code studio horizontal overflow: ' + codeScroll);
@@ -127,11 +136,68 @@ try {
     if (pathScroll > width + 1) failures.push(width + 'px focused lesson horizontal overflow: ' + pathScroll);
     if ([360, 390, 768, 1366].includes(width)) await page.screenshot({ path: output + '/lesson-' + width + '.png', fullPage: true });
 
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('.focused-lesson');
+    if (!(await page.locator('.path-detail-hero').innerText()).includes('1 OF 4')) failures.push(width + 'px lesson progress was not restored after reload');
+
+    if (width <= 720) await page.locator('.mobile-menu').click();
+    await page.getByRole('button', { name: 'TRANSFER LAB', exact: true }).click();
+    await page.getByRole('heading', { name: 'File transfer lab' }).waitFor();
+    await page.getByLabel('First-round condition').selectOption('corrupt');
+    await page.getByRole('button', { name: 'Send rest of round' }).click();
+    const downloadButton = page.getByRole('button', { name: 'Download received file' });
+    if (!(await downloadButton.isDisabled())) failures.push(width + 'px lab enabled download with a corrupt frame');
+    await page.getByRole('button', { name: 'Repeat full round' }).click();
+    await page.getByRole('button', { name: 'Send rest of round' }).click();
+    if (!(await downloadButton.isEnabled())) failures.push(width + 'px lab did not recover on the second round');
+    const labScroll = await page.evaluate(() => document.documentElement.scrollWidth);
+    if (labScroll > width + 1) failures.push(width + 'px transfer lab horizontal overflow: ' + labScroll);
+    if ([390, 1366].includes(width)) {
+      await page.screenshot({ path: output + '/lab-' + width + '.png', fullPage: true });
+      const bytes = Buffer.from('OpenVLC browser round-trip test\n'.repeat(24));
+      await page.locator('input[type=file]').setInputFiles({ name: 'fixture.txt', mimeType: 'text/plain', buffer: bytes });
+      await page.getByText('fixture.txt', { exact: true }).waitFor();
+      await page.getByLabel('First-round condition').selectOption('clean');
+      await page.getByRole('button', { name: 'Send rest of round' }).click();
+      const download = page.waitForEvent('download');
+      await downloadButton.click();
+      const emitted = await download;
+      const stream = await emitted.createReadStream();
+      const chunks = [];
+      for await (const chunk of stream) chunks.push(chunk);
+      if (!bytes.equals(Buffer.concat(chunks))) failures.push(width + 'px reconstructed download differed from the uploaded file');
+    }
+
+    if ([390, 1366].includes(width)) {
+      await page.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: 'Send 0', exact: true }).click();
+      await page.getByText('LED off · symbol 0', { exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Follow a file through light' }).click();
+      await page.getByRole('heading', { name: 'How can an LED carry a byte?' }).waitFor();
+      await page.getByLabel('Change the low nibble').selectOption('0');
+      await page.getByText('0100 0000', { exact: true }).waitFor();
+      if (await page.evaluate(() => document.documentElement.scrollWidth) > width + 1) failures.push(width + 'px Foundations horizontal overflow');
+      await page.screenshot({ path: output + '/foundations-' + width + '.png', fullPage: true });
+      await page.getByRole('button', { name: 'Next stage' }).click();
+      await page.getByRole('slider', { name: 'Reference threshold' }).press('End');
+      await page.getByText('0 · 0 · 0', { exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Next stage' }).click();
+      await page.getByRole('button', { name: 'Send with one corrupt frame' }).click();
+      await page.getByText('Rejected by CRC', { exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Repeat the full round' }).click();
+      await page.getByText('Whole-file CRC passed.', { exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Try the guided transfer' }).click();
+      await page.getByRole('complementary', { name: 'Guided transfer' }).waitFor();
+      if (await page.getByLabel('First-round condition').inputValue() !== 'corrupt') failures.push(width + 'px guided Lab did not preload the corrupt frame exercise');
+      await page.getByRole('button', { name: 'Open receiver validation code' }).click();
+      await page.getByRole('heading', { name: 'Validate a complete frame' }).waitFor();
+    }
+
     await page.close();
   }
 } finally {
   await browser.close();
-  await new Promise(resolve => server.httpServer.close(resolve));
+  if (server) await new Promise(resolve => server.httpServer.close(resolve));
 }
 
 if (failures.length) {

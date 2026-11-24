@@ -7,7 +7,9 @@
     "dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test:visual": "node scripts/visual-smoke.mjs"
+    "test:visual": "node scripts/visual-smoke.mjs",
+    "test": "node --test",
+    "test:source": "node scripts/verify-source.mjs"
   },
   "dependencies": {
     "framer-motion": "^11.18.2",

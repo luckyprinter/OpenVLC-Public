@@ -70,6 +70,17 @@ def test_save_settings_atomically_round_trips(settings_paths: Path) -> None:
     assert list(settings_paths.parent.glob("*.tmp")) == []
 
 
+def test_partial_updates_keep_other_shared_preferences(settings_paths: Path) -> None:
+    assert settings_store.save_settings(settings_store.AppSettings())
+    assert settings_store.update_settings(theme="charcoal")
+    assert settings_store.update_settings(fullscreen=True, resolution="1366x768")
+
+    loaded = settings_store.load_settings()
+    assert loaded.theme == "charcoal"
+    assert loaded.fullscreen is True
+    assert loaded.resolution == "1366x768"
+
+
 def test_save_returns_false_when_settings_are_not_json_serializable(
     settings_paths: Path,
 ) -> None:

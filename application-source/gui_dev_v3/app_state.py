@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from gui_dev_v3.data import load_session_capture, save_session_capture
 from gui_dev_v3.data.session import build_empty_session
-from gui_dev_v3.models import SessionState, SignalState, TransferRecord, SessionCapture
+from gui_dev_v3.models import SessionCapture, SessionState, SignalState, TransferRecord, TransferStatus
 from gui_dev_v3.settings_store import AppSettings, load_settings
 
 # Backend imports
@@ -17,8 +19,16 @@ from gui_dev_v3.rx.backends.simulation import RXSimulationBackend, RXSimulationS
 
 StateSubscriber = Callable[["RXAppState"], None]
 
+
+class RXShutdownPending(RuntimeError):
+    """A physical receiver still owns an outstanding hardware operation."""
+
+
 POLL_INTERVAL_MS = 1000  # Refresh status every second
 MAX_SIMULATION_REFERENCE_BYTES = 80 * 1024 * 1024
+_TERMINAL_RECEPTION_STATUSES = {
+    TransferStatus.COMPLETE, TransferStatus.CRC_FAILED, TransferStatus.STALLED,
+}
 
 
 # Module-level empty defaults (built once)
@@ -40,6 +50,7 @@ class RXAppState:
     serial_connected: bool = False
     expected_file_path: str | None = None
     current_capture: SessionCapture | None = None
+    completed_physical_transfers: tuple[TransferRecord, ...] = field(default=(), init=False)
     using_mock_data: bool = False
     _expected_file_data: bytes | None = field(default=None, init=False, repr=False)
     _subscribers: list[StateSubscriber] = field(default_factory=list, init=False, repr=False)
@@ -53,22 +64,17 @@ class RXAppState:
         if self.mode not in {"physical", "simulated"}:
             self.mode = "physical"
         self.using_mock_data = self.mode == "simulated"
-        self._last_tid = 0
         self._method2_comparison: dict[str, Any] | None = None
-        self._phys_capture_active = False
-        self._phys_capture_start_time = 0.0
-        self._phys_pvo: list[float] = []
-        self._phys_vref: list[float] = []
-        self._phys_margin: list[float] = []
-        self._phys_time: list[float] = []
-        self._phys_events: list[dict[str, Any]] = []
+        self._physical_samples: dict[str, list[tuple[float, float, float, float]]] = {}
         self._refresh()
 
     @property
     def is_receiving(self) -> bool:
         with self._lock:
-            stage = str(self.session.latest_transfer.status.value if self.session.latest_transfer else "").lower()
-            return "incomplete" in stage or "receiving" in stage or self.session.progress_percent not in (0, 100)
+            status = self.session.latest_transfer.status
+            if status in _TERMINAL_RECEPTION_STATUSES:
+                return False
+            return status == TransferStatus.INCOMPLETE or self.session.progress_percent not in (0, 100)
 
     @property
     def progress_percent(self) -> int:
@@ -117,9 +123,12 @@ class RXAppState:
         with self._lock:
             if mode == self.mode:
                 return
-            self._expected_file_data = simulation_reference
             old_physical = self._physical if self.mode == "physical" else None
             old_simulation = self._simulation if self.mode == "simulated" else None
+        if old_physical is not None:
+            self._close_physical(old_physical)
+        with self._lock:
+            self._expected_file_data = simulation_reference
             if old_physical is not None:
                 self._physical = None
             if old_simulation is not None:
@@ -129,12 +138,8 @@ class RXAppState:
             self.activity_log = []
             self.current_capture = None
             self._method2_comparison = None
-            self._phys_capture_active = False
-        if old_physical is not None:
-            try:
-                old_physical.cleanup()
-            except Exception:
-                pass
+            self.completed_physical_transfers = ()
+            self._physical_samples.clear()
         if old_simulation is not None:
             try:
                 old_simulation.cleanup()
@@ -191,32 +196,39 @@ class RXAppState:
         self._refresh()
         self.notify()
 
-    def apply_method2_result(self, tid: int, strict_ber: float | None) -> None:
-        """Persist a reference-file BER result on the matching completed capture."""
-        from dataclasses import replace
+    @staticmethod
+    def _capture_matches_transfer(capture: SessionCapture, transfer: TransferRecord) -> bool:
+        if capture.tid != transfer.tid or capture.filename != transfer.filename:
+            return False
+        if capture.capture_id is None:
+            return transfer.capture_id is None
+        return (
+            capture.capture_id == transfer.capture_id
+            and capture.received_path == transfer.received_path
+        )
 
+    def set_method2_comparison(
+        self,
+        tid: int,
+        comparison: dict[str, Any],
+        *,
+        capture_id: str | None,
+        received_path: str,
+    ) -> None:
+        """Publish a file comparison for the current payload and its exact capture."""
         with self._lock:
-            capture = self.current_capture
-            if capture is None or capture.tid != int(tid):
-                return
-            method = "method2_reference_file"
-            if capture.ber == strict_ber and capture.ber_method == method:
-                return
-            updated = replace(capture, ber=strict_ber, ber_method=method)
-            self.current_capture = updated
-            if self.mode != "physical":
-                return
-
-        from gui_dev_v3.data import save_session_capture
-        save_session_capture(updated)
-
-    def set_method2_comparison(self, tid: int, comparison: dict[str, Any]) -> None:
-        """Keep the full live Method 2 result and persist its strict BER."""
-        with self._lock:
-            if int(tid) != self.transfer.tid:
+            transfer = self.transfer
+            if (
+                not received_path
+                or tid != transfer.tid
+                or capture_id != transfer.capture_id
+                or received_path != transfer.received_path
+            ):
                 return
             self._method2_comparison = {
-                "tid": int(tid),
+                "tid": tid,
+                "capture_id": capture_id,
+                "received_path": received_path,
                 "overlap_ber": comparison.get("overlap_ber"),
                 "strict_ber": comparison.get("strict_ber"),
                 "bit_accuracy": comparison.get("bit_accuracy"),
@@ -225,18 +237,37 @@ class RXAppState:
                 "expected_bytes": comparison.get("expected_bytes"),
                 "length_delta": comparison.get("length_delta"),
             }
-        self.apply_method2_result(tid, comparison.get("strict_ber"))
+            capture = self.current_capture
+            if (
+                self.mode != "physical"
+                or capture_id is None
+                or capture is None
+                or not self._capture_matches_transfer(capture, transfer)
+            ):
+                return
+            strict_ber = comparison.get("strict_ber")
+            method = "method2_reference_file"
+            if capture.ber != strict_ber or capture.ber_method != method:
+                updated = replace(capture, ber=strict_ber, ber_method=method)
+                save_session_capture(updated)
+                self.current_capture = updated
 
     def get_method2_comparison(self) -> dict[str, Any] | None:
         """Return the current transfer's reference comparison, if available."""
         with self._lock:
             current = self._method2_comparison
-            if current is not None and current.get("tid") == self.transfer.tid:
+            transfer = self.transfer
+            if (
+                current is not None
+                and current["tid"] == transfer.tid
+                and current["capture_id"] == transfer.capture_id
+                and current["received_path"] == transfer.received_path
+            ):
                 return dict(current)
             capture = self.current_capture
             if (
                 capture is not None
-                and capture.tid == self.transfer.tid
+                and self._capture_matches_transfer(capture, transfer)
                 and capture.ber_method in {"method2", "method2_reference_file"}
             ):
                 return {
@@ -280,6 +311,16 @@ class RXAppState:
                     self._load_empty()
 
     def _apply_phy_snapshot(self, s: RXPhysicalSnapshot) -> None:
+        before = self.transfer
+        after = s.transfer
+        if (
+            after.tid != before.tid
+            or after.capture_id != before.capture_id
+            or after.filename != before.filename
+            or after.received_path != before.received_path
+        ):
+            self._method2_comparison = None
+            self.current_capture = None
         self.session = s.session
         self.signal = s.session.signal
         self.transfer = s.transfer
@@ -293,6 +334,88 @@ class RXAppState:
         self.activity_log = self.activity_log[:500]
         self.serial_connected = s.serial_connected
         self.using_mock_data = False
+        self._record_physical_captures(s)
+
+    def _record_physical_captures(self, snapshot: RXPhysicalSnapshot) -> None:
+        self._accept_physical_events(snapshot.completed_transfers, snapshot.analog_sample)
+
+        current = self.transfer
+        if current.status == TransferStatus.INCOMPLETE and current.capture_id is not None:
+            # A physical backend can have one active receipt between refreshes.
+            samples = self._physical_samples.get(current.capture_id, [])
+            self._physical_samples = {current.capture_id: samples}
+        else:
+            self._physical_samples.clear()
+
+        if current.status not in _TERMINAL_RECEPTION_STATUSES or current.tid <= 0:
+            self.current_capture = None
+        elif self.current_capture is None:
+            capture = load_session_capture(current.tid, capture_id=current.capture_id)
+            if capture is not None and self._capture_matches_transfer(capture, current):
+                self.current_capture = capture
+
+    def _accept_physical_events(
+        self,
+        completed: tuple[TransferRecord, ...],
+        sample: tuple[str, float, float, float, float] | None,
+    ) -> None:
+        if sample is not None:
+            capture_id, elapsed, pvo, vref, margin = sample
+            samples = self._physical_samples.setdefault(capture_id, [])
+            if not samples or elapsed > samples[-1][0]:
+                samples.append((elapsed, pvo, vref, margin))
+
+        self.completed_physical_transfers = completed
+        for transfer in completed:
+            if transfer.capture_id is None:
+                continue
+            samples = self._physical_samples.pop(transfer.capture_id, [])
+            capture = self._finish_physical_capture(transfer, samples)
+            if self._capture_matches_transfer(capture, self.transfer):
+                self.current_capture = capture
+
+    @staticmethod
+    def _finish_physical_capture(
+        transfer: TransferRecord, samples: list[tuple[float, float, float, float]]
+    ) -> SessionCapture:
+        previous = load_session_capture(transfer.tid, capture_id=transfer.capture_id)
+        if previous is not None:
+            return previous
+
+        duration = transfer.duration_seconds
+        received_bytes = transfer.received_bytes
+        throughput = None
+        if duration is not None and duration > 0 and received_bytes is not None and transfer.received_path:
+            throughput = received_bytes * 8 / (duration * 1000)
+        events = []
+        if duration is not None:
+            events.append({"time": 0.0, "event": "START", "details": "Firmware announced reception"})
+        events.append({
+            "time": duration,
+            "event": transfer.status.value,
+            "details": transfer.quality.first_issue if transfer.quality.first_issue != "None" else "",
+        })
+        capture = SessionCapture(
+            tid=transfer.tid,
+            timestamp=datetime.now().astimezone().isoformat(timespec="milliseconds"),
+            filename=transfer.filename,
+            ber=None,
+            crc_status=transfer.quality.crc_status or "Unknown",
+            throughput_kbps=throughput,
+            analog_time=[sample[0] for sample in samples],
+            pvo_samples=[sample[1] for sample in samples],
+            vref_samples=[sample[2] for sample in samples],
+            margin_samples=[sample[3] for sample in samples],
+            ook_bits=[],
+            protocol_events=events,
+            capture_id=transfer.capture_id,
+            received_path=transfer.received_path,
+            received_bytes=received_bytes,
+            duration_seconds=duration,
+            status=transfer.status.value,
+        )
+        save_session_capture(capture)
+        return capture
 
     def _apply_sim_snapshot(self, s: RXSimulationSnapshot) -> None:
         self.session = s.session
@@ -304,13 +427,15 @@ class RXAppState:
         self.using_mock_data = True
 
     def _load_empty(self) -> None:
-        import time
-        now = time.strftime("%H:%M:%S")
         self.session = _EMPTY_SESSION
         self.signal = _EMPTY_SIGNAL
         self.transfer = _EMPTY_TRANSFER
         self.serial_connected = False
         self.using_mock_data = self.mode == "simulated"
+        self.current_capture = None
+        self.completed_physical_transfers = ()
+        self._method2_comparison = None
+        self._physical_samples.clear()
 
     def force_connect_serial(self, port: str) -> bool:
         """Force connect physical backend to a port, bypassing detection."""
@@ -327,75 +452,6 @@ class RXAppState:
     def refresh(self) -> None:
         """Public refresh — called by QTimer."""
         self._refresh()
-
-        current_tid = self.session.latest_transfer.tid if (self.session and self.session.latest_transfer) else 0
-        if current_tid != self._last_tid:
-            self._last_tid = current_tid
-            self._method2_comparison = None
-            if self.mode == "physical":
-                self.current_capture = None
-            self._phys_capture_active = False
-
-        if self.mode == "physical" and current_tid > 0:
-            is_rec = self.is_receiving
-            if is_rec and not self._phys_capture_active:
-                import time
-                self._phys_capture_active = True
-                self._phys_capture_start_time = time.time()
-                self._phys_pvo = []
-                self._phys_vref = []
-                self._phys_margin = []
-                self._phys_time = []
-                self._phys_events = [{"time": 0.0, "event": "START", "details": f"Physical reception started for TID {current_tid}"}]
-                print(f"Physical capture session started for TID {current_tid}")
-
-            if self._phys_capture_active:
-                import time
-                elapsed = time.time() - self._phys_capture_start_time
-                self._phys_time.append(elapsed)
-                self._phys_pvo.append(self.signal.pvo)
-                self._phys_vref.append(self.signal.vref)
-                self._phys_margin.append(self.signal.margin)
-
-                if not is_rec:
-                    self._phys_capture_active = False
-                    self._phys_events.append({"time": elapsed, "event": "COMPLETE", "details": "Physical reception finished"})
-
-                    import datetime
-                    from gui_dev_v3.data import save_session_capture
-                    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                    size = self.session.latest_transfer.size_bytes if self.session.latest_transfer else 0
-                    duration = elapsed if elapsed > 0 else 1.0
-                    throughput = (size * 8) / (duration * 1000.0)
-
-                    cap = SessionCapture(
-                        tid=current_tid,
-                        timestamp=timestamp,
-                        filename=self.session.latest_transfer.filename if self.session.latest_transfer else "unknown.bin",
-                        ber=None,
-                        crc_status=self.signal.crc_status,
-                        throughput_kbps=round(throughput, 3),
-                        analog_time=self._phys_time,
-                        pvo_samples=self._phys_pvo,
-                        vref_samples=self._phys_vref,
-                        margin_samples=self._phys_margin,
-                        # No raw comparator/bit samples are streamed by current firmware.
-                        ook_bits=[],
-                        protocol_events=self._phys_events,
-                        ber_method="unavailable",
-                    )
-                    save_session_capture(cap)
-                    self.current_capture = cap
-                    print(f"Physical capture session saved for TID {current_tid}")
-
-        if self.mode == "physical" and self.current_capture is None and current_tid > 0:
-            from gui_dev_v3.data import load_session_capture
-            loaded = load_session_capture(current_tid)
-            if loaded:
-                self.current_capture = loaded
-                print(f"Loaded session capture from disk for TID {current_tid}")
-
         self.notify()
 
     def rebuild_backends(self) -> None:
@@ -415,18 +471,27 @@ class RXAppState:
         with self._lock:
             physical = self._physical
             simulation = self._simulation
+        if physical is not None:
+            self._close_physical(physical)
+        with self._lock:
             self._physical = None
             self._simulation = None
-        if physical is not None:
-            try:
-                physical.cleanup()
-            except Exception:
-                pass
         if simulation is not None:
             try:
                 simulation.cleanup()
             except Exception:
                 pass
+
+    def _close_physical(self, backend: RXPhysicalBackend) -> None:
+        stopped = backend.cleanup()
+        drain = getattr(backend, "drain_capture_events", None)
+        if drain is not None:
+            completed, sample = drain()
+            self._accept_physical_events(completed, sample)
+            if completed:
+                self.notify()
+        if stopped is False:
+            raise RXShutdownPending("The RX reader is still finishing. Retry after the serial session stops.")
 
 
 def build_default_state(mode: str = "physical") -> RXAppState:

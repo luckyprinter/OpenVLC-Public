@@ -29,7 +29,6 @@ from gui_dev_v3.models import (
     TransferRecord,
     TransferStatus,
 )
-from gui_dev_v3.logic.ber_bridge import transfer_quality_from_chunks
 from PySide6.QtNetwork import QUdpSocket, QHostAddress
 from PySide6.QtCore import QTimer
 from collections import deque
@@ -144,7 +143,6 @@ class RXSimulationBackend:
         self._expected_file_crc16: int | None = None
         self._received_path: str | None = None
         self._last_capture = None
-        self._bit_errors_by_chunk: dict[int, int] = {}
         self._crc_failed_chunks: set[int] = set()
         self._transfer_status = TransferStatus.PENDING
         self._expected_file_data: bytes | None = None
@@ -213,8 +211,6 @@ class RXSimulationBackend:
         # Slice the new expected file
         self._expected_chunks_map.clear()
         if data is not None and self._total_chunks > 0:
-            self._reference_loaded = ref_data is not None
-
             for idx in range(self._total_chunks):
                 start_offset = idx * self._chunk_size
                 end_offset = start_offset + self._chunk_size
@@ -227,7 +223,9 @@ class RXSimulationBackend:
             
             if received_bytes is not None:
                 expected_chunk = self._expected_chunks_map.get(idx, b"")
-                if expected_chunk:
+                if idx in self._crc_failed_chunks:
+                    self._chunks_status_map[idx] = ChunkStatus.DIFFERENT
+                elif data is not None:
                     if received_bytes == expected_chunk:
                         self._chunks_status_map[idx] = ChunkStatus.MATCH
                     else:
@@ -306,7 +304,6 @@ class RXSimulationBackend:
             self._received_chunks_map.clear()
             self._expected_chunks_map.clear()
             self._chunks_status_map.clear()
-            self._bit_errors_by_chunk.clear()
             self._crc_failed_chunks.clear()
             self._transfer_status = TransferStatus.INCOMPLETE
             self._bit_queue.clear()
@@ -327,19 +324,8 @@ class RXSimulationBackend:
                 "details": f"Simulated reception started for TID {self._transfer_id}",
             }]
 
-            from gui_dev_v3.logic.ber_bridge import parse_ber_test_name, generate_ber_test_payload
-            ber_params = parse_ber_test_name(self._filename)
-            ref_data = None
-            if ber_params:
-                size, seed = ber_params
-                ref_data = generate_ber_test_payload(size, seed)
-                self._log_append({
-                    "time": now,
-                    "event": "BERTEST Auto",
-                    "details": f"Generated LCG reference ({size} B, seed {seed:08X})",
-                })
-            elif self._expected_file_data is not None:
-                ref_data = self._expected_file_data
+            ref_data = self._expected_file_data
+            if ref_data is not None:
                 self._log_append({
                     "time": now,
                     "event": "Reference Loaded",
@@ -409,12 +395,10 @@ class RXSimulationBackend:
                     self._capture_events.append({"time": round(elapsed, 3), "event": "CHUNK_LOST", "details": f"Chunk {idx} lost"})
             else:
                 received = bytearray(payload_bytes)
-                random_bit_errors = 0
                 for byte_i in range(len(received)):
                     for bit in range(8):
                         if random.random() < ber:
                             received[byte_i] ^= (1 << bit)
-                            random_bit_errors += 1
                 received_bytes = bytes(received)
                 self._received_chunks_map[idx] = received_bytes
 
@@ -425,17 +409,9 @@ class RXSimulationBackend:
 
                 expected_chunk = self._expected_chunks_map.get(idx, b"")
                 if self._reference_loaded:
-                    compared_length = max(len(expected_chunk), len(received_bytes))
-                    reference_errors = 0
-                    for pos in range(compared_length):
-                        expected_byte = expected_chunk[pos] if pos < len(expected_chunk) else 0
-                        received_byte = received_bytes[pos] if pos < len(received_bytes) else 0
-                        reference_errors += (expected_byte ^ received_byte).bit_count()
-                    self._bit_errors_by_chunk[idx] = reference_errors
                     matches_reference = received_bytes == expected_chunk
                     self._chunks_status_map[idx] = ChunkStatus.MATCH if matches_reference and crc_valid else ChunkStatus.DIFFERENT
                 else:
-                    self._bit_errors_by_chunk[idx] = random_bit_errors
                     self._chunks_status_map[idx] = ChunkStatus.RECEIVED if crc_valid else ChunkStatus.DIFFERENT
 
                 if self._capture_active:
@@ -465,7 +441,6 @@ class RXSimulationBackend:
             assembled_bytes = self._assemble_received_bytes()
             if assembled_bytes is None and missing == 0:
                 missing = 1
-            missing_bytes = max(0, self._file_size_bytes - received_bytes)
             if assembled_bytes is not None and self._expected_file_crc16 is not None:
                 if crc16_ccitt(assembled_bytes) != self._expected_file_crc16:
                     self._crc_failed_chunks.add(-1)
@@ -476,8 +451,10 @@ class RXSimulationBackend:
                 self._transfer_status = TransferStatus.CRC_FAILED
                 self._received_path = self._save_received_file(assembled_bytes)
             else:
-                self._transfer_status = TransferStatus.COMPLETE
                 self._received_path = self._save_received_file(assembled_bytes)
+                self._transfer_status = (
+                    TransferStatus.COMPLETE if self._received_path else TransferStatus.INCOMPLETE
+                )
 
             status_event = (
                 "INCOMPLETE" if self._transfer_status == TransferStatus.INCOMPLETE
@@ -502,26 +479,24 @@ class RXSimulationBackend:
                     "details": "Simulated reception finalized",
                 })
 
-                total_bits = self._file_size_bytes * 8
-                bit_errors = sum(self._bit_errors_by_chunk.values()) + missing_bytes * 8
-                bit_errors = min(total_bits, bit_errors)
-                ber_val = bit_errors / total_bits if total_bits else 0.0
-                throughput = (self._file_size_bytes * 8) / (elapsed * 1000.0)
+                throughput = None
+                if self._transfer_status == TransferStatus.COMPLETE and self._received_path:
+                    throughput = round((received_bytes * 8) / (elapsed * 1000.0), 3)
 
                 self._last_capture = SessionCapture(
                     tid=self._transfer_id,
                     timestamp=time.strftime("%Y-%m-%d %H:%M:%S"),
                     filename=self._filename,
-                    ber=round(ber_val, 9),
-                    crc_status="PASS" if self._transfer_status == TransferStatus.COMPLETE else "FAIL",
-                    throughput_kbps=round(throughput, 3),
+                    ber=None,
+                    crc_status=self._transfer_crc_status(),
+                    throughput_kbps=throughput,
                     analog_time=self._capture_time,
                     pvo_samples=self._capture_pvo,
                     vref_samples=self._capture_vref,
                     margin_samples=self._capture_margin,
                     ook_bits=self._capture_bits,
                     protocol_events=self._capture_events,
-                    ber_method="simulation",
+                    ber_method="unavailable",
                 )
 
     def _assemble_received_bytes(self) -> bytes | None:
@@ -661,6 +636,13 @@ class RXSimulationBackend:
         p.ber_estimate = 0.5 * math.erfc(math.sqrt(snr_linear) / math.sqrt(2))
         p.ber_estimate = max(1e-12, min(0.5, p.ber_estimate))
 
+    def _transfer_crc_status(self) -> str:
+        if self._crc_failed_chunks:
+            return "FAIL"
+        if self._transfer_status == TransferStatus.COMPLETE:
+            return "PASS"
+        return "Unknown"
+
     def _build_transfer(self) -> TransferRecord:
         """Build a transfer summary from exact received and missing chunks."""
         self._compute_channel()
@@ -683,12 +665,6 @@ class RXSimulationBackend:
         received_bytes = sum(len(data) for data in self._received_chunks_map.values())
         missing_bytes = max(0, self._file_size_bytes - received_bytes)
         total_bits = self._file_size_bytes * 8
-        bit_errors = min(
-            total_bits,
-            sum(self._bit_errors_by_chunk.values()) + missing_bytes * 8,
-        )
-        strict_ber = bit_errors / total_bits if total_bits else 0.0
-        bit_accuracy = 100.0 * (1.0 - strict_ber)
         recovery_rate = (
             100.0 * received_bytes / self._file_size_bytes
             if self._file_size_bytes else 100.0
@@ -704,27 +680,27 @@ class RXSimulationBackend:
                 total_chunks=0,
                 received_chunks=0,
                 quality=TransferQuality(
-                    label="Excellent",
-                    strict_ber=0.0,
-                    bit_accuracy=100.0,
-                    bit_errors=0,
+                    label="Pending",
+                    strict_ber=None,
+                    bit_accuracy=None,
+                    bit_errors=None,
                     total_bits=0,
                     compared_bytes=0,
                     missing_chunks=0,
                     missing_bytes=0,
                     first_issue="None",
-                    crc_status="PASS",
+                    crc_status="Unknown",
                     recovery_rate=0.0,
                 ),
                 chunks=[],
             )
 
-        if missing > 0 or strict_ber >= 0.1:
+        if self._active:
+            label = "Receiving"
+        elif missing > 0 or self._crc_failed_chunks:
             label = "Poor"
-        elif strict_ber > 0.01 or different > 0:
+        elif different > 0:
             label = "Fair"
-        elif strict_ber > 0:
-            label = "Good"
         else:
             label = "Excellent"
 
@@ -734,27 +710,20 @@ class RXSimulationBackend:
             first_issue = f"{len(self._crc_failed_chunks)} CRC failures"
         elif different > 0:
             first_issue = f"{different} chunks differ from reference"
-        elif bit_errors > 0:
-            first_issue = "Bit errors detected"
         else:
             first_issue = "None"
 
-        crc_status = (
-            "FAIL"
-            if self._transfer_status in {TransferStatus.INCOMPLETE, TransferStatus.CRC_FAILED}
-            else "PASS"
-        )
         quality = TransferQuality(
             label=label,
-            strict_ber=strict_ber,
-            bit_accuracy=bit_accuracy,
-            bit_errors=bit_errors,
+            strict_ber=None,
+            bit_accuracy=None,
+            bit_errors=None,
             total_bits=total_bits,
-            compared_bytes=min(self._file_size_bytes, received_bytes),
+            compared_bytes=0,
             missing_chunks=missing,
             missing_bytes=missing_bytes,
             first_issue=first_issue,
-            crc_status=crc_status,
+            crc_status=self._transfer_crc_status(),
             recovery_rate=recovery_rate,
         )
         return TransferRecord(
@@ -817,9 +786,6 @@ class RXSimulationBackend:
             adc_vref=3.300,
             lux=p.lux,
             data_rate=round(data_rate, 2),
-            ber=round(p.ber_estimate, 6),
-            strict_ber=round(p.ber_estimate, 6),
-            crc_status="PASS" if margin_v > 0.10 else "FAIL",
             time_elapsed=time_str,
         )
 

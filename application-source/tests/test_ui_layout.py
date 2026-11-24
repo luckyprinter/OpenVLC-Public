@@ -384,6 +384,7 @@ def test_rx_receive_clear_is_display_only_and_does_not_immediately_repopulate(qa
         received_chunks=1,
         total_chunks=1,
         chunks=[chunk],
+        received_path=None,
         status=None,
     )
     state = SimpleNamespace(transfer=transfer, is_receiving=True, progress_percent=50, serial_connected=False)
@@ -491,10 +492,22 @@ def test_rx_export_preserves_unreadable_history_instead_of_overwriting(qapp, mon
 
     page = ExportPage()
     assert page._history_data == []
-    page._history_data.append({"tid": 99, "filename": "must-not-overwrite.bin"})
-    page._save_history()
+    page.refresh(_completed_export_transfer())
     assert history_path.read_text(encoding="utf-8") == "{ invalid json"
     page.close()
+
+
+def _completed_export_transfer():
+    from gui_dev_v3.models import TransferStatus
+
+    return SimpleNamespace(
+        mode="physical",
+        transfer=SimpleNamespace(
+            tid=99, filename="received.bin", status=TransferStatus.COMPLETE,
+            time_label="12:00:00", size_bytes=8, total_chunks=1, received_chunks=1,
+        ),
+        get_method2_comparison=lambda: None,
+    )
 
 
 def test_numeric_settings_keep_suffix_visible(qapp):
@@ -622,6 +635,33 @@ def test_tx_batch_start_requires_connected_hardware_and_queued_files(qapp):
     assert not page.start_btn.isEnabled()
     page.close()
 
+
+def test_tx_queue_stop_keeps_tracking_the_file_already_in_firmware(qapp, tmp_path):
+    paths = [tmp_path / name for name in ("first.bin", "second.bin")]
+    for path in paths:
+        path.write_bytes(b"file")
+    started = []
+    state = SimpleNamespace(
+        mode="physical", serial_connected=True, session_history=[],
+        status_text="Ready", progress_percent=0,
+        transmission_queue=[
+            {"filename": path.name, "filepath": str(path), "size": "4 B", "status": "Queued"}
+            for path in paths
+        ],
+        start_transmission=lambda path: started.append(path) or True,
+    )
+    page = TransmitPage(state)
+    page._on_start_batch()
+    page.refresh(state)
+    assert started == [str(paths[0])]
+    page._on_start_batch()
+    state.status_text = "Send complete: first.bin"
+    page.refresh(state)
+    page.refresh(state)
+    assert [item["status"] for item in state.transmission_queue] == ["Completed", "Queued"]
+    assert started == [str(paths[0])]
+    page.close()
+
 def test_rx_export_reads_legacy_history_without_deleting_it(qapp, monkeypatch, tmp_path):
     legacy_path = tmp_path / "legacy-history.json"
     original = [{
@@ -693,8 +733,7 @@ def test_rx_export_does_not_overwrite_corrupt_legacy_history(qapp, monkeypatch, 
 
     page = ExportPage()
     assert page._history_corrupt
-    page._history_data.append({"tid": 88, "filename": "must-not-replace.bin"})
-    page._save_history()
+    page.refresh(_completed_export_transfer())
     assert not current_path.exists()
     assert legacy_path.read_text(encoding="utf-8") == original
     page.close()

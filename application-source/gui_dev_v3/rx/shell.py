@@ -148,6 +148,7 @@ class RXShell(QWidget):
         # Build pages
         self._page_widgets: dict[str, QWidget] = {}
         self._build_pages()
+        self.state.subscribe(self._persist_terminal_history)
 
         # Connect navigation
         self.nav.currentRowChanged.connect(self._on_nav_changed)
@@ -291,8 +292,13 @@ class RXShell(QWidget):
     def _refresh_current_page(self) -> None:
         """Call refresh() on the current page if it supports it."""
         current = self.pages.currentWidget()
+        inner = current.widget() if hasattr(current, "widget") else current
+        study_page = self._page_widgets.get("study_data")
+        if isinstance(study_page, StudyDataPage) and inner is not study_page:
+            # History must consume completed receptions even while another
+            # page is visible. StudyDataPage already refreshes its own Export tab.
+            study_page.export_page.refresh(self.state)
         if current is not None:
-            inner = current.widget() if hasattr(current, "widget") else current
             if hasattr(inner, "refresh"):
                 try:
                     inner.refresh(self.state)
@@ -301,6 +307,11 @@ class RXShell(QWidget):
                         pass
                     else:
                         raise e
+
+    def _persist_terminal_history(self, state: RXAppState) -> None:
+        study_page = self._page_widgets.get("study_data")
+        if state.completed_physical_transfers and isinstance(study_page, StudyDataPage):
+            study_page.export_page.refresh(state)
 
     def _on_poll_timer(self) -> None:
         """Poll state and refresh the active page."""
@@ -353,6 +364,9 @@ class RXShell(QWidget):
 
     def cleanup(self) -> None:
         """Stop poll timer and cleanup app state / backends."""
+        if self.state:
+            self.state.cleanup()
+            self.state.unsubscribe(self._persist_terminal_history)
         if hasattr(self, "_timer") and self._timer:
             self._timer.stop()
         if hasattr(self, "_time_timer") and self._time_timer:
@@ -366,9 +380,6 @@ class RXShell(QWidget):
             inner_page = signal_page.widget() if hasattr(signal_page, "widget") else signal_page
             if hasattr(inner_page, "shutdown"):
                 inner_page.shutdown()
-
-        if self.state:
-            self.state.cleanup()
 
     def _on_nav_changed(self, index: int) -> None:
         if 0 <= index < len(SIDEBAR_TABS):

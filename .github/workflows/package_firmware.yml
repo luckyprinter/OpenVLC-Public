@@ -20,23 +20,43 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.version_tag }}
+          ref: refs/tags/${{ inputs.version_tag }}
 
       - name: Package Firmware Directory
+        id: package
+        env:
+          VERSION_TAG: ${{ inputs.version_tag }}
         run: |
-          zip -r VLC-ESP32-Firmware-${{ inputs.version_tag }}.zip \
+          source_sha=$(git rev-parse HEAD)
+          printf 'Checked-out source commit: `%s`\n' "$source_sha" | tee -a "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "$source_sha" > BUILD_COMMIT.txt
+          archive="VLC-ESP32-Firmware-${VERSION_TAG//\//-}.zip"
+          zip -r "$archive" \
             firmware/rx \
             firmware/tx \
             firmware/specs \
             firmware/README.md \
-            firmware/codemap.md
+            firmware/codemap.md \
+            LICENSE BUILD_COMMIT.txt
+          printf 'archive=%s\n' "$archive" >> "$GITHUB_OUTPUT"
 
       - name: Upload Firmware Package to Selected Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_TAG: ${{ inputs.version_tag }}
+          ARCHIVE: ${{ steps.package.outputs.archive }}
         run: |
-          gh release view "${{ inputs.version_tag }}" --repo "${{ github.repository }}"
-          gh release upload "${{ inputs.version_tag }}" \
-            "VLC-ESP32-Firmware-${{ inputs.version_tag }}.zip" \
-            --repo "${{ github.repository }}" \
-            --clobber
+          tag_ref="refs/tags/$VERSION_TAG"
+          tag_refs=$(git ls-remote --exit-code origin "$tag_ref" "$tag_ref^{}")
+          tag_sha=$(awk -v ref="$tag_ref" '
+            $2 == ref { target = $1 }
+            $2 == ref "^{}" { peeled = $1 }
+            END { print peeled ? peeled : target }
+          ' <<< "$tag_refs")
+          build_sha=$(unzip -p "$ARCHIVE" BUILD_COMMIT.txt)
+          if [[ "$build_sha" != "$tag_sha" || -z "$tag_sha" ]]; then
+            printf 'Firmware was packaged at %s, but tag %s resolves to %s\n' "$build_sha" "$VERSION_TAG" "$tag_sha" >&2
+            exit 1
+          fi
+          gh release view --repo "$GITHUB_REPOSITORY" -- "$VERSION_TAG"
+          gh release upload --repo "$GITHUB_REPOSITORY" --clobber -- "$VERSION_TAG" "$ARCHIVE"

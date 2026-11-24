@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
-import json
 import os
-import tempfile
-import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from gui_dev_v3.rx.receiver_storage import (
+    EXPERIMENTS_FILENAME,
+    ReceiverStorageError,
+    lock_state,
+    read_rows,
+    write_json,
+)
+
 
 def _resolve_store_dir() -> Path:
     """Resolve experiment records to the application-owned state directory."""
@@ -20,14 +27,12 @@ def _resolve_store_dir() -> Path:
 
 
 STORE_DIR = _resolve_store_dir()
-STORE_PATH = STORE_DIR / "experiments.json"
-LEGACY_STORE_PATH = Path.home() / ".vlc_rx" / "experiments.json"
-_STORE_LOCK = threading.RLock()
+STORE_PATH = STORE_DIR / EXPERIMENTS_FILENAME
+LEGACY_STORE_PATH = Path.home() / ".vlc_rx" / EXPERIMENTS_FILENAME
 
 
-class ExperimentStoreError(RuntimeError):
+class ExperimentStoreError(ReceiverStorageError):
     """Raised when an unsafe store write would risk existing user data."""
-
 
 
 @dataclass
@@ -41,100 +46,68 @@ class Experiment:
     record_count: int = 0
 
 
-def _read_all() -> tuple[list[dict[str, Any]], bool]:
-    """Return records and whether the existing store is unreadable or malformed."""
-    source_path = STORE_PATH
-    if not source_path.exists() and LEGACY_STORE_PATH.exists():
-        # Read the previous user-owned store without deleting or modifying it.
-        # A subsequent successful save writes the current app-data copy.
-        source_path = LEGACY_STORE_PATH
-    if not source_path.exists():
-        return [], False
-    try:
-        data = json.loads(source_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return [], True
-    required = {"id", "name", "type", "created_at", "notes"}
+def validate_experiments(data: object) -> list[dict[str, Any]]:
+    """Validate stored and imported experiments using the same record schema."""
+    text_fields = {"name", "type", "created_at", "notes"}
+    required = text_fields | {"id"}
     allowed = required | {"record_count"}
     if not isinstance(data, list) or any(
         not isinstance(item, dict)
         or not required.issubset(item)
         or not set(item).issubset(allowed)
-        or not isinstance(item.get("id"), int)
+        or type(item["id"]) is not int
+        or any(not isinstance(item[key], str) for key in text_fields)
+        or type(item.get("record_count", 0)) is not int
         for item in data
     ):
-        return [], True
-    return data, False
+        raise ExperimentStoreError("Invalid experiment records")
+    if len({item["id"] for item in data}) != len(data):
+        raise ExperimentStoreError("Duplicate experiment identifiers")
+    return data
 
 
-def _load_all() -> list[dict[str, Any]]:
-    """Load user-created experiments without disguising corruption as an empty store."""
-    records, corrupt = _read_all()
-    if corrupt:
-        source_path = STORE_PATH if STORE_PATH.exists() else LEGACY_STORE_PATH
-        raise ExperimentStoreError(
-            f"Experiment store is unreadable; existing data was left untouched: {source_path}"
-        )
-    return records
+def read_experiments() -> list[dict[str, Any]]:
+    """Read raw records from either location while the caller holds the database lock."""
+    try:
+        return read_rows(STORE_PATH, LEGACY_STORE_PATH, validate_experiments)
+    except ReceiverStorageError as exc:
+        raise ExperimentStoreError(str(exc)) from exc
 
 
 def _save_all(items: list[dict[str, Any]]) -> None:
-    # Recheck the on-disk file immediately before writing. If it is corrupt,
-    # never replace it with an empty list or a partial reconstruction.
-    with _STORE_LOCK:
-        _existing, corrupt = _read_all()
-        if corrupt:
-            raise ExperimentStoreError(
-                f"Experiment store is unreadable; existing data was left untouched: {STORE_PATH}"
-            )
+    try:
+        write_json(STORE_PATH, validate_experiments(items))
+    except (OSError, ValueError, ReceiverStorageError) as exc:
+        raise ExperimentStoreError(f"Could not save experiment data: {exc}") from exc
 
-        temporary_path: Path | None = None
-        try:
-            STORE_DIR.mkdir(parents=True, exist_ok=True)
-            # A unique same-directory temporary avoids collisions with another
-            # save and keeps os.replace atomic on the destination filesystem.
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
-                dir=STORE_DIR,
-                prefix=".experiments.",
-                suffix=".tmp",
-                delete=False,
-            ) as temporary:
-                temporary_path = Path(temporary.name)
-                json.dump(items, temporary, indent=2)
-                temporary.write("\n")
-                temporary.flush()
-                os.fsync(temporary.fileno())
-            os.replace(temporary_path, STORE_PATH)
-        except OSError as exc:
-            raise ExperimentStoreError(
-                f"Could not save experiment data; existing records were preserved: {exc}"
-            ) from exc
-        finally:
-            if temporary_path is not None and temporary_path.exists():
-                try:
-                    temporary_path.unlink()
-                except OSError:
-                    pass
+
+@contextmanager
+def _experiment_lock():
+    try:
+        with lock_state(STORE_PATH.parent):
+            yield
+    except ExperimentStoreError:
+        raise
+    except ReceiverStorageError as exc:
+        raise ExperimentStoreError(str(exc)) from exc
 
 
 def list_experiments() -> list[Experiment]:
-    with _STORE_LOCK:
-        return [Experiment(**d) for d in _load_all()]
+    with _experiment_lock():
+        return [Experiment(**d) for d in read_experiments()]
 
 
 def get_experiment(exp_id: int) -> Experiment | None:
-    with _STORE_LOCK:
-        for d in _load_all():
+    with _experiment_lock():
+        for d in read_experiments():
             if d["id"] == exp_id:
                 return Experiment(**d)
         return None
 
 
 def create_experiment(name: str, exp_type: str, notes: str) -> Experiment:
-    with _STORE_LOCK:
-        items = _load_all()
+    with _experiment_lock():
+        items = read_experiments()
         next_id = max((d["id"] for d in items), default=0) + 1
         now = time.strftime("%Y-%m-%d %H:%M:%S")
         entry = dict(id=next_id, name=name, type=exp_type,
@@ -145,8 +118,8 @@ def create_experiment(name: str, exp_type: str, notes: str) -> Experiment:
 
 
 def update_experiment(exp_id: int, **kwargs: Any) -> Experiment | None:
-    with _STORE_LOCK:
-        items = _load_all()
+    with _experiment_lock():
+        items = read_experiments()
         for d in items:
             if d["id"] == exp_id:
                 for k, v in kwargs.items():
@@ -158,8 +131,8 @@ def update_experiment(exp_id: int, **kwargs: Any) -> Experiment | None:
 
 
 def delete_experiment(exp_id: int) -> bool:
-    with _STORE_LOCK:
-        items = _load_all()
+    with _experiment_lock():
+        items = read_experiments()
         new_items = [d for d in items if d["id"] != exp_id]
         if len(new_items) == len(items):
             return False

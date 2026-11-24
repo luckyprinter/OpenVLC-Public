@@ -288,6 +288,9 @@ def test_local_udp_simulation_backends_transfer_original_bytes(qapp, tmp_path):
         assert idle.file_size_bytes == idle.total_chunks == 0
         assert rx._tx_connected is True
         assert rx.get_new_samples(0)
+        idle_rx = rx.refresh()
+        assert idle_rx.transfer.quality.crc_status == "Unknown"
+        assert idle_rx.session.signal.strict_ber is None
 
         tx.start_transmission(str(source))
         QTimer.singleShot(800, loop.quit)
@@ -299,6 +302,10 @@ def test_local_udp_simulation_backends_transfer_original_bytes(qapp, tmp_path):
         assert received.parent == tmp_path / "simulation"
         assert received.read_bytes() == payload
         assert transfer.quality.crc_status == "PASS"
+        assert transfer.quality.strict_ber is None
+        assert rx.refresh().capture.ber is None
+        rx.set_expected_file(payload, str(source))
+        assert all(chunk.expected == chunk.received for chunk in rx.refresh().transfer.chunks)
     finally:
         tx.stop()
         rx.cleanup()

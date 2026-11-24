@@ -49,6 +49,9 @@ def _crc16_file(path: Path, block_size: int = 64 * 1024) -> int:
 # tx_non_dma.ino does NOT support these commands → would cause TX_ERROR
 _TX_DMA_BANNER    = "DMA"           # substring present in tx_dma startup banner
 _TX_NON_DMA_CMDS  = frozenset({"DMA_MODE", "PREAMBLE", "CARRIER"})
+_STREAM_SYNC_SYMBOLS = 1 + 64 + 16  # start edge, alternating preamble, sync word
+_STREAM_FRAME_OVERHEAD_BYTES = 22
+_STREAM_ERROR_PREFIX = "TX_STREAM_ERROR:"
 
 
 class TXSerialController(SerialSession):
@@ -65,12 +68,22 @@ class TXSerialController(SerialSession):
         super().__init__(role="tx", on_log=on_log, on_status=on_status)
         # Detected at connection time; None = not yet known
         self._dma_capable: bool | None = None
+        self._stream_timing = (15000, 0, 1)  # symbol Hz, final idle ms, frame gap ms
+
+    def connect(self, device: str, expected_role: str = "") -> bool:
+        self._dma_capable = None
+        self._stream_timing = (15000, 0, 1)
+        return super().connect(device, expected_role)
 
     # ── Firmware capability detection ────────────────────────────────────────
 
     def handle_line(self, line: str) -> None:
         """Parse firmware lines for capability detection and progress updates."""
         self.log(line)
+        if line.startswith("TX 4B5B CONFIG:"):
+            timing = dict(re.findall(r"(?:^|, )(FREQ|GAP|FGAP)=(\d+)", line))
+            if len(timing) == 3 and int(timing["FREQ"]) >= 100:
+                self._stream_timing = tuple(int(timing[key]) for key in ("FREQ", "GAP", "FGAP"))
 
         # Detect DMA capability from the startup banner
         # tx_dma.ino:     "=== LiFi 4B5B TX Stream Ready ===" + has DMA_ handlers
@@ -118,6 +131,9 @@ class TXSerialController(SerialSession):
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("tx")
         dma_mode = mgr.get("link/dma_mode", False)
+        if not (100 <= freq <= 0x7FFFFFFF and 0 <= gap <= 0x7FFFFFFF and 0 <= fgap <= 0x7FFFFFFF):
+            self.status("Settings apply failed", "TX timing values are outside firmware bounds", state="error")
+            return False
 
         commands = [
             "MODE=4B5B",
@@ -139,6 +155,8 @@ class TXSerialController(SerialSession):
 
         commands.append("CONFIG?")
         for cmd in commands:
+            if cmd == "CONFIG?":
+                self._stream_timing = (freq, gap, fgap)
             if not self.send_line(cmd):
                 self.status(
                     "Settings apply failed",
@@ -181,6 +199,9 @@ class TXSerialController(SerialSession):
 
         file_stat = path.stat()
         file_size = file_stat.st_size
+        if not file_size:
+            self.status("Send failed", "The ESP32 protocol requires a nonempty file", state="error")
+            return False
         file_signature = (file_stat.st_size, file_stat.st_mtime_ns)
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("tx")
@@ -192,21 +213,19 @@ class TXSerialController(SerialSession):
         chunk_size = max(16, min(int(chunk_bytes), 1024))
         round_count = max(1, int(rounds))
 
-        if not use_dma and file_size > MAX_STREAM_FILE_BYTES:
-            group_id = random.randint(1, 65535)
-            full_crc = _crc16_file(path)
-            if (path.stat().st_size, path.stat().st_mtime_ns) != file_signature:
-                self.status("File changed", "The selected file changed while its checksum was being calculated", state="error")
-                return False
-            part_size, part_count = plan_stream_parts(
-                file_size, chunk_size, max_file_bytes=MAX_STREAM_FILE_BYTES
-            )
+        part_size, part_count = plan_stream_parts(file_size, chunk_size, max_file_bytes=MAX_STREAM_FILE_BYTES)
+        if not use_dma and part_count > 1:
             if part_count > MAX_BATCH_PARTS:
                 self.status(
                     "File too large",
                     f"Requires {part_count} parts; firmware limit is {MAX_BATCH_PARTS}",
                     state="error",
                 )
+                return False
+            group_id = random.randint(1, 65535)
+            full_crc = _crc16_file(path)
+            if (path.stat().st_size, path.stat().st_mtime_ns) != file_signature:
+                self.status("File changed", "The selected file changed while its checksum was being calculated", state="error")
                 return False
 
             # Validate the longest metadata prefix before sending any part.
@@ -283,7 +302,9 @@ class TXSerialController(SerialSession):
                             f"Waiting {delay_s:.1f}s for RX buffer...",
                             state="active",
                         )
-                        time.sleep(delay_s)
+                        if self._wait_between_parts(delay_s):
+                            self.status("Send failed", "Transmitter disconnected between batch parts", state="error")
+                            return False
 
             elapsed_total = max(0.001, time.monotonic() - batch_started)
             data_rate = f"{(file_size * 8 / elapsed_total):.0f} bps"
@@ -332,8 +353,11 @@ class TXSerialController(SerialSession):
 
         if use_dma:
             return self._send_dma(path, data, name_bytes, chunk_size, tid, file_crc)
-        else:
-            return self._send_stream(path, data, name_bytes, chunk_size, tid, file_crc, round_count)
+        return self._send_stream(path, data, name_bytes, chunk_size, tid, file_crc, round_count)
+
+    def _wait_between_parts(self, delay_s: float) -> bool:
+        """Wait for RX to process the part. Return early when TX disconnects."""
+        return self._disconnected.wait(delay_s)
 
     # ── DMA protocol (tx_dma.ino) ────────────────────────────────────────────
 
@@ -443,6 +467,32 @@ class TXSerialController(SerialSession):
 
     # ── STREAM protocol (tx_non_dma.ino and tx_dma.ino) ─────────────────────
 
+    def _stream_response(self, expected: re.Pattern[str], timeout: float, start: int) -> str | None:
+        return self.wait_for_line_matching(
+            lambda line: expected.fullmatch(line) is not None or line.startswith(_STREAM_ERROR_PREFIX),
+            timeout,
+            start,
+        )
+
+    def _stream_failed(self, response: str | None, detail: str) -> bool:
+        if response and not response.startswith(_STREAM_ERROR_PREFIX):
+            return False
+        if response:
+            error = response.removeprefix(_STREAM_ERROR_PREFIX)
+            stage = "CRC Failure" if error.startswith("file_crc:") else "Send failed"
+            self.status(stage, error, state="error")
+        else:
+            self.status("Send failed", detail if self.is_connected else "Transmitter disconnected", state="error")
+        return True
+
+    def _stream_round_seconds(self, chunks: int, chunk_size: int, name_length: int) -> float:
+        symbol_hz, idle_ms, gap_ms = self._stream_timing
+        frames = chunks + 1  # one notice, then data frames with final padding enabled
+        encoded_bytes = frames * (_STREAM_FRAME_OVERHEAD_BYTES + name_length) + chunks * chunk_size
+        symbols = frames * _STREAM_SYNC_SYMBOLS + 10 * encoded_bytes
+        symbol_us = max(10, 1_000_000 // symbol_hz)
+        return symbols * symbol_us / 1_000_000 + (2 * frames * gap_ms + idle_ms) / 1000
+
     def _send_stream(
         self,
         path: Path,
@@ -468,32 +518,37 @@ class TXSerialController(SerialSession):
             file_name=path.name, size=len(data), tid=tid,
             chunk=0, total_chunks=tot_c,
         )
-        self.send_line("STREAM_CLEAR")
+        if not self.send_line("STREAM_CLEAR"):
+            self.status("Send failed", "Could not clear ESP32 preload buffer", state="error")
+            return False
 
         si = self.line_counter
         if not self.send_line(begin):
             return False
-        if not self.wait_for_line_containing("TX_STREAM_BEGIN_OK", 5.0, si):
-            self.status("Send failed", "TX did not acknowledge STREAM_BEGIN", state="error")
+        begin_ack = re.compile(rf"TX_STREAM_BEGIN_OK:{tid}:mode=[^:]+:size={len(data)}:chunk={chunk_size}:chunks={tot_c}")
+        if self._stream_failed(self._stream_response(begin_ack, 5.0, si), "TX did not acknowledge STREAM_BEGIN"):
             return False
 
         total = max(1, len(data))
+        done_ack = re.compile(rf"TX_STREAM_DONE:{tid}:{tot_c}")
+        est_seconds = self._stream_round_seconds(tot_c, chunk_size, len(name_bytes))
+        # Allow host and firmware overhead without capping valid slow transfers.
+        timeout = est_seconds + max(12.0, min(60.0, est_seconds * 0.1))
         try:
             for offset in range(0, len(data), STREAM_SERIAL_BLOCK):
                 block = data[offset: offset + STREAM_SERIAL_BLOCK]
                 si    = self.line_counter
                 if not self.send_line(f"STREAM_DATA:{offset}:{block.hex().upper()}"):
                     return False
-                if not self.wait_for_line_containing("TX_STREAM_DATA_OK", 5.0, si):
-                    self.status(
-                        "Send failed",
-                        f"TX did not acknowledge data block at offset {offset}",
-                        state="error",
-                    )
+                loaded = offset + len(block)
+                data_ack = re.compile(rf"TX_STREAM_DATA_OK:{tid}:{loaded}:{len(data)}")
+                if self._stream_failed(
+                    self._stream_response(data_ack, 5.0, si),
+                    f"TX did not acknowledge data block at offset {offset}",
+                ):
                     return False
-                percent = min(95.0, ((offset + len(block)) / total) * 100.0)
+                percent = min(95.0, (loaded / total) * 100.0)
                 current_c = offset // chunk_size
-                tot_c = max(1, (len(data) + chunk_size - 1) // chunk_size)
                 self.status("Preloading", path.name, percent=percent, state="active", chunk=current_c, total_chunks=tot_c)
 
             for round_index in range(round_count):
@@ -511,19 +566,11 @@ class TXSerialController(SerialSession):
                     chunk=tot_c, total_chunks=tot_c,
                 )
                 
-                # Estimate optical transmission time: 4B5B = 10 bits per data byte
-                from gui_dev_v3.settings import SettingsManager
-                mgr = SettingsManager("tx")
-                symbol_hz = int(mgr.get("link/symbol_hz", 15000))
-                est_seconds = (len(data) * 10) / max(1, symbol_hz)
-                
                 start_t = time.monotonic()
-                timeout = max(12.0, min(180.0, est_seconds * 3 + 10.0))
-                done = False
-                
-                while time.monotonic() - start_t < timeout:
-                    if self.wait_for_line_containing("TX_STREAM_DONE", timeout=0.1, start_counter=si):
-                        done = True
+                response = None
+                while self.is_connected and time.monotonic() - start_t < timeout:
+                    response = self._stream_response(done_ack, 0.25, si)
+                    if response is not None:
                         break
                         
                     elapsed = time.monotonic() - start_t
@@ -551,12 +598,7 @@ class TXSerialController(SerialSession):
                         chunk=tot_c, total_chunks=tot_c,
                     )
                     
-                if not done:
-                    self.status(
-                        "Send failed",
-                        f"TX did not finish optical round {round_index + 1}",
-                        state="error",
-                    )
+                if self._stream_failed(response, f"TX did not finish optical round {round_index + 1}"):
                     return False
 
         except Exception as exc:

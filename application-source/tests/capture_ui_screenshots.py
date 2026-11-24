@@ -3,19 +3,20 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from PySide6.QtCore import QPoint, Qt
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
 from gui_dev_v3.app import VLCMainWindow, load_bundled_fonts
 
 
 SCALE_LABEL = os.environ.get("OPENVLC_SCREENSHOT_SCALE", "1.0").replace(".", "p")
-OUTPUT_DIR = Path("ui-screenshots") / f"scale-{SCALE_LABEL}"
+OUTPUT_DIR = Path(os.environ.get("OPENVLC_SCREENSHOT_DIR", "ui-screenshots")) / f"scale-{SCALE_LABEL}"
 WINDOW_SIZES = ((1366, 768), (1280, 720), (1024, 700), (680, 500))
 PAGES = {
     "tx": {"dashboard": 0, "transmit": 1, "file_manager": 2, "logs": 3, "settings": 4},
@@ -207,6 +208,32 @@ def validate_page_geometry(mode: str, page_name: str, shell, width: int, height:
                         )
 
 
+def save_window(window: VLCMainWindow, filename: str) -> None:
+    target = OUTPUT_DIR / filename
+    if not window.grab().save(str(target), "PNG"):
+        raise RuntimeError(f"Could not save screenshot: {target}")
+    print(f"Captured {target}", flush=True)
+
+
+def validate_settings_section(mode, label, settings_page, width, height) -> None:
+    scroll = settings_page._stack.currentWidget()
+    viewport = scroll.viewport()
+    section = settings_page._sections[settings_page._stack.currentIndex()][1]
+    if label == "Diagnostics & Logs":
+        actions = {"Review Local Data", "Export Local Data", "Delete Local Data"}
+        for button in section.findChildren(QPushButton):
+            if button.text() in actions:
+                right = button.mapTo(viewport, QPoint(button.width(), 0)).x()
+                if right > viewport.width() + 1:
+                    raise RuntimeError(f"{mode.upper()} {button.text()} is clipped at {width}x{height}")
+    elif mode == "tx" and label == "Hardware Connection":
+        force = next(button for button in section.findChildren(QPushButton) if button.text() == "Force Connect")
+        force_bottom = force.mapTo(section, force.rect().bottomLeft()).y()
+        auto_connect = next(item for item in section.findChildren(QLabel) if item.text() == "Auto Connect On Startup")
+        if force_bottom >= auto_connect.mapTo(section, QPoint()).y():
+            raise RuntimeError(f"TX serial actions overlap auto-connect at {width}x{height}")
+
+
 def main() -> int:
     app = QApplication.instance() or QApplication([])
     app.setStyle("Fusion")
@@ -226,9 +253,9 @@ def main() -> int:
         for width, height in WINDOW_SIZES:
             window.resize(width, height)
             app.processEvents()
-            if (width, height) == (680, 500) and (window.width(), window.height()) != (width, height):
+            if (window.width(), window.height()) != (width, height):
                 raise RuntimeError(
-                    "Compact screenshot target was silently clamped: "
+                    "Screenshot target was silently clamped: "
                     f"requested={width}x{height}, actual={window.width()}x{window.height()}"
                 )
 
@@ -252,11 +279,23 @@ def main() -> int:
                 app.processEvents()
                 validate_page_geometry(mode, page_name, shell, width, height)
 
-                filename = f"{mode}_{page_name}_{width}x{height}.png"
-                target = OUTPUT_DIR / filename
-                if not window.grab().save(str(target), "PNG"):
-                    raise RuntimeError(f"Could not save screenshot: {target}")
-                print(f"Captured {target}", flush=True)
+                save_window(window, f"{mode}_{page_name}_{width}x{height}.png")
+
+                if page_name == "settings":
+                    settings_page = shell._page_widgets["settings"]
+                    for section_index, (label, _) in enumerate(settings_page._sections):
+                        item = settings_page._nav_list.item(section_index)
+                        if item.isHidden():
+                            continue
+                        settings_page._nav_list.setCurrentRow(section_index)
+                        app.processEvents()
+                        if settings_page._stack.currentIndex() != section_index:
+                            raise RuntimeError(f"Could not open {mode.upper()} settings: {label}")
+                        validate_settings_section(mode, label, settings_page, width, height)
+                        section_name = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
+                        save_window(window, f"{mode}_settings_{section_name}_{width}x{height}.png")
+                    settings_page._nav_list.setCurrentRow(0)
+                    app.processEvents()
 
                 # Study & Data is a nested tab page. Capture each inner tab
                 # explicitly so Export and Table Builder receive the same
@@ -291,12 +330,11 @@ def main() -> int:
                                     f"RX Export history columns overflow without usable "
                                     f"horizontal scrolling at {width}x{height}"
                                 )
-                        inner_target = OUTPUT_DIR / (
-                            f"rx_study_data_{inner_name}_{width}x{height}.png"
-                        )
-                        if not window.grab().save(str(inner_target), "PNG"):
-                            raise RuntimeError(f"Could not save screenshot: {inner_target}")
-                        print(f"Captured {inner_target}", flush=True)
+                            table_bottom = history_table.mapTo(export_page, history_table.rect().bottomLeft()).y()
+                            actions_top = export_page.open_file_btn.mapTo(export_page, QPoint()).y()
+                            if table_bottom >= actions_top:
+                                raise RuntimeError(f"RX Export history overlaps its file actions at {width}x{height}")
+                        save_window(window, f"rx_study_data_{inner_name}_{width}x{height}.png")
                     inner_tabs.setCurrentIndex(0)
                     app.processEvents()
 

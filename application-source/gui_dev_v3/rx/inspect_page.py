@@ -333,9 +333,7 @@ class InspectPage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._last_tid = -1
-        self._last_chunk_count = -1
-        self._last_expected_path = ""
+        self._refresh_key: tuple | None = None
         self._current_chunks: list[ChunkRecord] = []
         self._compact_layout = False
 
@@ -495,30 +493,33 @@ class InspectPage(QWidget):
         """Refresh page metrics, health map, and explorers from state."""
         transfer = state.transfer
 
-        # Dirty check: skip heavy operations if the transfer has not updated
         expected_path = state.expected_file_path or ""
-        if transfer.tid == self._last_tid and len(transfer.chunks) == self._last_chunk_count and expected_path == self._last_expected_path:
+        reference_size = None
+        if expected_path:
+            try:
+                reference_size = os.path.getsize(expected_path)
+            except OSError:
+                pass
+        refresh_key = (
+            transfer.capture_id, transfer.tid, transfer.received_path,
+            transfer.filename, transfer.status, transfer.size_bytes,
+            transfer.total_chunks, len(transfer.chunks), expected_path, reference_size,
+        )
+        if refresh_key == self._refresh_key:
             return
 
-        self._last_tid = transfer.tid
-        self._last_chunk_count = len(transfer.chunks)
-        self._last_expected_path = expected_path
+        self._refresh_key = refresh_key
         self._current_chunks = transfer.chunks
         self._legend_row.setVisible(bool(self._current_chunks))
 
         # Method 2 requires the original reference file selected by the user.
         if expected_path:
-            try:
-                reference_size = os.path.getsize(expected_path)
-            except OSError:
-                reference_size = None
             size_label = f" ({reference_size:,} B)" if reference_size is not None else " (file unavailable)"
             self.ref_status_lbl.setText(
                 f"Original reference: {os.path.basename(expected_path)}{size_label}"
             )
-            self.ref_status_lbl.setStyleSheet(
-                "font-weight: 600; font-size: 11px; color: #22c55e;"
-            )
+            reference_color = "#22c55e" if reference_size is not None else "#ef4444"
+            self.ref_status_lbl.setStyleSheet(f"font-weight: 600; font-size: 11px; color: {reference_color};")
         else:
             self.ref_status_lbl.setText(
                 "No original reference loaded — Method 2 BER is unavailable"

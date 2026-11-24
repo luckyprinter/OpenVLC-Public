@@ -1,6 +1,16 @@
 import pytest
 from gui_dev_v3.logic.batch_assembler import BatchAssembler
 
+
+def test_stages_only_incomplete_parts_and_removes_them_when_group_expires(tmp_path):
+    assembler = BatchAssembler(ttl_seconds=5, staging_root=tmp_path)
+    assert _add(assembler, 1, b"partial", now=1) is None
+    staged_files = [path for path in tmp_path.rglob("*") if path.is_file()]
+    assert len(staged_files) == 1
+    assert staged_files[0].read_bytes() == b"partial"
+    assert assembler.prune_expired(now=7) == ["g"]
+    assert not list(tmp_path.iterdir())
+
 def _add(a, idx, data, now=1, tid=None, crc=True):
     return a.add_part(group_id="g", part_index=idx, part_count=2, full_crc=0x1234,
         filename="capture.bin", part_data=data, part_crc_ok=crc, part_chunks=1,
@@ -10,14 +20,18 @@ def test_reassembles_out_of_order():
     a=BatchAssembler()
     assert _add(a,2,b"b") is None
     result=_add(a,1,b"a",now=2)
-    assert result["data"]==b"ab" and result["total_chunks"]==2
+    with result.staging:
+        assert b"".join(result.blocks()) == b"ab"
+        assert result.total_chunks == 2
     assert a.pending_count==0
 
 def test_identical_duplicate_is_idempotent():
     a=BatchAssembler()
     _add(a,1,b"a")
     assert _add(a,1,b"a",now=2,tid=99) is None
-    assert _add(a,2,b"b",now=3)["data"]==b"ab"
+    result = _add(a, 2, b"b", now=3)
+    with result.staging:
+        assert b"".join(result.blocks()) == b"ab"
 
 def test_conflicting_duplicate_discards_group():
     a=BatchAssembler()
@@ -105,7 +119,8 @@ def test_concurrent_parts_are_serialized_and_assembled_once():
 
     completed = [result for result in results if result is not None]
     assert len(completed) == 1
-    assert completed[0]["data"] == b"firstsecond"
+    with completed[0].staging:
+        assert b"".join(completed[0].blocks()) == b"firstsecond"
     assert assembler.pending_count == 0
 
 

@@ -1,10 +1,270 @@
 import pytest
+from binascii import crc_hqx
 
 from gui_dev_v3 import logger
 from gui_dev_v3.models import TransferStatus
 from gui_dev_v3.rx.backends import physical
 from gui_dev_v3.rx.backends.physical import RXPhysicalBackend
 
+
+def _firmware_dump(tid, payload, *, count=1, name="capture.bin"):
+    return (
+        f"RX_FILE_HEX:{tid}:1:{len(payload)}:{count}:{crc_hqx(payload, 0xFFFF):04X}:"
+        f"{name.encode().hex()}:{payload.hex()}"
+    )
+
+
+def test_physical_reader_reassembles_maximum_dump_and_recovers_after_overlong_line(tmp_path):
+    backend = RXPhysicalBackend()
+    backend._save_dir = tmp_path
+    payload = bytes(range(256)) * 320
+    dump = (_firmware_dump(7, payload, count=320) + "\r\n").encode()
+    reads = iter([
+        *(b"?" * 4096 for _ in range(43)), b"RX Ready\n",  # overlong record's tail
+        dump[:500], b"", *(dump[i:i + 4096] for i in range(500, len(dump), 4096)),
+        b"RX Ready\n",
+    ])
+
+    class FragmentedSerial:
+        is_open = True
+        in_waiting = 4096
+
+        def read(self, size):
+            assert 1 <= size <= 4096
+            data = next(reads, None)
+            if data is None:
+                backend._reader_stop.set()
+                return b""
+            assert len(data) <= size
+            return data
+
+        def readline(self):
+            return self.read(4096)
+
+    backend._ser = FragmentedSerial()
+    backend._serial_reader_loop()
+
+    assert (tmp_path / "capture.bin").read_bytes() == payload
+    assert backend._ready_event.is_set()
+    assert sum(entry["event"] == "RX Serial Framing" for entry in backend._log_queue) == 1
+
+
+def test_physical_timeout_finalizes_matching_transfer_without_ber(tmp_path, monkeypatch):
+    backend = RXPhysicalBackend()
+    backend._save_dir = tmp_path
+    monkeypatch.setattr(backend, "scan_ports", lambda: [])
+    backend._dispatch_line("RX_TRANSFER_NOTICE:7:512:4:1234:636170747572652e62696e")
+    backend._dispatch_line("RX_RAM_STORE:7:0:1:4")
+    backend._dispatch_line("RX_RAM_TIMEOUT:6:received=3:total=4")
+    assert backend._active_tid == 7
+
+    backend._dispatch_line("RX_RAM_TIMEOUT:7:received=2:total=4")
+
+    stalled = backend._build_from_lq({})
+    assert stalled.transfer.status == TransferStatus.STALLED
+    assert stalled.transfer.received_chunks == 2
+    assert stalled.transfer.total_chunks == 4
+    assert stalled.transfer.quality.missing_chunks == 2
+    assert stalled.session.progress_percent == 50
+    assert stalled.transfer.received_path is None
+    assert stalled.transfer.quality.strict_ber is None
+    assert backend._active_tid is None
+
+    backend._dispatch_line(_firmware_dump(8, b"following transfer"))
+    assert backend._build_from_lq({}).transfer.status == TransferStatus.COMPLETE
+
+
+def test_sync_failure_is_reported_separately_from_a_real_lock():
+    backend = RXPhysicalBackend()
+    backend._dispatch_line("noiseRX_4B5B_SYNC_FAIL")
+    backend._dispatch_line("RX_4B5B_SYNC:inverted")
+    assert [entry["event"] for entry in backend._log_queue] == ["SYNC FAIL", "SYNC"]
+
+
+def test_notice_less_dump_uses_its_own_chunk_count_after_other_transfer(tmp_path):
+    backend = RXPhysicalBackend()
+    backend._save_dir = tmp_path
+    first = bytes(range(64))
+    backend._dispatch_line(
+        f"RX_TRANSFER_NOTICE:7:64:4:{crc_hqx(first, 0xFFFF):04X}:66697273742e62696e"
+    )
+    backend._dispatch_line(_firmware_dump(7, first, count=4, name="first.bin"))
+    backend._dispatch_line(_firmware_dump(8, b"next", name="second.bin"))
+
+    record = backend._last_completed_transfer
+    assert record.tid == 8
+    assert record.total_chunks == record.received_chunks == 1
+    assert (tmp_path / "second.bin").read_bytes() == b"next"
+
+
+def test_self_consistent_dump_cannot_override_conflicting_notice(tmp_path):
+    backend = RXPhysicalBackend()
+    backend._save_dir = tmp_path
+    backend._dispatch_line("RX_TRANSFER_NOTICE:7:16:1:1234:66697273742e62696e")
+    backend._dispatch_line(_firmware_dump(7, b"wrong identity", name="first.bin"))
+
+    rejected = backend._last_completed_transfer
+    assert rejected.status == physical.TransferStatus.STALLED
+    assert rejected.received_path is None
+    assert backend._active_tid is None
+    assert not list(tmp_path.iterdir())
+
+
+def test_physical_refresh_drains_fast_terminal_records_without_lq(tmp_path, monkeypatch):
+    backend = RXPhysicalBackend()
+    backend._save_dir = tmp_path
+    backend._connected = True
+    monkeypatch.setattr(physical, "read_status", lambda _role: None)
+    monkeypatch.setattr(backend, "scan_ports", lambda: [])
+    backend._ser = type("OpenSerial", (), {"closed": False})()
+    monkeypatch.setattr(backend, "_poll_lq", lambda: None)
+    first = b"first result"
+    second = b"second result"
+
+    for payload in (first, second):
+        backend._dispatch_line(
+            f"RX_TRANSFER_NOTICE:7:{len(payload)}:1:{crc_hqx(payload, 0xFFFF):04X}:"
+            "636170747572652e62696e"
+        )
+        backend._dispatch_line(_firmware_dump(7, payload))
+
+    snapshot = backend.refresh()
+    assert snapshot.transfer == snapshot.completed_transfers[-1]
+    assert [item.received_bytes for item in snapshot.completed_transfers] == [12, 13]
+    assert all(item.capture_id and item.duration_seconds is not None for item in snapshot.completed_transfers)
+    assert len({item.capture_id for item in snapshot.completed_transfers}) == 2
+    assert backend.refresh().completed_transfers == ()
+
+
+def test_physical_refresh_emits_only_new_observed_analog_for_active_capture(monkeypatch):
+    backend = RXPhysicalBackend()
+    backend._connected = True
+    monkeypatch.setattr(physical, "read_status", lambda _role: None)
+    monkeypatch.setattr(backend, "scan_ports", lambda: [])
+    backend._ser = type("OpenSerial", (), {"closed": False})()
+    monkeypatch.setattr(backend, "_poll_lq", lambda: {"SIGNAL": 2.4, "VREF": 2.0, "MARGIN": 0.4})
+    backend._dispatch_line("RX_TRANSFER_NOTICE:7:512:4:1234:636170747572652e62696e")
+    assert backend.refresh().analog_sample is None
+
+    backend._dispatch_line("LQ,SIGNAL=2.4,VREF=2.0,MARGIN=0.4")
+
+    snapshot = backend.refresh()
+    capture_id, elapsed, pvo, vref, margin = snapshot.analog_sample
+    assert capture_id == snapshot.transfer.capture_id
+    assert elapsed >= 0 and (pvo, vref, margin) == (2.4, 2.0, 0.4)
+    assert backend.refresh().analog_sample is None
+
+
+def test_physical_disconnects_finalize_interrupted_capture(monkeypatch):
+    backend = RXPhysicalBackend()
+    backend._connected = True
+    monkeypatch.setattr(physical, "write_status", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(physical, "read_status", lambda _role: None)
+    monkeypatch.setattr(backend, "scan_ports", lambda: [])
+    monkeypatch.setattr(backend, "_poll_lq", lambda: None)
+
+    class OpenPort:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    for disconnect in ("manual", "unplugged"):
+        serial = OpenPort()
+        backend._ser = serial
+        backend._connected = True
+        backend._reader_stop.clear()
+        backend._dispatch_line("RX_TRANSFER_NOTICE:7:512:4:1234:636170747572652e62696e")
+        backend._dispatch_line("RX_RAM_STORE:7:0:1:4")
+        active = backend.refresh().transfer
+
+        if disconnect == "manual":
+            backend.disconnect()
+        else:
+            backend._mark_serial_lost(serial, OSError("USB unplugged"))
+
+        snapshot = backend.refresh()
+        terminal, = snapshot.completed_transfers
+        assert snapshot.transfer == terminal
+        assert terminal.capture_id == active.capture_id
+        assert terminal.status == TransferStatus.STALLED
+        assert terminal.received_chunks == 1
+        assert terminal.quality.missing_chunks == 3
+        assert terminal.received_bytes is None
+
+
+def test_new_notice_preserves_interrupted_capture_as_stalled(monkeypatch):
+    backend = RXPhysicalBackend()
+    monkeypatch.setattr(backend, "scan_ports", lambda: [])
+    backend._dispatch_line("RX_TRANSFER_NOTICE:7:512:4:1234:6f6c642e62696e")
+    backend._dispatch_line("RX_RAM_STORE:7:0:1:4")
+    active = backend._build_from_lq({}).transfer
+
+    backend._dispatch_line("RX_TRANSFER_NOTICE:8:128:1:1234:6e65772e62696e")
+
+    assert backend._last_completed_transfer.capture_id == active.capture_id
+    assert backend._last_completed_transfer.status == TransferStatus.STALLED
+    assert backend._last_completed_transfer.received_chunks == 1
+    assert backend._build_from_lq({}).transfer.tid == 8
+
+
+def test_physical_batch_with_bad_full_crc_does_not_publish_file(tmp_path):
+    backend = RXPhysicalBackend()
+    backend._save_dir = tmp_path
+    for index, payload in ((1, b"first"), (2, b"second")):
+        backend._dispatch_line(_firmware_dump(
+            index, payload, name=f"VLCB1~group~{index}~2~0000~batch.bin",
+        ))
+
+    record = backend._last_completed_transfer
+    assert record.status == TransferStatus.CRC_FAILED
+    assert record.received_path is None
+    assert record.quality.strict_ber is None
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("with_notice", [True, False])
+def test_physical_dump_crc_mismatch_has_terminal_failure_without_payload(tmp_path, with_notice):
+    backend = RXPhysicalBackend()
+    backend._save_dir = tmp_path
+    if with_notice:
+        backend._dispatch_line("RX_TRANSFER_NOTICE:7:5:1:0000:636170747572652e62696e")
+    backend._dispatch_line("RX_FILE_HEX:7:1:5:1:0000:636170747572652e62696e:6162636465")
+
+    record = backend._last_completed_transfer
+    assert record.status == TransferStatus.CRC_FAILED
+    assert record.quality.crc_status == "FAIL"
+    assert record.quality.strict_ber is None
+    assert record.received_path is None
+    assert record.received_bytes is None
+    assert not list(tmp_path.iterdir())
+
+
+def test_physical_receive_page_previews_saved_file_without_retaining_payload(tmp_path):
+    from PySide6.QtWidgets import QApplication
+    from types import SimpleNamespace
+    from gui_dev_v3.rx.receive_page import ReceivePage
+
+    app = QApplication.instance() or QApplication([])
+    backend = RXPhysicalBackend()
+    backend._save_dir = tmp_path
+    payload = b"start" + b"x" * (80 * 1024 - 9) + b"tail"
+    backend._dispatch_line(_firmware_dump(7, payload, count=320))
+    record = backend._last_completed_transfer
+    assert record.chunks == []
+
+    page = ReceivePage()
+    page.refresh(SimpleNamespace(
+        transfer=record, serial_connected=True, is_receiving=False, progress_percent=100,
+    ))
+
+    preview = page.terminal.toPlainText()
+    assert preview.startswith("start")
+    assert "tail" not in preview
+    assert "Preview limited" in preview
+    assert len(preview) < len(payload)
+    page.close()
+    app.processEvents()
 
 def test_firmware_crc_failure_does_not_invent_ber(monkeypatch):
     monkeypatch.setattr(logger, "file_log", lambda *_args, **_kwargs: None)
@@ -232,7 +492,7 @@ def test_bad_batch_part_crc_discards_pending_group_and_active_state(
     assert backend._active_filename == ""
     assert backend._active_started_monotonic is None
     assert not list(tmp_path.iterdir())
-    assert backend._last_completed_transfer is None
+    assert backend._last_completed_transfer.status == TransferStatus.CRC_FAILED
 
 
 def test_refresh_expires_incomplete_batches_without_new_fragments(monkeypatch):
@@ -602,13 +862,87 @@ def test_atomic_received_file_write_persists_complete_bytes(tmp_path):
     assert not list(tmp_path.glob(".rx-*.tmp"))
 
 
+def test_received_publication_preserves_an_existing_destination(tmp_path):
+    existing = tmp_path / "capture.bin"
+    existing.write_bytes(b"existing")
+
+    saved = physical._atomic_save_received_file(tmp_path, existing.name, b"new payload")
+
+    assert existing.read_bytes() == b"existing"
+    assert saved.name == "capture_1.bin"
+    assert saved.read_bytes() == b"new payload"
+
+
+def test_valid_payload_storage_error_preserves_crc_and_reports_terminal_failure(monkeypatch, tmp_path):
+    backend = RXPhysicalBackend()
+    backend._save_dir = tmp_path
+    name = b"file.bin".hex()
+    backend._dispatch_line(f"RX_TRANSFER_NOTICE:23:9:1:29B1:{name}")
+    capture_id = backend._active_capture_id
+
+    def fail_write(*_args, **_kwargs):
+        raise OSError("Storage unavailable")
+
+    monkeypatch.setattr(physical, "_atomic_save_received_file", fail_write)
+    backend._dispatch_line(f"RX_FILE_HEX:23:DATA:9:1:29B1:{name}:{b'123456789'.hex()}")
+
+    terminal = backend._last_completed_transfer
+    assert terminal.status == physical.TransferStatus.STALLED
+    assert terminal.quality.crc_status == "PASS"
+    assert terminal.capture_id == capture_id
+    assert terminal.received_path is None
+    assert backend._active_tid is None
+
+
+def test_dump_confirmation_reconciles_a_missing_payload(monkeypatch):
+    backend = RXPhysicalBackend()
+    monkeypatch.setattr(physical, "write_status", lambda *_args, **_kwargs: True)
+    name = b"file.bin".hex()
+    backend._dispatch_line(f"RX_TRANSFER_NOTICE:23:9:1:29B1:{name}")
+    backend._dispatch_line("RX_FILE_DUMPED:22:9")
+    assert backend._active_tid == 23
+
+    backend._dispatch_line("RX_FILE_DUMPED:23:9")
+
+    assert backend._active_tid is None
+    assert backend._last_completed_transfer.status == physical.TransferStatus.STALLED
+    assert backend._last_completed_transfer.received_path is None
+
+
+def test_close_does_not_clear_reader_owned_transfer_until_reader_stops():
+    backend = RXPhysicalBackend()
+    name = b"file.bin".hex()
+    backend._dispatch_line(f"RX_TRANSFER_NOTICE:23:9:1:29B1:{name}")
+    capture_id = backend._active_capture_id
+
+    class Reader:
+        alive = True
+
+        def is_alive(self):
+            return self.alive
+
+        def join(self, timeout):
+            pass
+
+    reader = Reader()
+    backend._reader_thread = reader
+    assert backend._close_serial() is False
+    assert backend._active_capture_id == capture_id
+    assert backend._last_completed_transfer is None
+
+    reader.alive = False
+    assert backend._close_serial() is True
+    assert backend._last_completed_transfer.capture_id == capture_id
+    assert backend._last_completed_transfer.status == physical.TransferStatus.STALLED
+
+
 def test_atomic_received_file_write_failure_leaves_no_partial_destination(
     tmp_path, monkeypatch
 ):
     def fail_replace(_source, _destination):
         raise OSError("simulated disk failure")
 
-    monkeypatch.setattr(physical.os, "replace", fail_replace)
+    monkeypatch.setattr(physical.os, "rename" if physical.os.name == "nt" else "link", fail_replace)
 
     try:
         physical._atomic_save_received_file(tmp_path, "capture.bin", b"payload")

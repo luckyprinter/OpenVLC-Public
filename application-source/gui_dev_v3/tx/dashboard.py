@@ -346,7 +346,7 @@ class FileDetailsWidget(Card):
         self.row_size = _DetailRow("Size", "—")
         self.row_chunks = _DetailRow("Chunk Count", "—")
         self.row_time = _DetailRow("Est. Duration", "—")
-        self.row_crc = _DetailRow("CRC Status", "Pending", val_color=COLORS["amber"])
+        self.row_crc = _DetailRow("Transmission Status", "Idle", val_color=COLORS["amber"])
         
         self.body.addWidget(self.row_name)
         self.body.addWidget(self.row_size)
@@ -389,9 +389,10 @@ class FileDetailsWidget(Card):
         self.row_chunks.setValue(str(state.total_chunks) if state.total_chunks > 0 else "—")
         
         status_lower = (state.status_text or "").lower()
-        is_transmitting = "transmitting" in status_lower and "complete" not in status_lower and "failed" not in status_lower
+        is_transmitting = status_lower.startswith("transmitting")
+        is_complete = status_lower.startswith(("send complete:", "batch complete:", "complete"))
         
-        if "complete" in status_lower:
+        if is_complete:
             self.row_time.lbl.setText("Transmission Time")
             self.row_time.setValue(state.elapsed_time if state.elapsed_time not in ("00:00:00", "", None) else "—")
         else:
@@ -401,17 +402,19 @@ class FileDetailsWidget(Card):
             self.row_time.setValue(est if est and est != "00:00:00" else "—")
         
         if is_transmitting:
-            self.row_crc.setValue("Verifying (CRC-16)", COLORS["amber"])
-        elif "complete" in status_lower:
-            self.row_crc.setValue("SUCCESS (CRC OK)", COLORS["green"])
-        elif "failed" in status_lower or "send failed" in status_lower:
-            self.row_crc.setValue("FAILED (CRC Error)", COLORS["red"])
+            self.row_crc.setValue("Transmitting", COLORS["amber"])
+        elif is_complete:
+            self.row_crc.setValue("Transmission complete", COLORS["green"])
+        elif status_lower.startswith(("crc failure", "crc mismatch")):
+            self.row_crc.setValue("TX preload CRC failed", COLORS["red"])
+        elif status_lower.startswith(("send failed:", "failed")):
+            self.row_crc.setValue("Transmission failed", COLORS["red"])
         elif status_lower.startswith("selected") or "idle" in status_lower or not status_lower:
             self.row_crc.setValue("Idle", COLORS["muted"])
         else:
             self.row_crc.setValue("Idle", COLORS["muted"])
             
-        has_selected_file = bool(state.filename)
+        has_selected_file = bool(state.filename and state.filename != "No file")
         self.start_btn.setEnabled(
             has_selected_file and not is_transmitting and state.serial_connected
         )

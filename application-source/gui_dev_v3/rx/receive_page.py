@@ -2,14 +2,38 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QBoxLayout, QLabel, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget, QSizePolicy
 
 from gui_dev_v3.app_state import RXAppState
-from gui_dev_v3.models import TransferStatus
+from gui_dev_v3.models import TransferRecord, TransferStatus
 from gui_dev_v3.theme import COLORS
 from gui_dev_v3.widgets import Card, ProgressBar, muted_label, value_label, panel_header
 from gui_dev_v3.ui_foundation import PageIntro
+
+
+PREVIEW_BYTES = 64 * 1024
+
+
+def _payload_preview(transfer: TransferRecord) -> str:
+    if transfer.received_path:
+        try:
+            with Path(transfer.received_path).open("rb") as payload:
+                preview = payload.read(PREVIEW_BYTES + 1)
+        except OSError:
+            return "Payload preview unavailable."
+    else:
+        preview = bytearray()
+        for chunk in sorted(transfer.chunks, key=lambda item: item.index):
+            preview.extend(chunk.received[:PREVIEW_BYTES + 1 - len(preview)])
+            if len(preview) > PREVIEW_BYTES:
+                break
+    text = preview[:PREVIEW_BYTES].decode("utf-8", errors="replace")
+    if len(preview) > PREVIEW_BYTES:
+        text += f"\n\n[Preview limited to {PREVIEW_BYTES:,} bytes]"
+    return text
 
 
 class ReceivePage(QWidget):
@@ -233,21 +257,7 @@ class ReceivePage(QWidget):
         self.progress_bar._percent = state.progress_percent
         self.progress_bar.update()
 
-        # Update terminal text
-        # Decode the received payload for the file preview
-        # We look at accumulated received bytes or construct a preview from received chunks
-        decoded_text = ""
-        # Sort chunks by index
-        valid_chunks = [c for c in transfer.chunks if c.received]
-        if valid_chunks:
-            # Sort by index
-            valid_chunks.sort(key=lambda x: x.index)
-            payload_bytes = b"".join(c.received for c in valid_chunks)
-            try:
-                decoded_text = payload_bytes.decode("utf-8", errors="replace")
-            except Exception:
-                decoded_text = f"[Binary data: {len(payload_bytes)} bytes]"
-        
+        decoded_text = _payload_preview(transfer)
         if decoded_text != self._last_text:
             self._last_text = decoded_text
             self.terminal.setPlainText(decoded_text)

@@ -1,4 +1,7 @@
 from __future__ import annotations
+
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
@@ -18,14 +21,17 @@ from gui_dev_v3.widgets import Card, muted_label, value_label, panel_header
 from gui_dev_v3.theme import COLORS
 from gui_dev_v3.logic.ber_bridge import compare_files
 
+
+def _file_version(path: Path) -> tuple[int, int, int, int, int]:
+    stat = path.stat()
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+
+
 class BERAnalyzerPage(QWidget):
     """Dedicated tab for comparing received files against reference files and analyzing BER."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._last_tid = -1
-        self._last_chunk_count = -1
-        self._last_expected_path = ""
         self._comparison_key: tuple | None = None
         self._comparison_result: dict | None = None
         
@@ -123,8 +129,6 @@ class BERAnalyzerPage(QWidget):
 
     def refresh(self, state: RXAppState) -> None:
         """Show Method 2 only when both real files are available."""
-        from pathlib import Path
-
         expected_path = Path(state.expected_file_path) if state.expected_file_path else None
         transfer = state.transfer
         received_path = Path(transfer.received_path) if transfer.received_path else None
@@ -158,16 +162,20 @@ class BERAnalyzerPage(QWidget):
             return
 
         try:
-            expected_stat = expected_path.stat()
-            received_stat = received_path.stat()
+            expected_version = _file_version(expected_path)
+            received_version = _file_version(received_path)
+            if expected_version[:2] == received_version[:2]:
+                raise ValueError("Select the original file under Inspect as the reference")
             comparison_key = (
-                str(expected_path.resolve()), expected_stat.st_size, expected_stat.st_mtime_ns,
-                str(received_path.resolve()), received_stat.st_size, received_stat.st_mtime_ns,
+                state.mode, transfer.tid, transfer.capture_id,
+                str(expected_path), expected_version, str(received_path), received_version,
             )
             if comparison_key == self._comparison_key and self._comparison_result is not None:
                 result = self._comparison_result
             else:
                 result = compare_files(expected_path, received_path, mismatch_limit=50)
+                if (_file_version(expected_path), _file_version(received_path)) != (expected_version, received_version):
+                    raise ValueError("Reference or received file changed during comparison")
                 self._comparison_key = comparison_key
                 self._comparison_result = result
         except (OSError, ValueError) as exc:
@@ -175,15 +183,17 @@ class BERAnalyzerPage(QWidget):
             self._comparison_result = None
             self._clear_results()
             self.lbl_ber.setText("Unavailable")
-            self.ref_label.setText(f"Comparison unavailable: {str(exc)[:100]}")
+            self.ref_label.setText(f"Comparison unavailable ({str(exc)[:100]})")
             self.ref_label.setStyleSheet(
                 "font-weight: 600; font-size: 12px; color: #ef4444;"
             )
             return
 
-        # Store Method 2 on the matching completed capture. CRC status remains
-        # independent and is never used to infer BER.
-        state.set_method2_comparison(transfer.tid, result)
+        state.set_method2_comparison(
+            transfer.tid, result,
+            capture_id=transfer.capture_id,
+            received_path=transfer.received_path,
+        )
 
         self.lbl_compared.setText(
             f"{result['overlap_bytes']:,} / {result['expected_bytes']:,} B"

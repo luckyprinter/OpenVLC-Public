@@ -1,7 +1,10 @@
 """Method 2 file-comparison regression tests."""
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+import pytest
 
 from gui_dev_v3.logic.ber_bridge import compare_files
 
@@ -72,3 +75,24 @@ def test_compare_files_returns_unavailable_ber_for_two_empty_files(
     assert result["strict_ber"] is None
     assert result["bit_accuracy"] is None
     assert result["first_mismatch"] is None
+
+
+def test_compare_files_rejects_a_replaced_input_with_same_size_and_mtime(tmp_path, monkeypatch):
+    expected = tmp_path / "expected.bin"
+    received = tmp_path / "received.bin"
+    replacement = tmp_path / "replacement.bin"
+    expected.write_bytes(b"abcd")
+    received.write_bytes(b"abcd")
+    replacement.write_bytes(b"wxyz")
+    original = received.stat()
+    os.utime(replacement, ns=(original.st_atime_ns, original.st_mtime_ns))
+    open_path = Path.open
+
+    def replace_before_read(path, *args, **kwargs):
+        if path == expected:
+            replacement.replace(received)
+        return open_path(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", replace_before_read)
+    with pytest.raises(OSError, match="changed during BER comparison"):
+        compare_files(expected, received)

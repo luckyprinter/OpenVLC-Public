@@ -56,6 +56,7 @@ class TXPhysicalBackend:
             on_log=self._controller_log,
         )
         self._transmission_thread: threading.Thread | None = None
+        self._transmission_lock = threading.Lock()
         # Auto-connect runs off the GUI thread so serial discovery cannot freeze the UI.
         self._connect_thread: threading.Thread | None = None
         self._connecting: bool = False
@@ -156,7 +157,7 @@ class TXPhysicalBackend:
 
     def _auto_connect_locked(self) -> bool:
         """Perform discovery and persistent connection while holding the shared lock."""
-        if self._shutting_down:
+        if self._shutting_down or self.is_transmitting:
             return False
         ports = self.scan_ports()
         # Keep TX's saved preference separate from RX's and fall back to all
@@ -222,7 +223,7 @@ class TXPhysicalBackend:
             return False
 
     def _connect_locked(self, port: str, force: bool = False) -> bool:
-        if self._shutting_down:
+        if self._shutting_down or self.is_transmitting:
             return False
         if not force:
             self.log("Connect", f"Detecting firmware on {port}...")
@@ -325,7 +326,7 @@ class TXPhysicalBackend:
 
     def send_command(self, cmd: str) -> bool:
         """Write cmd string over serial."""
-        if not self._connected:
+        if not self._connected or self.is_transmitting:
             return False
         return self._controller.send_line(cmd.strip())
 
@@ -335,9 +336,10 @@ class TXPhysicalBackend:
         
         # When a transmission completes, freeze the final metrics so idle
         # polls don't overwrite elapsed_time / data_rate with defaults.
-        if stage == "Send complete":
+        if stage in {"Send complete", "Batch complete"}:
             self._completion_pending = True
             self._last_completion = {
+                "status_text":  f"{stage}: {payload.get('detail', '')}",
                 "elapsed_time": payload.get("elapsed_time", "00:00:00"),
                 "data_rate":    payload.get("data_rate", "0 bps"),
                 "file_name":    payload.get("file_name", self._active_file),
@@ -373,22 +375,52 @@ class TXPhysicalBackend:
 
         self._latest_status.update(payload)
         
-    def start_transmission(self, filepath: str) -> None:
-        if self._shutting_down or not self._connected or not self._port:
-            return
-            
-        path = Path(filepath)
-        self._active_file = path.name
-        self._active_transfer_started = time.monotonic()
-        self._transfer_diag_recorded = False
-        
-        # Run in background to prevent GUI freeze
-        self._transmission_thread = threading.Thread(
-            target=self._controller.send_file,
-            args=(path,),
-            daemon=True
-        )
-        self._transmission_thread.start()
+    @property
+    def is_transmitting(self) -> bool:
+        worker = self._transmission_thread
+        return worker is not None and worker.is_alive()
+
+    def start_transmission(self, filepath: str) -> bool:
+        from gui_dev_v3.settings import SettingsManager
+
+        with self._transmission_lock:
+            if self._shutting_down or not self._connected or not self._port or self.is_transmitting:
+                return False
+            chunk_size = SettingsManager("tx").get("transmission/chunk_size", 512)
+            try:
+                chunk_size = int(chunk_size)
+            except (TypeError, ValueError, OverflowError):
+                chunk_size = 512
+            if chunk_size not in {64, 128, 256, 512, 1024}:
+                chunk_size = 512
+            path = Path(filepath)
+            self._active_file = path.name
+            self._active_transfer_started = time.monotonic()
+            self._transfer_diag_recorded = False
+            self._completion_pending = False
+            self._latest_status = {
+                "stage": "Preparing", "state": "active", "file_name": path.name,
+                "chunk_size": chunk_size,
+            }
+            self._transmission_thread = threading.Thread(
+                target=self._send_file,
+                args=(path, chunk_size),
+                daemon=True,
+                name="tx-optical-transfer",
+            )
+            self._transmission_thread.start()
+            return True
+
+    def _send_file(self, path: Path, chunk_size: int) -> None:
+        try:
+            if self._controller.send_file(path, chunk_bytes=chunk_size):
+                return
+            if self._latest_status.get("stage") in {"Send failed", "CRC Failure"}:
+                return
+            detail = str(self._latest_status.get("detail") or "Transmission interrupted")
+        except (OSError, ValueError, OverflowError) as exc:
+            detail = str(exc)
+        self._on_serial_status({"stage": "Send failed", "state": "error", "detail": detail})
 
     def apply_link_settings(self) -> bool:
         """Apply saved settings and report partial/complete application accurately.
@@ -397,7 +429,7 @@ class TXPhysicalBackend:
         reached firmware. Keep the connection available on a settings failure,
         but log the exact failed stage and return False to callers.
         """
-        if not self._connected or not self._controller.is_connected:
+        if not self._connected or not self._controller.is_connected or self.is_transmitting:
             return False
         from gui_dev_v3.settings import SettingsManager
         mgr = SettingsManager("tx")
@@ -539,14 +571,18 @@ class TXPhysicalBackend:
             filetype=_guess_filetype(filename),
             file_size_bytes=int(self._latest_status.get("size", 0)),
             total_chunks=int(self._latest_status.get("total_chunks", 0)),
-            chunk_size=256,
+            chunk_size=int(self._latest_status.get("chunk_size", 512)),
             encoding="4B5B",
             modulation="NRZ / OOK",
             symbol_rate="15,000 sym/s",
             led_pin=5,
             tx_power="100 %",
             pre_emphasis="Disabled",
-            status_text=f"Transmitting: {stage} - {detail}" if stage in ("Preparing", "Preloading", "Sending", "Streaming DMA", "Preparing DMA") else f"{stage}: {detail}",
+            status_text=(
+                f"Transmitting: {stage} - {detail}"
+                if self.is_transmitting and stage not in {"Send complete", "Batch complete"}
+                else f"{stage}: {detail}"
+            ),
             progress_percent=int(percent),
             current_chunk=int(self._latest_status.get("chunk", 0)),
             # Use frozen completion metrics if available and current stage is idle/complete
@@ -571,7 +607,7 @@ class TXPhysicalBackend:
         
         # Ensure that 'Send complete' is guaranteed to be seen by the GUI at least once
         if getattr(self, "_completion_pending", False) and self._last_completion:
-            snapshot.status_text = f"Send complete: {self._last_completion.get('file_name', '')}"
+            snapshot.status_text = self._last_completion["status_text"]
             snapshot.elapsed_time = self._last_completion.get("elapsed_time", "00:00:00")
             snapshot.data_rate = self._last_completion.get("data_rate", "0 bps")
             snapshot.current_chunk = self._last_completion.get("chunk", 0)

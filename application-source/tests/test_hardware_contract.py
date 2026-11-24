@@ -143,7 +143,7 @@ def test_non_dma_large_file_batching_uses_configured_chunk_and_rounds(
             return default
 
     monkeypatch.setattr(settings, "SettingsManager", FakeSettingsManager)
-    monkeypatch.setattr("gui_dev_v3.serial.controllers.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(TXSerialController, "_wait_between_parts", lambda *_args: False)
 
     file_path = tmp_path / "large.bin"
     file_path.write_bytes(b"\xA5" * (MAX_STREAM_FILE_BYTES + 1))

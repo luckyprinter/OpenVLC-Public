@@ -96,7 +96,7 @@ def test_theme_picker_reverts_live_preview_when_json_save_fails(monkeypatch):
 
     applied = []
     monkeypatch.setattr(settings_store, "load_settings", lambda: FakeAppSettings())
-    monkeypatch.setattr(settings_store, "save_settings", lambda _settings: False)
+    monkeypatch.setattr(settings_store, "update_settings", lambda **_changes: False)
     monkeypatch.setattr(settings, "apply_theme", lambda **kwargs: applied.append(kwargs["theme"]))
     picker = FakePicker()
 

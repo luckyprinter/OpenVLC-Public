@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QBoxLayout, QWidget, QPushButton, QSizePolicy
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QSizePolicy
 
 from gui_dev_v3.settings import (
     BrowseButton,
@@ -188,9 +188,7 @@ class HardwareConnectionPage(QWidget):
         bind_radio_group(mode_group, mgr, "connection/mode", "Auto Detect (Recommended)")
         self.opts_card.body.addWidget(mode_group)
 
-        self._port_row_compact = True
-        port_layout = QBoxLayout(QBoxLayout.Direction.TopToBottom)
-        self._port_layout = port_layout
+        port_layout = QVBoxLayout()
         port_layout.setSpacing(8)
         self.port_combo = ComboSetting([], "")
         self.port_combo.setMinimumWidth(0)
@@ -279,10 +277,14 @@ class HardwareConnectionPage(QWidget):
                 )
         force_btn.clicked.connect(_on_force_connect)
         
-        port_layout.addWidget(QLabel("Target Port:"))
-        port_layout.addWidget(self.port_combo, 1)
-        port_layout.addWidget(refresh_btn)
-        port_layout.addWidget(force_btn)
+        selector = QHBoxLayout()
+        selector.addWidget(QLabel("Target Port:"))
+        selector.addWidget(self.port_combo, 1)
+        port_layout.addLayout(selector)
+        actions = QHBoxLayout()
+        actions.addWidget(refresh_btn)
+        actions.addWidget(force_btn)
+        port_layout.addLayout(actions)
         self.opts_card.body.addLayout(port_layout)
 
         auto_conn = RadioNodeSetting(True)
@@ -316,19 +318,6 @@ class HardwareConnectionPage(QWidget):
         lo.addStretch(1)
 
 
-
-    def resizeEvent(self, event) -> None:  # type: ignore[override]
-        """Keep the port selector and connection actions reachable at narrow widths."""
-        super().resizeEvent(event)
-        compact = self.width() < 700
-        if compact == self._port_row_compact:
-            return
-        self._port_row_compact = compact
-        self._port_layout.setDirection(
-            QBoxLayout.Direction.TopToBottom
-            if compact else QBoxLayout.Direction.LeftToRight
-        )
-        self._port_layout.setSpacing(8 if compact else 6)
 
     def refresh(self, state: TXAppState) -> None:
         if state is None:
@@ -388,7 +377,7 @@ class TXSettingsPage(QWidget):
         self.chunk_combo = ComboSetting(chunk_items, chunk_val)
         bind_combo(self.chunk_combo, mgr, "transmission/chunk_size", chunk_val)
         self.chunk_combo.currentTextChanged.connect(lambda v: mgr.set("transmission/chunk_size", int(v)))
-        params_card.body.addWidget(SettingRow("Default Chunk Size", self.chunk_combo, "Size of each data chunk in bytes. 512 is recommended. Must match ESP32 DMA buffer limits."))
+        params_card.body.addWidget(SettingRow("Default Chunk Size", self.chunk_combo, "Size of each optical data chunk in bytes. 512 is recommended."))
 
         delay_spin = FreeformSpinSetting(0, rec_min=0, rec_max=9999, suffix="ms")
         bind_spin(delay_spin, mgr, "transmission/delay", 0)
@@ -408,11 +397,11 @@ class TXSettingsPage(QWidget):
         
         self.gap_set = FreeformSpinSetting(0, rec_min=0, rec_max=10000, suffix="ms")
         bind_spin(self.gap_set, mgr, "link/post_frame_idle_ms", 0)
-        self.link_card.body.addWidget(SettingRow("Post-Frame Idle", self.gap_set, "Optional millisecond delay after a frame completes before the next can begin."))
+        self.link_card.body.addWidget(SettingRow("Final-Frame Idle", self.gap_set, "Additional idle time after the last optical frame of each round."))
         
         self.fgap_set = FreeformSpinSetting(1, rec_min=0, rec_max=1000, suffix="ms")
         bind_spin(self.fgap_set, mgr, "link/frame_gap_ms", 1)
-        self.link_card.body.addWidget(SettingRow("Frame Gap", self.fgap_set, "Millisecond gap injected between the preamble and payload of a frame."))
+        self.link_card.body.addWidget(SettingRow("Frame Gap", self.fgap_set, "Idle time before and after each optical frame."))
         
         self.active_low_set = RadioNodeSetting(True)
         bind_radio_node(self.active_low_set, mgr, "link/active_low", True)

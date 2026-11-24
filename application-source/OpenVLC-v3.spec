@@ -58,9 +58,14 @@ def collect_runtime_license_files():
 
 
 datas += collect_runtime_license_files()
-notices_file = Path(SPECPATH).resolve() / 'THIRD_PARTY_NOTICES.md'
-if notices_file.is_file():
-    datas.append((str(notices_file), '.'))
+source_dir = Path(SPECPATH).resolve()
+font_dir = Path('gui_dev_v3/assets/fonts')
+datas += [
+    (str(source_dir / font_dir), str(font_dir)),
+    (str(source_dir / 'third-party-licenses'), 'third_party_licenses/upstream'),
+    (str(source_dir / 'THIRD_PARTY_NOTICES.md'), '.'),
+    (str(source_dir.parent / 'LICENSE'), '.'),
+]
 
 a = Analysis(
     ['run_v3.py'],

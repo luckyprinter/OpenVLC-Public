@@ -81,7 +81,7 @@ python run_v3.py --tx
 
 ### Run Smoke Tests and Automated Tests
 
-The smoke test checks that the application can initialize. The automated test suite also checks hardware contracts and serial behavior.
+The smoke test checks that Qt registers the bundled fonts, the app opens the transmitter and receiver consoles, and both consoles shut down cleanly. If a required step fails, the process exits with a nonzero status. The automated test suite also checks hardware contracts and serial behavior.
 
 ```bash
 python run_v3.py --smoke-test
@@ -100,7 +100,7 @@ pip install -r requirements-build.txt
 pyinstaller OpenVLC-v3.spec --clean
 ```
 
-The built executable will be in `dist/OpenVLC-v3/`.
+The built executable will be in `dist/OpenVLC-v3/`. The `_internal/` directory contains the project `LICENSE`, third-party notices, and license texts for the bundled fonts and runtime dependencies.
 
 ### Linux-specific Build Dependencies
 
@@ -162,6 +162,6 @@ See the [LICENSE](../LICENSE) file in the root of the repository for the complet
 
 ---
 
-**Built for:** ESP32-based Visible Light Communication (VLC) / LiFi Research  
-**Framework:** PySide6 6.10.1+  
-**Python:** 3.10+
+- ESP32-based Visible Light Communication (VLC) and LiFi research
+- PySide6 6.10.1
+- Python 3.12 or newer

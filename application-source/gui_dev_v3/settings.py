@@ -854,7 +854,7 @@ class ThemePickerGrid(QWidget):
 
 def bind_theme_picker(picker: ThemePickerGrid, mgr: SettingsManager, key: str = "general/theme", default: str = "midnight_navy") -> None:
     """Load initial theme from settings and save on change."""
-    from gui_dev_v3.settings_store import load_settings, save_settings
+    from gui_dev_v3.settings_store import load_settings, update_settings
     app_settings = load_settings()
     saved = str(app_settings.theme or default)
     saved_theme = saved
@@ -862,9 +862,7 @@ def bind_theme_picker(picker: ThemePickerGrid, mgr: SettingsManager, key: str = 
     def _on_theme_changed(k: str) -> None:
         nonlocal saved_theme
         previous = saved_theme
-        latest_settings = load_settings()
-        latest_settings.theme = k  # type: ignore[assignment]
-        if not save_settings(latest_settings):
+        if not update_settings(theme=k):
             # The live preview is not a saved preference. Revert it so the
             # screen cannot imply that a failed write will survive restart.
             apply_theme(theme=previous)

@@ -8,7 +8,7 @@ Each transmitted frame contains:
 |---|---|
 | Start-of-frame byte | Frame delimiter |
 | Version | Protocol version |
-| Transfer ID | Unique transfer identifier |
+| Transfer ID | 16-bit firmware identifier. Host captures use a separate identity because firmware IDs can recur. |
 | Frame type | Data, control, or end marker |
 | Total size | Total payload size in bytes |
 | Total chunks | Number of chunks for the transfer |
@@ -32,15 +32,20 @@ Each transmitted frame contains:
 
 ## Bit Error Rate (BER) Testing
 
-For BER testing, the system does not use deterministic seeded payloads. Instead, the RX GUI compares the received data (whether complete or incomplete) directly against a local copy of the original data file stored on the receiver laptop to perform a bit-by-bit comparison and compute the BER value.
+Method 2 uses a bit-by-bit comparison of the reconstructed file and an operator-selected copy of the original. The strict comparison counts each missing or extra byte as eight bit errors. A CRC result reports frame or file integrity independently of BER. When there is no reconstructed payload or no usable reference, Method 2 is unavailable. The current receiver reports chunk counts at timeout and discards partial RAM data, so there is no partial payload to compare in that case.
+
+## Timing and telemetry
+
+The shipped transmitter uses an initial edge, 64 alternating preamble symbols and a 16-symbol sync word, followed by ten 4B5B symbols per frame byte. It sends one notice and then the data frames. An optional pad fills the final payload chunk. The configured frame gap precedes and follows each frame. Final-frame idle adds another delay after the last frame. `TX_STREAM_DONE` means the TX emitted an optical round. It conveys no receiver acknowledgment.
+
+RX link-quality messages report low-rate PVo and Vref voltages and their margin. The shipped firmware does not stream symbol-rate comparator samples, so these messages support a voltage trend and no raw OOK waveform or calibrated lux measurement.
 
 ## Batched Transfer Format
 
-For files exceeding the 80 KiB firmware buffer:
+When a file requires more than 80 KiB or 512 chunks in one stream, TX adds batch metadata to each part's filename:
 
 ```
-VLCB1~<original_filename>.<ext>
+VLCB1~<group-id-hex>~<part-index>~<part-count>~<whole-file-crc-hex>~<original-filename>
 ```
 
-The TX GUI splits the file into 80 KiB parts, each transmitted as a separate
-stream. The RX GUI reassembles the complete file after all parts pass CRC.
+Part indexes start at one. The full metadata and original filename must fit in 80 UTF-8 bytes. The receiver validates each part and verifies the whole-file CRC before publishing the reconstructed file.

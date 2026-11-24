@@ -49,7 +49,6 @@ def test_invalid_transfer_plan_inputs(file_size, chunk_size):
 
 def test_tx_batch_send_obeys_firmware_chunk_limit(tmp_path, monkeypatch):
     import gui_dev_v3.settings as settings_module
-    import gui_dev_v3.serial.controllers as controllers_module
     from gui_dev_v3.serial.controllers import TXSerialController
 
     class NoDmaSettings:
@@ -60,7 +59,7 @@ def test_tx_batch_send_obeys_firmware_chunk_limit(tmp_path, monkeypatch):
             return False if key == "link/dma_mode" else default
 
     monkeypatch.setattr(settings_module, "SettingsManager", NoDmaSettings)
-    monkeypatch.setattr(controllers_module.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(TXSerialController, "_wait_between_parts", lambda *_args: False)
     source = tmp_path / "large.bin"
     source.write_bytes(b"x" * 100_000)
 
@@ -83,6 +82,44 @@ def test_tx_batch_send_obeys_firmware_chunk_limit(tmp_path, monkeypatch):
     assert all((len(part) + 15) // 16 <= MAX_STREAM_CHUNKS for part, _, _, _ in sent_parts)
     assert all(len(name) <= 80 for _, name, _, _ in sent_parts)
     assert all(is_batch_part for _, _, _, is_batch_part in sent_parts)
+
+
+@pytest.mark.parametrize(("file_size", "expected_parts"), [(32768, [32768]), (32769, [32768, 1])])
+def test_tx_applies_chunk_limit_even_below_byte_limit(tmp_path, monkeypatch, file_size, expected_parts):
+    from gui_dev_v3.serial import controllers
+
+    source = tmp_path / "payload.bin"
+    source.write_bytes(b"x" * file_size)
+    controller = controllers.TXSerialController()
+    controller._dma_capable = False
+    controller.serial_obj = object()
+    controller.is_connected = True
+    monkeypatch.setattr(controller, "_wait_between_parts", lambda _: False)
+    part_sizes = []
+
+    def capture_part(_path, data, *_args, **_kwargs):
+        part_sizes.append(len(data))
+        return True
+
+    monkeypatch.setattr(controller, "_send_stream", capture_part)
+    assert controller.send_file(source, chunk_bytes=64)
+    assert part_sizes == expected_parts
+
+
+def test_tx_rejects_empty_physical_file_without_preload(tmp_path, monkeypatch):
+    from gui_dev_v3.serial.controllers import TXSerialController
+
+    source = tmp_path / "empty.bin"
+    source.touch()
+    controller = TXSerialController()
+    controller.serial_obj = object()
+    controller.is_connected = True
+
+    def unexpected_preload(*_args, **_kwargs):
+        pytest.fail("An empty file reached the physical protocol")
+
+    monkeypatch.setattr(controller, "_send_stream", unexpected_preload)
+    assert controller.send_file(source) is False
 
 
 def test_tx_rejects_long_filenames_instead_of_truncating(tmp_path, monkeypatch):

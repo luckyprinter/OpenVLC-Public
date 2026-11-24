@@ -4,9 +4,13 @@ import json
 import os
 import tempfile
 import time
-from dataclasses import asdict, dataclass
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Literal
+
+from PySide6.QtCore import QLockFile
 
 from gui_dev_v3.runtime_paths import resolve_user_config_dir
 
@@ -132,9 +136,39 @@ def load_settings() -> AppSettings:
     )
 
 
+@contextmanager
+def _settings_lock() -> Iterator[None]:
+    SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
+    lock = QLockFile(str(SETTINGS_PATH.with_suffix(".lock")))
+    if not lock.tryLock(2000):
+        raise OSError("OpenVLC settings are locked")
+    try:
+        yield
+    finally:
+        lock.unlock()
+
+
 def save_settings(
     settings: AppSettings, *, allow_corrupt_recovery: bool = False
 ) -> bool:
+    """Replace the shared display preferences after acquiring the writer lock."""
+    try:
+        with _settings_lock():
+            return _save_settings(settings, allow_corrupt_recovery=allow_corrupt_recovery)
+    except OSError:
+        return False
+
+
+def update_settings(**changes: object) -> bool:
+    """Merge selected preferences with the latest settings under one lock."""
+    try:
+        with _settings_lock():
+            return _save_settings(replace(load_settings(), **changes))
+    except (OSError, TypeError):
+        return False
+
+
+def _save_settings(settings: AppSettings, *, allow_corrupt_recovery: bool = False) -> bool:
     """Atomically save settings without silently replacing malformed user data.
 
     Normal autosaves refuse to overwrite an unreadable/non-object settings file.
@@ -160,7 +194,6 @@ def save_settings(
 
     temp_path: Path | None = None
     try:
-        SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(
             mode="w",
             encoding="utf-8",

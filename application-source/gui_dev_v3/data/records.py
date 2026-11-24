@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 import json
 import math
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -263,7 +265,19 @@ CAPTURE_DIR = _resolve_capture_dir()
 LEGACY_CAPTURE_DIR = Path.home() / ".vlc_rx" / "captures"
 
 
-def _validate_capture_data(data: Any, expected_tid: int) -> None:
+def _session_capture_path(tid: int, capture_id: str | None) -> Path:
+    if not 0 <= tid <= _MAX_TID:
+        raise ValueError("capture TID is outside its supported range")
+    if capture_id is None:
+        return CAPTURE_DIR / f"session_{tid}.json"
+    if not isinstance(capture_id, str) or not re.fullmatch(r"[a-f0-9]{32}", capture_id):
+        raise ValueError("invalid capture ID")
+    return CAPTURE_DIR / f"session_{tid}_{capture_id}.json"
+
+
+def _validate_capture_data(
+    data: Any, expected_tid: int, expected_capture_id: str | None
+) -> None:
     """Validate persisted capture structure before reading or replacing it."""
     required = {
         "tid", "timestamp", "filename", "ber", "crc_status",
@@ -274,9 +288,17 @@ def _validate_capture_data(data: Any, expected_tid: int) -> None:
         raise ValueError("capture has an invalid structure")
     if int(data["tid"]) != expected_tid:
         raise ValueError("capture TID does not match its filename/request")
+    if data.get("capture_id") != expected_capture_id:
+        raise ValueError("capture ID does not match its filename/request")
     for key in ("timestamp", "filename", "crc_status"):
         if not isinstance(data[key], str):
             raise ValueError(f"capture {key} must be text")
+    for key in ("received_path", "status"):
+        if data.get(key) is not None and not isinstance(data[key], str):
+            raise ValueError(f"capture {key} must be text")
+    received_bytes = data.get("received_bytes")
+    if received_bytes is not None and (type(received_bytes) is not int or received_bytes < 0):
+        raise ValueError("capture received byte count must be a non-negative integer")
 
     for key in ("analog_time", "pvo_samples", "vref_samples", "margin_samples"):
         values = data[key]
@@ -305,29 +327,15 @@ def _validate_capture_data(data: Any, expected_tid: int) -> None:
         not math.isfinite(float(ber)) or not 0.0 <= float(ber) <= 1.0
     ):
         raise ValueError("capture BER must be finite and between zero and one")
-    throughput = float(data["throughput_kbps"])
-    if not math.isfinite(throughput) or throughput < 0.0:
-        raise ValueError("capture throughput must be finite and non-negative")
+    for key in ("throughput_kbps", "duration_seconds"):
+        if data.get(key) is not None:
+            value = float(data[key])
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"capture {key} must be finite and non-negative")
 
 
-def save_session_capture(capture: SessionCapture) -> None:
-    """Atomically save a capture without replacing an unreadable existing file."""
-    from dataclasses import asdict
-
+def _write_session_capture(path: Path, contents: str, *, replace_existing: bool) -> None:
     CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
-    path = CAPTURE_DIR / f"session_{capture.tid}.json"
-
-    if path.exists():
-        try:
-            existing = json.loads(path.read_text(encoding="utf-8"))
-            _validate_capture_data(existing, capture.tid)
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
-            print(
-                f"Refusing to overwrite unreadable session capture {capture.tid}; "
-                f"original data was preserved: {exc}"
-            )
-            return
-
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -339,49 +347,59 @@ def save_session_capture(capture: SessionCapture) -> None:
             delete=False,
         ) as temporary:
             temporary_path = Path(temporary.name)
-            json.dump(asdict(capture), temporary, indent=2)
-            temporary.write("\n")
+            temporary.write(contents)
             temporary.flush()
             os.fsync(temporary.fileno())
-        os.replace(temporary_path, path)
-    except OSError as exc:
-        print(f"Failed to save session capture {capture.tid}: {exc}")
+        if replace_existing:
+            os.replace(temporary_path, path)
+        else:
+            # Publish a complete file without clobbering a concurrently written capture.
+            os.link(temporary_path, path)
     finally:
-        if temporary_path is not None and temporary_path.exists():
-            try:
-                temporary_path.unlink()
-            except OSError:
-                pass
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
-def load_session_capture(tid: int) -> SessionCapture | None:
+def save_session_capture(capture: SessionCapture) -> None:
+    """Atomically save a capture without replacing an unreadable existing file."""
+    try:
+        path = _session_capture_path(capture.tid, capture.capture_id)
+        data = asdict(capture)
+        _validate_capture_data(data, capture.tid, capture.capture_id)
+        if path.exists():
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            _validate_capture_data(existing, capture.tid, capture.capture_id)
+            if capture.capture_id is not None and existing.get("received_path") != capture.received_path:
+                raise ValueError("capture payload path does not match the stored reception")
+        _write_session_capture(path, json.dumps(data, indent=2, allow_nan=False) + "\n", replace_existing=True)
+    except (OSError, TypeError, ValueError, OverflowError) as exc:
+        print(f"Failed to save session capture {capture.tid}: {exc}")
+
+
+def load_session_capture(tid: int, *, capture_id: str | None = None) -> SessionCapture | None:
+    """Read an exact reception or, with a TID alone, an older TID-keyed capture."""
     try:
         requested_tid = int(tid)
-        if requested_tid < 0 or requested_tid > _MAX_TID:
+        path = _session_capture_path(requested_tid, capture_id)
+        source_path = path
+        if capture_id is None and not path.exists():
+            source_path = LEGACY_CAPTURE_DIR / path.name
+        if not source_path.exists():
             return None
-    except (TypeError, ValueError, OverflowError):
-        return None
-
-    path = CAPTURE_DIR / f"session_{requested_tid}.json"
-    legacy_path = LEGACY_CAPTURE_DIR / f"session_{requested_tid}.json"
-    source_path = path if path.exists() else legacy_path
-    if not source_path.exists():
-        return None
-    try:
         raw_text = source_path.read_text(encoding="utf-8")
         data = json.loads(raw_text)
-        _validate_capture_data(data, requested_tid)
-        stored_tid = requested_tid
-        ber_value = float(data["ber"]) if data.get("ber") is not None else None
-        throughput = float(data["throughput_kbps"])
+        _validate_capture_data(data, requested_tid, capture_id)
+        ber = data["ber"]
+        throughput = data["throughput_kbps"]
+        duration = data.get("duration_seconds")
 
         capture = SessionCapture(
-            tid=stored_tid,
-            timestamp=str(data["timestamp"]),
-            filename=str(data["filename"]),
-            ber=ber_value,
-            crc_status=str(data["crc_status"]),
-            throughput_kbps=throughput,
+            tid=requested_tid,
+            timestamp=data["timestamp"],
+            filename=data["filename"],
+            ber=float(ber) if ber is not None else None,
+            crc_status=data["crc_status"],
+            throughput_kbps=float(throughput) if throughput is not None else None,
             analog_time=list(data["analog_time"]),
             pvo_samples=list(data["pvo_samples"]),
             vref_samples=list(data["vref_samples"]),
@@ -389,36 +407,21 @@ def load_session_capture(tid: int) -> SessionCapture | None:
             ook_bits=list(data["ook_bits"]),
             protocol_events=list(data["protocol_events"]),
             ber_method=str(data.get("ber_method", "unavailable")),
+            capture_id=capture_id,
+            received_path=data.get("received_path"),
+            received_bytes=data.get("received_bytes"),
+            duration_seconds=float(duration) if duration is not None else None,
+            status=data.get("status"),
         )
-        if source_path == legacy_path:
-            # Keep the old file intact. Use a unique same-directory temporary
-            # so simultaneous readers cannot collide during legacy migration.
-            temporary_path: Path | None = None
+        if source_path != path:
             try:
-                CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
-                with tempfile.NamedTemporaryFile(
-                    mode="w",
-                    encoding="utf-8",
-                    dir=CAPTURE_DIR,
-                    prefix=f".session_{requested_tid}.",
-                    suffix=".tmp",
-                    delete=False,
-                ) as temporary:
-                    temporary_path = Path(temporary.name)
-                    temporary.write(raw_text)
-                    temporary.flush()
-                    os.fsync(temporary.fileno())
-                os.replace(temporary_path, path)
+                _write_session_capture(path, raw_text, replace_existing=False)
+            except FileExistsError:
+                pass
             except OSError as migration_error:
                 print(f"Could not migrate legacy capture {requested_tid}: {migration_error}")
-            finally:
-                if temporary_path is not None and temporary_path.exists():
-                    try:
-                        temporary_path.unlink()
-                    except OSError:
-                        pass
         return capture
-    except Exception as exc:
-        print(f"Failed to load session capture {requested_tid}: {exc}")
+    except (OSError, TypeError, ValueError, OverflowError) as exc:
+        print(f"Failed to load session capture {tid}: {exc}")
         return None
 

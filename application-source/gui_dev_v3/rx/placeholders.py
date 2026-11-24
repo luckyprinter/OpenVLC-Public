@@ -34,8 +34,9 @@ class AboutPage(QWidget):
 
         card = Card("VLC GUI")
         
-        # Version and Build
-        version_label = muted_label("Version: 1.0.0 | Build: June 2026")
+        from gui_dev_v3.version import VERSION
+
+        version_label = muted_label(f"Version {VERSION}")
         card.body.addWidget(version_label)
         
         # Created by

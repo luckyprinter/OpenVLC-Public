@@ -147,6 +147,8 @@ The source includes transmitter and receiver control, USB serial communication, 
 
 ### Running from Source
 
+Use Python 3.12 or newer.
+
 ```bash
 cd application-source
 pip install -r requirements.txt
@@ -257,16 +259,9 @@ using the ESP32 Arduino core.
 
 ### Application builds
 
-The application build workflow:
+The Build Application workflow tests the pull request merge commit on Windows and Linux, runs the source and packaged smoke tests, and builds desktop ZIP archives. Each job prints its checked-out commit SHA and records that SHA in `BUILD_COMMIT.txt` alongside `LICENSE` in the archive.
 
-1. Checks out the selected release/tag source.
-2. Installs the dependencies from `application-source/requirements.txt`.
-3. Runs the application smoke test.
-4. Builds the PyInstaller application on Windows and Linux.
-5. Packages the resulting applications as ZIP files.
-6. Uploads the packages to the selected GitHub Release.
-
-Release uploads are tied to an explicit release tag and do not depend on a moving `latest` release.
+To verify an exact commit, run Build Application manually with the full SHA in `source_ref`. Leave `release_tag` empty to produce Actions artifacts only. For release uploads, the workflow verifies that both archives identify the commit resolved from the selected release tag. Firmware release archives likewise include `BUILD_COMMIT.txt` and `LICENSE`.
 
 ---
 

@@ -302,6 +302,9 @@ class TXShell(QWidget):
         """Poll state and refresh the active page."""
         self.state.refresh()
         self._update_status_indicators()
+        transmit_page = self._page_widgets.get("transmit")
+        if isinstance(transmit_page, TransmitPage) and transmit_page is not self.pages.currentWidget():
+            transmit_page.advance_batch()
         self._refresh_current_page()
 
     def _build_pages(self) -> None:

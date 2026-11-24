@@ -1,10 +1,14 @@
 """Bounded, validated assembly of multi-part optical file transfers."""
 from __future__ import annotations
+import tempfile
 import time
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from typing import Any
+from pathlib import Path
+from gui_dev_v3.serial.session import MAX_STREAM_FILE_BYTES
 from gui_dev_v3.serial.transfer_plan import MAX_BATCH_PARTS
+
 
 @dataclass
 class _PendingBatch:
@@ -12,23 +16,43 @@ class _PendingBatch:
     part_count: int
     full_crc: int
     filename: str
-    started_monotonic: float
+    started_monotonic: float | None
     last_seen: float
-    parts: dict[int, bytes] = field(default_factory=dict)
+    staging: tempfile.TemporaryDirectory
     chunks: dict[int, int] = field(default_factory=dict)
     tids: dict[int, int] = field(default_factory=dict)
     total_bytes: int = 0
 
+
+@dataclass(frozen=True)
+class CompletedBatch:
+    filename: str
+    full_crc: int
+    staging: tempfile.TemporaryDirectory
+    part_count: int
+    total_bytes: int
+    total_chunks: int
+    last_tid: int
+    started_monotonic: float | None
+
+    def blocks(self) -> Iterator[bytes]:
+        for index in range(1, self.part_count + 1):
+            with (Path(self.staging.name) / str(index)).open("rb") as part:
+                while block := part.read(64 * 1024):
+                    yield block
+
+
 class BatchAssembler:
-    """Assemble parts in index order and reject ambiguous retransmissions."""
+    """Stage bounded parts on disk and reject ambiguous retransmissions."""
     def __init__(self, *, ttl_seconds: float = 300.0, max_pending_batches: int = 2,
                  max_parts: int = MAX_BATCH_PARTS, max_batch_bytes: int = 80 * 1024 * 1024,
-                 max_part_chunks: int = 512) -> None:
+                 max_part_chunks: int = 512, staging_root: Path | None = None) -> None:
         self.ttl_seconds = max(1.0, float(ttl_seconds))
         self.max_pending_batches = max(1, int(max_pending_batches))
         self.max_parts = max(2, int(max_parts))
         self.max_batch_bytes = max(1, int(max_batch_bytes))
         self.max_part_chunks = max(1, int(max_part_chunks))
+        self._staging_root = staging_root
         self._pending: dict[str, _PendingBatch] = {}
         self._lock = threading.RLock()
 
@@ -39,12 +63,18 @@ class BatchAssembler:
 
     def clear(self) -> None:
         with self._lock:
-            self._pending.clear()
+            for group_id in tuple(self._pending):
+                self._discard_unlocked(group_id)
 
     def discard(self, group_id: str) -> None:
         """Discard one incomplete group after a protocol-level failure."""
         with self._lock:
-            self._pending.pop(str(group_id), None)
+            self._discard_unlocked(str(group_id))
+
+    def _discard_unlocked(self, group_id: str) -> None:
+        batch = self._pending.pop(group_id, None)
+        if batch is not None:
+            batch.staging.cleanup()
 
     def prune_expired(self, now: float | None = None) -> list[str]:
         with self._lock:
@@ -52,7 +82,7 @@ class BatchAssembler:
             expired = [key for key, batch in self._pending.items()
                        if current - batch.last_seen > self.ttl_seconds]
             for key in expired:
-                self._pending.pop(key, None)
+                self._discard_unlocked(key)
             return expired
 
     def add_part(
@@ -60,7 +90,7 @@ class BatchAssembler:
         filename: str, part_data: bytes, part_crc_ok: bool, part_chunks: int,
         tid: int, started_monotonic: float | None = None,
         now: float | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> CompletedBatch | None:
         """Thread-safe wrapper around the assembler's state mutation."""
         with self._lock:
             return self._add_part_unlocked(
@@ -91,7 +121,7 @@ class BatchAssembler:
         tid: int,
         started_monotonic: float | None = None,
         now: float | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> CompletedBatch | None:
         current = time.monotonic() if now is None else float(now)
         self.prune_expired(current)
         group_id, filename = str(group_id).strip(), str(filename).strip()
@@ -99,7 +129,7 @@ class BatchAssembler:
         def reject(message: str) -> None:
             # A malformed fragment makes the group ambiguous; do not retain
             # previously accepted parts and accidentally complete it later.
-            self._pending.pop(group_id, None)
+            self._discard_unlocked(group_id)
             raise ValueError(message)
 
         try:
@@ -122,37 +152,44 @@ class BatchAssembler:
             reject("batch part CRC failed")
         if not part_data:
             reject("empty batch parts are invalid")
+        if len(part_data) > MAX_STREAM_FILE_BYTES:
+            reject("batch part exceeds the firmware byte limit")
         batch = self._pending.get(group_id)
         if batch and (batch.part_count != part_count or batch.full_crc != full_crc or batch.filename != filename):
-            self._pending.pop(group_id, None)
-            raise ValueError("batch metadata changed; incomplete group discarded")
+            reject("batch metadata changed; incomplete group discarded")
         if batch is None:
             if len(self._pending) >= self.max_pending_batches:
                 oldest = min(self._pending.values(), key=lambda item: item.last_seen)
-                self._pending.pop(oldest.group_id, None)
-            started = current if started_monotonic is None else float(started_monotonic)
-            batch = _PendingBatch(group_id, part_count, full_crc, filename, started, current)
+                self._discard_unlocked(oldest.group_id)
+            staging = tempfile.TemporaryDirectory(
+                prefix="openvlc-batch-", dir=self._staging_root, ignore_cleanup_errors=True,
+            )
+            batch = _PendingBatch(group_id, part_count, full_crc, filename, None, current, staging)
             self._pending[group_id] = batch
-        previous = batch.parts.get(part_index)
-        if previous is not None:
-            if previous != part_data or batch.chunks[part_index] != part_chunks:
-                self._pending.pop(group_id, None)
-                raise ValueError("conflicting duplicate batch part; group discarded")
-            batch.last_seen = current
-            return None
-        if batch.total_bytes + len(part_data) > self.max_batch_bytes:
-            self._pending.pop(group_id, None)
-            raise ValueError("batch exceeds configured byte limit")
-        batch.parts[part_index] = part_data
+        staged_part = Path(batch.staging.name) / str(part_index)
+        try:
+            if part_index in batch.chunks:
+                if batch.chunks[part_index] != part_chunks or staged_part.read_bytes() != part_data:
+                    reject("conflicting duplicate batch part; group discarded")
+                batch.last_seen = current
+                return None
+            if batch.total_bytes + len(part_data) > self.max_batch_bytes:
+                reject("batch exceeds configured byte limit")
+            staged_part.write_bytes(part_data)
+        except OSError:
+            self._discard_unlocked(group_id)
+            raise
+
+        if part_index == 1:
+            batch.started_monotonic = started_monotonic
         batch.chunks[part_index] = part_chunks
         batch.tids[part_index] = tid
         batch.total_bytes += len(part_data)
         batch.last_seen = current
-        if len(batch.parts) != part_count:
+        if len(batch.chunks) != part_count:
             return None
-        result = {"group_id": group_id, "filename": filename, "full_crc": full_crc,
-                  "data": b"".join(batch.parts[i] for i in range(1, part_count + 1)),
-                  "total_chunks": sum(batch.chunks.values()), "last_tid": batch.tids[part_count],
-                  "started_monotonic": batch.started_monotonic}
         self._pending.pop(group_id, None)
-        return result
+        return CompletedBatch(
+            filename, full_crc, batch.staging, part_count, batch.total_bytes,
+            sum(batch.chunks.values()), batch.tids[part_count], batch.started_monotonic,
+        )

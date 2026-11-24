@@ -19,6 +19,7 @@ class StudyDataPage(QWidget):
         self.experiments_page = ExperimentsPage()
         self.tables_page = TableBuilderPage()
         self.export_page = ExportPage()
+        self.export_page.experiments_restored.connect(self.experiments_page.reload)
 
         self.tabs.addTab(scrollable(self.experiments_page), "Experiments")
         self.tabs.addTab(scrollable(self.tables_page), "Table Builder")

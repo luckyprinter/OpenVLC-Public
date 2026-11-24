@@ -84,6 +84,16 @@ class FakeSerialPort:
             raise OSError("mock USB serial device removed")
         return self._responses.pop(0) if self._responses else b""
 
+    @property
+    def in_waiting(self) -> int:
+        return sum(map(len, list(self._responses)))
+
+    def read(self, size: int) -> bytes:
+        response = self.readline()
+        if len(response) > size:
+            self._responses.insert(0, response[size:])
+        return response[:size]
+
     def reset_input_buffer(self) -> None:
         pass
 
@@ -939,6 +949,41 @@ def test_tx_cleanup_disconnects_then_joins_active_transmission_worker(monkeypatc
     assert backend._transmission_thread is None
 
 
+def test_tx_rejects_second_start_while_active_worker_waits_between_parts(monkeypatch, tmp_path):
+    from gui_dev_v3.tx.backends.physical import TXPhysicalBackend
+
+    backend = TXPhysicalBackend()
+    backend._port = "MOCK_TX"
+    backend._connected = True
+    backend._controller.is_connected = True
+    monkeypatch.setattr(backend, "log", lambda *_args: None)
+    entered = threading.Event()
+    release = threading.Event()
+    sent = []
+
+    def send_file(path, **_kwargs):
+        sent.append(path.name)
+        backend._on_serial_status({"stage": "Batch delay", "state": "active"})
+        entered.set()
+        release.wait(2)
+        return True
+
+    monkeypatch.setattr(backend._controller, "send_file", send_file)
+    try:
+        assert backend.start_transmission(str(tmp_path / "first.bin")) is True
+        assert entered.wait(1)
+        assert backend.refresh().status_text.startswith("Transmitting: Batch delay")
+        assert backend.start_transmission(str(tmp_path / "second.bin")) is False
+        assert sent == ["first.bin"]
+    finally:
+        release.set()
+        if backend._transmission_thread is not None:
+            backend._transmission_thread.join(timeout=2)
+    assert backend.start_transmission(str(tmp_path / "third.bin")) is True
+    backend._transmission_thread.join(timeout=2)
+    assert sent == ["first.bin", "third.bin"]
+
+
 def test_tx_reader_failure_closes_handle_even_when_is_open_property_raises(monkeypatch):
     session = SerialSession("tx")
     closed = []
@@ -966,6 +1011,28 @@ def test_tx_reader_failure_closes_handle_even_when_is_open_property_raises(monke
     assert session.serial_obj is None
     assert session.is_connected is False
     assert session._running is False
+
+
+def test_tx_reader_clears_connection_when_driver_reports_closed(monkeypatch):
+    session = SerialSession("tx")
+    statuses = []
+    monkeypatch.setattr(session, "on_status", statuses.append)
+    monkeypatch.setattr("gui_dev_v3.serial.session.write_status", lambda *_args, **_kwargs: True)
+
+    class ClosedHandle:
+        is_open = False
+
+        def close(self):
+            pass
+
+    session.serial_obj = ClosedHandle()
+    session.is_connected = True
+    session._running = True
+    session._reader_loop()
+
+    assert session.serial_obj is None
+    assert session.is_connected is False
+    assert statuses[-1]["stage"] == "Connection Lost"
 
 
 @pytest.mark.parametrize("failure_path", ["intentional", "unexpected"])

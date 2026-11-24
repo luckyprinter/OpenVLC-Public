@@ -132,9 +132,10 @@ class TXAppState:
             if self._last_status_text != self.status_text:
                 if self.filename and self.filename not in ("No file", "No file transfer"):
                     import time
-                    if "complete" in self.status_text.lower():
+                    status = self.status_text.lower()
+                    if status.startswith(("send complete:", "batch complete:", "complete")):
                         self.session_history.insert(0, {"time": time.strftime("%H:%M:%S"), "file": self.filename, "throughput": self.data_rate, "outcome": "SUCCESS", "chunks": f"{self.total_chunks}/{self.total_chunks}", "duration": f"{self.elapsed_time}"})
-                    elif "failed" in self.status_text.lower():
+                    elif status.startswith(("send failed:", "crc failure:", "failed")):
                         self.session_history.insert(0, {"time": time.strftime("%H:%M:%S"), "file": self.filename, "throughput": self.data_rate, "outcome": "FAILED", "chunks": f"{self.current_chunk}/{self.total_chunks}", "duration": f"{self.elapsed_time}"})
                 self._last_status_text = self.status_text
 
@@ -235,18 +236,20 @@ class TXAppState:
         self.notify()
         return True
 
-    def start_transmission(self, filepath: str) -> None:
+    def start_transmission(self, filepath: str) -> bool:
         """Start a file transmission through the selected backend."""
         if self.mode == "simulated":
             if self._simulation is None:
                 self._simulation = TXSimulationBackend()
             self._simulation.start_transmission(filepath)
+            accepted = True
         else:
             if self._physical is None:
                 self._physical = TXPhysicalBackend()
-            self._physical.start_transmission(filepath)
+            accepted = self._physical.start_transmission(filepath)
         self._refresh()
         self.notify()
+        return accepted
 
     def send_firmware_command(self, cmd: str) -> bool:
         """Send a raw command to physical firmware if active."""
@@ -281,7 +284,7 @@ class TXAppState:
                 quiet_mode=quiet,
             )
             return True
-        if physical is None:
+        if physical is None or getattr(physical, "is_transmitting", False):
             return False
         ctrl = getattr(physical, "_controller", None)
         if ctrl is None or not ctrl.is_connected:

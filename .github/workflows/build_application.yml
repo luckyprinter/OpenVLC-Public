@@ -6,17 +6,18 @@ on:
     paths:
       - 'application-source/**'
       - '.github/workflows/build_application.yml'
+      - 'LICENSE'
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       source_ref:
-        description: 'Git branch, tag, or commit to build (default: main)'
+        description: 'Git branch, tag, or full commit SHA to build (use a SHA for exact verification)'
         required: true
         default: 'main'
         type: string
       release_tag:
-        description: 'Optional existing release tag to receive the build artifacts'
+        description: 'Optional existing release tag that must resolve to the built commit'
         required: false
         type: string
 
@@ -27,7 +28,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -46,7 +47,16 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.source_ref || github.sha }}
+          ref: ${{ github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || inputs.source_ref || github.sha }}
+          persist-credentials: false
+
+      - name: Record Checked-Out Source
+        id: source
+        shell: bash
+        run: |
+          source_sha=$(git rev-parse HEAD)
+          printf 'sha=%s\n' "$source_sha" >> "$GITHUB_OUTPUT"
+          printf 'Checked-out source commit: `%s`\n' "$source_sha" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -75,6 +85,7 @@ jobs:
 
       - name: Run Application Source Smoke Test
         working-directory: application-source
+        timeout-minutes: 2
         env:
           QT_QPA_PLATFORM: offscreen
         run: |
@@ -116,11 +127,11 @@ jobs:
       - name: Run Packaged Application Smoke Test (Linux)
         if: runner.os == 'Linux'
         working-directory: application-source
+        timeout-minutes: 2
         env:
           QT_DEBUG_PLUGINS: '1'
         run: |
-          xvfb-run ./dist/OpenVLC-v3/OpenVLC-v3 --smoke-test 2> smoke_test_err.log
-          if grep -q "Could not find the Qt platform plugin" smoke_test_err.log; then
+          if ! xvfb-run ./dist/OpenVLC-v3/OpenVLC-v3 --smoke-test 2> smoke_test_err.log; then
             cat smoke_test_err.log
             exit 1
           fi
@@ -128,6 +139,7 @@ jobs:
       - name: Run Packaged Application Smoke Test (Windows)
         if: runner.os == 'Windows'
         working-directory: application-source
+        timeout-minutes: 2
         shell: pwsh
         run: |
           $process = Start-Process -FilePath ".\dist\OpenVLC-v3\OpenVLC-v3.exe" -ArgumentList "--smoke-test" -PassThru -Wait -RedirectStandardError "smoke_test_err.log"
@@ -141,6 +153,25 @@ jobs:
             Write-Error "Qt platform plugin error detected"
             exit 1
           }
+
+      - name: Verify Packaged Files and Record Build Commit
+        shell: bash
+        env:
+          BUILD_COMMIT: ${{ steps.source.outputs.sha }}
+        run: |
+          bundle=application-source/dist/OpenVLC-v3
+          font_assets=application-source/gui_dev_v3/assets/fonts
+          cmp LICENSE "$bundle/_internal/LICENSE"
+          cmp application-source/THIRD_PARTY_NOTICES.md "$bundle/_internal/THIRD_PARTY_NOTICES.md"
+          for font in "$font_assets"/*-Regular.ttf; do
+            test -f "${font%-Regular.ttf}-OFL.txt"
+          done
+          for asset in "$font_assets"/*; do
+            cmp "$asset" "$bundle/_internal/gui_dev_v3/assets/fonts/${asset##*/}"
+          done
+          diff -r application-source/third-party-licenses "$bundle/_internal/third_party_licenses/upstream"
+          cp LICENSE "$bundle/LICENSE"
+          printf '%s\n' "$BUILD_COMMIT" > "$bundle/BUILD_COMMIT.txt"
 
       - name: Package Linux Build
         if: runner.os == 'Linux'
@@ -165,23 +196,45 @@ jobs:
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
         with:
           path: release-assets
+          pattern: OpenVLC-v3-*-x64
           merge-multiple: true
 
-      - name: Upload Builds to Selected Release
+      - name: Resolve Selected Release Tag
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name || inputs.release_tag }}
+          path: release-source
+          persist-credentials: false
+
+      - name: Confirm Build Commits Match Tag and Upload Builds
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         run: |
           test -n "$VERSION_TAG"
-          gh release view "$VERSION_TAG" --repo "${{ github.repository }}"
-          gh release upload "$VERSION_TAG" \
+          release_sha=$(git -C release-source rev-parse 'HEAD^{commit}')
+          python3 - "$release_sha" <<'PY'
+          import sys
+          from zipfile import ZipFile
+
+          release_sha = sys.argv[1]
+          for platform, bundle in (("Linux", "dist/OpenVLC-v3"), ("Windows", "OpenVLC-v3")):
+              filename = f"release-assets/OpenVLC-v3-{platform}-x64.zip"
+              with ZipFile(filename) as archive:
+                  build_sha = archive.read(f"{bundle}/BUILD_COMMIT.txt").decode("ascii").strip()
+              if build_sha != release_sha:
+                  raise SystemExit(f"{filename} was built at {build_sha}; release tag resolves to {release_sha}")
+              print(f"{filename} matches release commit {release_sha}")
+          PY
+          gh release view --repo "$GITHUB_REPOSITORY" -- "$VERSION_TAG"
+          gh release upload --repo "$GITHUB_REPOSITORY" --clobber -- "$VERSION_TAG" \
             release-assets/OpenVLC-v3-Windows-x64.zip \
-            release-assets/OpenVLC-v3-Linux-x64.zip \
-            --repo "${{ github.repository }}" \
-            --clobber
+            release-assets/OpenVLC-v3-Linux-x64.zip

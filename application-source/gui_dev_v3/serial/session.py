@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import binascii
 import threading
 import time
 from collections import deque
@@ -30,6 +31,8 @@ def crc16_ccitt(
 ) -> int:
     """Calculate CRC-16/CCITT, optionally continuing from a prior CRC."""
     crc = initial_crc & 0xFFFF
+    if poly == 0x1021:
+        return binascii.crc_hqx(data, crc)
     for byte in data:
         crc ^= byte << 8
         for _ in range(8):
@@ -79,6 +82,8 @@ class SerialSession:
         # Serialize writes and prevent disconnect from closing a port mid-write.
         self._write_lock = threading.Lock()
         self._is_connected = False
+        self._disconnected = threading.Event()
+        self._disconnected.set()
         # Bounded deque — old entries dropped automatically at maxlen.
         self._last_lines: deque[str] = deque(maxlen=_MAX_LOG_LINES)
         self._reader_thread: threading.Thread | None = None
@@ -109,6 +114,10 @@ class SerialSession:
     def is_connected(self, value: bool) -> None:
         with self._lock:
             self._is_connected = value
+            if value:
+                self._disconnected.clear()
+            else:
+                self._disconnected.set()
 
     # ── Lifecycle ───────────────────────────────────────────────────────────
 
@@ -246,10 +255,16 @@ class SerialSession:
         self, text: str, timeout: float = 5.0, start_counter: int = 0
     ) -> bool:
         """Poll last_lines until `text` is found or timeout expires."""
+        return self.wait_for_line_matching(lambda line: text in line, timeout, start_counter) is not None
+
+    def wait_for_line_matching(
+        self, matches: Callable[[str], bool], timeout: float, start_counter: int,
+    ) -> str | None:
+        """Return a matching response received after the supplied line counter."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if not self.is_connected:
-                return False
+                return None
             with self._lock:
                 current_counter = getattr(self, "_line_counter", 0)
                 new_count = current_counter - start_counter
@@ -259,10 +274,10 @@ class SerialSession:
                     lines = []
             
             for line in lines:
-                if text in line:
-                    return True
+                if matches(line):
+                    return line
             time.sleep(0.05)
-        return False
+        return None
 
     def _reader_loop(self) -> None:
         try:
@@ -284,7 +299,7 @@ class SerialSession:
                 break
             try:
                 if not ser.is_open:
-                    break
+                    raise ConnectionError("Serial port closed")
                 raw = ser.readline()
                 if raw:
                     previous_overflows = line_buffer.overflow_count

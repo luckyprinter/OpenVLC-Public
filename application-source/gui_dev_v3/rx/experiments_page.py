@@ -219,6 +219,10 @@ class ExperimentsPage(QWidget):
         if self._overlay:
             self._overlay.setGeometry(self.rect())
 
+    def reload(self) -> None:
+        """Refresh the visible list after a database restore."""
+        self._reload_table(self._search_input.text())
+
     def _reload_table(self, filter_text: str = "") -> None:
         try:
             all_experiments = list_experiments()
